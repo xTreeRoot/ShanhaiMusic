@@ -1,0 +1,20 @@
+[Unit]
+Description=MB plugin catalog and session sync
+After=network.target
+
+[Service]
+User=mb-server
+Group=mb-server
+StateDirectory=mb-server
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/opt/mb-server/mb-server serve -db /var/lib/mb-server/mb.sqlite -dir /opt/mb-server/current -key /opt/mb-server/catalog.pub
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
