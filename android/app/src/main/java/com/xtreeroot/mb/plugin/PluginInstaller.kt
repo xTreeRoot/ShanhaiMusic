@@ -42,6 +42,7 @@ internal data class PendingPlugin(
     val repository: String?,
     val replaces: InstalledPlugin?,
     val remoteRevision: String? = null,
+    val releaseNotes: String? = null,
 )
 
 internal class PluginInstaller(private val root: File) {

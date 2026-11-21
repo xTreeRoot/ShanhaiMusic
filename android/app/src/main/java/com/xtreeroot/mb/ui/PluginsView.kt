@@ -73,61 +73,27 @@ internal fun PluginsView(model: PluginManagerModel, state: PluginManagerState, r
         }
     }
     Scaffold(containerColor = if (LocalSkinEnabled.current) Color.Transparent else MaterialTheme.colorScheme.background, topBar = {
-        TopAppBar(largeTitle = true, title = { Text(mb("插件", "Plugins")) }, actions = {
-            TextButton(onClick = close) { Text(mb("完成", "Done")) }
+        TopAppBar(title = { Text(state.installed.firstOrNull { it.id == selected }?.displayName.orEmpty()) }, navigationIcon = {
+            TextButton(onClick = { if (selected != null) selected = null else close() }) { Text(mb("返回", "Back")) }
+        }, actions = {
+            if (selected == null) TextButton(onClick = { reordering = !reordering }, enabled = !state.busy) {
+                Text(if (reordering) mb("完成", "Done") else mb("编辑", "Edit"))
+            }
         })
     }) { padding ->
         if (selected != null) {
             val plugin = state.installed.firstOrNull { it.id == selected }
-            if (plugin != null) PluginSettingsView(plugin, model, state, Modifier.padding(padding), { selected = null }, { remove = it })
+            if (plugin != null) PluginSettingsView(plugin, model, state, Modifier.padding(padding),
+                { localName = plugin.localName.orEmpty(); rename = plugin }, { remove = it })
             else selected = null
         }
-        if (selected == null) LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-            if (state.installed.isNotEmpty()) item {
-                val canUpdate = !state.busy && state.installed.any { it.repository != null }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = model::updateAll, enabled = canUpdate) { Text(mb("一键全部更新", "Update All")) }
-                    TextButton(onClick = { reordering = !reordering }, enabled = !state.busy) {
-                        Text(if (reordering) mb("完成排序", "Done Sorting") else mb("排序", "Sort"))
-                    }
-                }
-            }
-            items(state.installed, key = InstalledPlugin::id) { plugin ->
-                ListItem(headlineContent = { Text(plugin.displayName) },
-                    supportingContent = {
-                        val status = if (plugin.enabled) mb("已启用", "Enabled") else mb("已停用", "Disabled")
-                        Column {
-                            Text(listOfNotNull(plugin.manifest.version, status).joinToString(" · "))
-
-                        }
-                    },
-                    trailingContent = {
-                        Row {
-                            if (reordering) {
-                                val index = state.installed.indexOfFirst { it.id == plugin.id }
-                                TextButton(onClick = { model.move(plugin, -1) }, enabled = !state.busy && index > 0) { Text(mb("上移", "Up")) }
-                                TextButton(onClick = { model.move(plugin, 1) }, enabled = !state.busy && index < state.installed.lastIndex) { Text(mb("下移", "Down")) }
-                            } else TextButton(onClick = { localName = plugin.localName.orEmpty(); rename = plugin }, enabled = !state.busy) { Text(mb("重命名", "Rename")) }
-                        }
-                    },
-                    modifier = Modifier.clickable { selected = plugin.id })
-            }
-            if (state.installed.isEmpty() && !state.busy) item { Text(mb("没有已安装的插件", "No installed plugins"), Modifier.padding(24.dp)) }
-            item {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { showZip = true }, enabled = !state.busy) { Text(mb("从 ZIP 安装", "Install ZIP")) }
-                    TextButton(onClick = { showFolder = true }, enabled = !state.busy) { Text(mb("从文件夹安装", "Install Folder")) }
-                    TextButton(onClick = { repository = ""; batchImport = false; showGitHub = true }, enabled = !state.busy) { Text(mb("GitHub", "GitHub")) }
-                }
-            }
-            item {
-                TextButton(onClick = { repository = ""; batchImport = true; showGitHub = true }, enabled = !state.busy,
-                    modifier = Modifier.padding(horizontal = 16.dp)) { Text(mb("一键导入/覆盖", "Import / Overwrite")) }
-            }
-            if (state.busy && state.check == null) item { CircularProgressIndicator(Modifier.padding(24.dp)) }
-            state.error?.let { item { Text(it, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error) } }
-        }
+        if (selected == null) PluginsOverview(state, reordering, { selected = it.id },
+            { localName = it.localName.orEmpty(); rename = it }, { remove = it }, model::move,
+            { repository = ""; batchImport = true; showGitHub = true }, model::updateAll,
+            { showZip = true }, { showFolder = true }, { repository = ""; batchImport = false; showGitHub = true }, Modifier.padding(padding))
     }
+    androidx.activity.compose.BackHandler(selected != null) { selected = null }
+
     rename?.let { plugin -> AlertDialog(onDismissRequest = { rename = null }, title = { Text(mb("本地名称", "Local Name")) },
         text = { OutlinedTextField(localName, { localName = it }, singleLine = true, placeholder = { Text(plugin.manifest.name) }) },
         confirmButton = { TextButton(onClick = { model.rename(plugin, localName); rename = null }) { Text(mb("保存", "Save")) } },
@@ -172,7 +138,8 @@ private fun PluginUpdateResultDialog(report: PluginUpdateReport, imported: Boole
                 if (report.available.isEmpty() && report.installed.isEmpty() && report.skipped.isEmpty() && report.failures.isEmpty() && report.unchanged.isEmpty()) {
                     item { Text(mb("没有可用更新", "No updates available")) }
                 }
-                items(report.available) { update -> Text("${update.plugin.displayName} → ${update.release.revision.take(12)}") }
+                items(report.available) { update -> Column { Text("${update.plugin.displayName} → ${update.release.revision.take(12)}"); update.release.notes?.let { Text(it, style = MaterialTheme.typography.bodySmall) } } }
+                report.notes.forEach { (name, notes) -> item { Column { Text(name, style = MaterialTheme.typography.titleSmall); Text(notes, style = MaterialTheme.typography.bodyMedium) } } }
                 items(report.installed) { name ->
                     Text(if (imported) mb("已导入：$name", "Imported: $name") else mb("已更新：$name", "Updated: $name"))
                 }
@@ -201,8 +168,8 @@ private fun PluginImportReview(candidates: List<PendingPlugin>, model: PluginMan
                     candidate.replaces?.repository?.takeUnless { it.equals(candidate.repository, ignoreCase = true) }?.let { previous ->
                         Text(mb("原仓库：$previous", "Previous repository: $previous"), style = MaterialTheme.typography.bodySmall)
                     }
-                    Text(mb("网络权限", "Network permissions"), style = MaterialTheme.typography.labelMedium)
-                    Text(manifest.network.joinToString(", ").ifEmpty { mb("无", "None") }, style = MaterialTheme.typography.bodySmall)
+                    candidate.releaseNotes?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    PluginNetworkPermissions(candidate.token.toString(), manifest.network)
                 }
             }
         },
@@ -223,116 +190,6 @@ private fun PluginCheckDialog(state: PluginCheck, model: PluginManagerModel) {
         },
         confirmButton = { if (failure != null) TextButton(onClick = model::retryCheck) { Text(mb("重试", "Retry")) } },
         dismissButton = { if (failure != null) TextButton(onClick = model::dismissCheck) { Text(mb("关闭", "Close")) } })
-}
-
-@Composable
-private fun PluginReviewDialog(candidate: PendingPlugin, busy: Boolean, batch: Boolean, model: PluginManagerModel, error: String?) {
-    AlertDialog(
-        onDismissRequest = { if (!busy) model.discard() }, title = { Text(mb("检查插件", "Review plugin")) },
-        text = {
-            LazyColumn {
-                item { ReviewField(mb("名称", "Name"), candidate.manifest.name) }
-                item { ReviewField(mb("版本", "Version"), candidate.manifest.version.orEmpty()) }
-                item { ReviewField(mb("宿主兼容版本", "Required host version"), candidate.manifest.minAppVersion.orEmpty()) }
-                item { Text(mb("网络权限", "Network permissions"), Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleSmall) }
-                if (candidate.manifest.network.isEmpty()) item { Text(mb("无", "None"), Modifier.padding(vertical = 4.dp)) }
-                items(candidate.manifest.network) { host -> Text(host, Modifier.padding(vertical = 2.dp), fontFamily = FontFamily.Monospace) }
-                if (candidate.manifest.settings.isNotEmpty()) item { Text(mb("设置项：${candidate.manifest.settings.size}", "Settings: ${candidate.manifest.settings.size}"), Modifier.padding(top = 12.dp)) }
-                error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-            }
-        },
-        confirmButton = { TextButton(onClick = model::install, enabled = !busy) {
-            Text(if (batch) mb("允许并更新", "Allow and Update") else mb("安装", "Install"))
-        } },
-        dismissButton = { TextButton(onClick = model::discard, enabled = !busy) {
-            Text(if (batch) mb("跳过", "Skip") else mb("取消", "Cancel"))
-        } },
-    )
-}
-
-@Composable
-private fun ReviewField(name: String, value: String) {
-    if (value.isNotEmpty()) ListItem(headlineContent = { Text(name) }, supportingContent = { Text(value) })
-}
-
-@Composable
-private fun PluginSettingsView(plugin: InstalledPlugin, model: PluginManagerModel, state: PluginManagerState, modifier: Modifier,
-                               back: () -> Unit, remove: (InstalledPlugin) -> Unit) {
-    val values = remember(plugin.id, plugin.revision) { mutableStateOf<Map<String, String>>(emptyMap()) }
-    val changed = remember(plugin.id, plugin.revision) { mutableStateOf(false) }
-    var loaded by remember(plugin.id, plugin.revision) { mutableStateOf(false) }
-    var saving by remember { mutableStateOf(false) }
-    var saved by remember { mutableStateOf(false) }
-    var loadingError by remember { mutableStateOf<String?>(null) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val loadError = mb("无法读取插件设置", "Could not read plugin settings")
-    LaunchedEffect(plugin.id, plugin.revision) {
-        try { values.value = model.settings(plugin); loaded = true }
-        catch (_: Exception) { loadingError = loadError }
-    }
-    LazyColumn(modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { Text(plugin.displayName, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 16.dp)) }
-        item { Text(mb("安装位置", "Install location")); Text(plugin.directory.absolutePath, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text(mb("启用音源", "Enable source")); Switch(plugin.enabled, { model.enable(plugin, it) }, enabled = !state.busy)
-            }
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (plugin.repository != null) TextButton(onClick = { model.update(plugin) }, enabled = !state.busy) { Text(mb("更新插件", "Update Plugin")) }
-                TextButton(onClick = { remove(plugin) }, enabled = !state.busy) { Text(mb("删除", "Delete")) }
-            }
-        }
-        item { PluginNetworkPermissions(plugin.id, plugin.manifest.network) }
-        items(plugin.manifest.settings, key = PluginSetting::key) { setting ->
-            val value = values.value[setting.key].orEmpty()
-            when (setting.type) {
-                "boolean" -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text(setting.label, Modifier.weight(1f)); Switch(value == "true", {
-                        values.value = values.value + (setting.key to it.toString()); changed.value = true; saved = false
-                    })
-                }
-                "select" -> PluginSelectSetting(setting, value) {
-                    values.value = values.value + (setting.key to it); changed.value = true; saved = false
-                }
-                else -> OutlinedTextField(value, {
-                    values.value = values.value + (setting.key to it); changed.value = true; saved = false
-                }, Modifier.fillMaxWidth(), label = { Text(setting.label) },
-                    visualTransformation = if (setting.type == "password") PasswordVisualTransformation() else VisualTransformation.None,
-                    supportingText = setting.help?.let { text -> { Text(text) } }, singleLine = true)
-            }
-        }
-        item {
-            TextButton(onClick = {
-                saving = true
-                scope.launch {
-                    model.save(plugin, values.value) { saved = true; changed.value = false }
-                    saving = false
-                }
-            }, enabled = loaded && changed.value && !saving && !state.busy) {
-                Text(if (saving) mb("保存中…", "Saving…") else mb("保存设置", "Save settings"))
-            }
-            if (saved) Text(mb("已保存", "Saved"), style = MaterialTheme.typography.bodySmall)
-            loadingError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        }
-        item { TextButton(onClick = back) { Text(mb("返回", "Back")) } }
-    }
-}
-
-@Composable
-private fun PluginSelectSetting(setting: PluginSetting, value: String, changed: (String) -> Unit) {
-    var expanded by remember(setting.key) { mutableStateOf(false) }
-    Column {
-        ListItem(headlineContent = { Text(setting.label) }, supportingContent = {
-            Text(setting.options.firstOrNull { it.value == value }?.label ?: mb("未设置", "Not set"))
-        }, modifier = Modifier.clickable { expanded = true })
-        androidx.compose.material3.DropdownMenu(expanded, { expanded = false }) {
-            setting.options.forEach { option -> androidx.compose.material3.DropdownMenuItem(
-                text = { Text(option.label) }, onClick = { changed(option.value); expanded = false }) }
-        }
-    }
 }
 
 /** 网络权限按需展开，不挤占每个插件设置的首屏。 */

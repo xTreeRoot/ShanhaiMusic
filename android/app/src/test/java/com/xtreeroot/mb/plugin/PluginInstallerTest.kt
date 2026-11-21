@@ -138,7 +138,7 @@ class PluginInstallerTest {
         val updates = PluginUpdates(installer, { repo ->
             val id = repo.substringAfter('/')
             if (id == "offline") throw PluginException("Cannot fetch commit")
-            GitHubPluginRevision(if (id == "same") "old-commit" else "new-commit", URI("https://github.com/fixture/$id"))
+            GitHubPluginRevision(if (id == "same") "old-commit" else "new-commit", URI("https://github.com/fixture/$id"), "Fixed refresh and pagination")
         }, { remote, file ->
             val id = remote.archive.path.substringAfterLast('/')
             downloaded += id
@@ -155,10 +155,12 @@ class PluginInstallerTest {
         assertEquals(listOf("Fixture"), report.unchanged)
         val reviewed = mutableListOf<String>()
         val result = updates.apply(report) { candidate ->
+            assertEquals("Fixed refresh and pagination", candidate.releaseNotes)
             reviewed += candidate.manifest.id
             candidate.manifest.id == "approve"
         }
         assertEquals(listOf("skip", "approve"), reviewed)
+        assertEquals("Fixed refresh and pagination", result.notes["Fixture"])
         assertEquals(3, result.installed.size)
         assertEquals(1, result.skipped.size)
         assertEquals(3, result.failures.size)

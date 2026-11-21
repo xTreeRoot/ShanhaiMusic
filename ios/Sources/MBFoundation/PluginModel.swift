@@ -21,6 +21,7 @@ public enum PluginPreparation: Equatable {
     public private(set) var updatingAll = false
     public private(set) var updateStatus: String?
     public private(set) var updateIssues: [String: String] = [:]
+    public private(set) var updateNotes: [String: String] = [:]
     public private(set) var starsEntries: [PluginStarsEntry]?
     public private(set) var starsBusy = false
     public private(set) var starsStatus: String?
@@ -135,6 +136,7 @@ public enum PluginPreparation: Equatable {
             throw PluginFailure.invalid(AppLocalization.text("更新包的插件 ID 或来源不匹配"))
         }
         if PluginInstaller.isSameRevision(next, as: plugin) { await installer.discard(next); return nil }
+        updateNotes[plugin.id] = next.releaseNotes
         return next
     }
 

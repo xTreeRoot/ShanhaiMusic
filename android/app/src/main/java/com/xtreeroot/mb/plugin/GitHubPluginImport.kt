@@ -27,7 +27,7 @@ internal class GitHubPluginImport(private val installer: PluginInstaller,
                         unchanged += previous.manifest.name
                         continue
                     }
-                    val candidate = installer.prepareArchive(repository, previous, remoteRevision = remote.revision) { download(remote, it) }
+                    val candidate = installer.prepareArchive(repository, previous, remoteRevision = remote.revision) { download(remote, it) }.copy(releaseNotes = remote.notes)
                     if (candidate.replaces != null && !candidate.replaces.repository.equals(repository, ignoreCase = true)) {
                         installer.discard(candidate)
                         throw PluginException("Plugin ID belongs to a different repository")

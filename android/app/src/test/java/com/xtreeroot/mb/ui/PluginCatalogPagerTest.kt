@@ -14,6 +14,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginCatalogPagerTest {
+    @Test fun returningToTheHomeTabRestoresTheHomeRequestInsteadOfABrowseSubset() = runBlocking {
+        val destination = CatalogDestination.Content(com.xtreeroot.mb.plugin.PluginCatalogRequest.Home)
+        destination.pager.load { page("Home", null).copy(selectedTab = "all") }
+        destination.rememberTabs(destination.pager.state.value.page)
+        destination.selectFilter(com.xtreeroot.mb.plugin.PluginCatalogRequest.Browse("music", "Music"))
+        destination.pager.load { page("Music", null).copy(selectedTab = "music") }
+        destination.rememberTabs(destination.pager.state.value.page)
+        destination.selectFilter(com.xtreeroot.mb.plugin.PluginCatalogRequest.Browse("all", "All"))
+        assertEquals(com.xtreeroot.mb.plugin.PluginCatalogRequest.Home, destination.currentRequest)
+        assertNull(destination.filter)
+        assertNull(destination.pager.state.value.page)
+        assertTrue(destination.pager.state.value.needsReload)
+    }
+
     @Test fun filterChangeClearsOldPageAndRejectsItsLateResponse() = runBlocking {
         val destination = CatalogDestination.Content(com.xtreeroot.mb.plugin.PluginCatalogRequest.Home)
         destination.pager.load { page("Original", 1) }

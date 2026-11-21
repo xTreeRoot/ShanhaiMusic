@@ -96,7 +96,7 @@ internal class GitHubPluginPackages(private val transport: PluginHttpTransport, 
         val sha = (result.opt("sha") as? String)?.takeIf { Regex("[0-9a-f]{40}").matches(it) }
             ?: throw PluginException("GitHub commit response has no valid SHA")
         val archive = uri(base.newBuilder().addPathSegment("zipball").addPathSegment(sha).build().toString())
-        return GitHubPluginRevision(sha, archive)
+        return GitHubPluginRevision(sha, archive, result.optJSONObject("commit")?.optString("message")?.takeIf(String::isNotBlank))
     }
 
     suspend fun download(revision: GitHubPluginRevision, output: File) = downloadArchive(revision.archive, output)
@@ -136,7 +136,7 @@ internal class GitHubPluginPackages(private val transport: PluginHttpTransport, 
     }
 }
 
-internal data class GitHubPluginRevision(val revision: String, val archive: URI)
+internal data class GitHubPluginRevision(val revision: String, val archive: URI, val notes: String? = null)
 
 private fun URI.onGitHub(hostname: String): Boolean = scheme.equals("https", true) && host.equals(hostname, true) &&
     rawUserInfo == null && (port == -1 || port == 443)

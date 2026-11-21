@@ -34,7 +34,14 @@ public struct PluginManifest: Codable, Sendable {
         public let options: [Option]?
         public var id: String { key }
     }
-    public struct Navigation: Codable, Sendable { public let title: String?; public let page: String?; public let builtin: String?; public let icon: String? }
+    public struct Navigation: Codable, Sendable {
+        public enum Placement: String, Codable, Sendable { case discovery, personal }
+        public let title: String?
+        public let page: String?
+        public let builtin: String?
+        public let icon: String?
+        public let placement: Placement?
+    }
     public struct HeaderRule: Codable, Sendable { public let hosts: [String]; public let kinds: [String]?; public let headers: [String: String] }
     public let id: String
     public let name: String?

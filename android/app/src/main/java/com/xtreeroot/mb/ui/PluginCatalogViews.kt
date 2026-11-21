@@ -142,7 +142,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
         }
     }
     val page = status.page
-    LaunchedEffect(page?.tabs) { if (!page?.tabs.isNullOrEmpty()) destination.tabs = checkNotNull(page).tabs }
+    LaunchedEffect(page) { destination.rememberTabs(page) }
     PrefetchArtwork(page?.sections.orEmpty().flatMap { section ->
         section.tracks.mapNotNull { it.artworkReference() } +
             (section.entities.mapNotNull { it.image } + section.links.mapNotNull { it.image }).map { ArtworkReference(it.url, it.headers) }
@@ -282,6 +282,7 @@ internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalo
     val account = state.account
     var signOut by remember(source) { mutableStateOf(false) }
     var collections by remember(source) { mutableStateOf(emptyList<PluginCollection>()) }
+    var personal by remember(source) { mutableStateOf(emptyList<PluginCatalogLink>()) }
     var error by remember(source) { mutableStateOf<String?>(null) }
     var loading by remember(source) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -291,6 +292,7 @@ internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalo
         error = null
         try {
             collections = PluginCollection.entries.filter { source.catalog.supports(it.method) }
+            personal = source.catalog.navigation(com.xtreeroot.mb.plugin.PluginNavigationPlacement.Personal)
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { error = failure.message ?: "Could not load source account" }
         finally { loading = false }
@@ -308,13 +310,19 @@ internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalo
                 mb("登录音源", "Sign In to Source").takeIf { state.canSignIn }, model::signIn)
         }
         val profile = account?.page?.takeIf(String::isNotBlank)
-        if (profile != null || collections.isNotEmpty()) item {
+        if (profile != null || collections.isNotEmpty() || personal.isNotEmpty()) item {
             val destinations = buildList {
-                if (profile != null) {
+                personal.forEach { link ->
+                    val collection = (link.destination as? PluginCatalogRequest.Collection)?.collection
+                    val icon = if (collection == PluginCollection.Liked) Icons.Default.Favorite else Icons.Default.Person
+                    val title = link.title.ifBlank { collection?.label().orEmpty() }
+                    add(AccountDestination(title, icon) { navigator.open(link.destination) })
+                }
+                if (profile != null && personal.none { (it.destination as? PluginCatalogRequest.Browse)?.page == profile }) {
                     val title = mb("我的主页", "My Profile")
                     add(AccountDestination(title, Icons.Default.Person) { navigator.open(PluginCatalogRequest.Browse(profile, title)) })
                 }
-                collections.forEach { collection ->
+                collections.filter { collection -> personal.none { (it.destination as? PluginCatalogRequest.Collection)?.collection == collection } }.forEach { collection ->
                     val title = collection.label()
                     val icon = when (collection) {
                         PluginCollection.Liked -> Icons.Default.Favorite

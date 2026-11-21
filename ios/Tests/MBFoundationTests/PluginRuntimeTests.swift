@@ -506,6 +506,28 @@ private actor PluginRedirectFixture {
     }
 }
 
+@Test func personalNavigationIsNotPrefetchedOnDiscoveryAndRetainsBrowseAndCollectionRoutes() async throws {
+    try await withPlugin("""
+    let personalRequests=0;
+    export function home(){return {sections:[]};}
+    export function browse({page}){personalRequests++;return {sections:[{tracks:[{id:page,name:page}]}]};}
+    export function liked(){personalRequests++;return {tracks:[{id:'liked',name:'Liked'}]};}
+    export function count(){return personalRequests;}
+    """) { runtime, _, _ in
+        let manifest = try JSONDecoder().decode(PluginManifest.self, from: Data(#"{"id":"fixture","navigation":[{"builtin":"home"},{"page":"subscriptions","placement":"personal"},{"page":"channel","placement":"personal"},{"builtin":"liked","placement":"personal"},{"page":"music","placement":"personal"}]}"#.utf8))
+        let source = PluginSource(manifest: manifest, runtime: runtime)
+        #expect(try await source.refreshDiscovery().previews.isEmpty)
+        #expect(try await runtime.invoke("count") == .number(0))
+        for entry in source.personalNavigation {
+            let result: PluginBrowse
+            if let page = entry.page { result = try await source.browse(page) }
+            else { result = try await source.collection(entry.builtin!).0 }
+            #expect(result.sections.first?.tracks.count == 1)
+        }
+        #expect(try await runtime.invoke("count") == .number(4))
+    }
+}
+
 @Test func accountNetworkFailureDoesNotBlockPublicHomeOrCacheUnknownAccountData() async throws {
     try await withPlugin("""
     export function account() { throw Error('temporary account failure'); }

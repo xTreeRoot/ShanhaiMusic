@@ -114,7 +114,7 @@ enum DemoCatalog {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","minAppVersion":"0.1.0","settings":[{"key":"server","label":"服务地址","type":"text"},{"key":"enabled","label":"启用示例","type":"boolean"}],"permissions":{"network":["media.example.test"]},"navigation":[{"title":"示例曲目","page":"duplicate"},{"title":"示例分页","page":"more"}]}"#
         if refreshFixture { manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","navigation":[{"title":"独立栏目","page":"extra"}]}"# }
-        if filterFixture { manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0"}"# }
+        if filterFixture { manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","navigation":[{"title":"订阅","page":"subscriptions","placement":"personal"},{"title":"我的频道","page":"channel","placement":"personal"},{"title":"点赞","builtin":"liked","placement":"personal"},{"title":"音乐专区","page":"music","placement":"personal"}]}"# }
         try manifest.write(to: folder.appendingPathComponent("plugin.json"), atomically: true, encoding: .utf8)
         let refreshScript = "const filterFixture = \(filterFixture);" + (refreshFixture ? "const refreshFixture = true;" : "const refreshFixture = false;")
         let script = refreshScript + (includeTrackProblems ? "const extraTracks = [{id:'vip',name:'会员示例曲目',unavailableReason:'vip'}, {id:'missing',name:'无音源示例曲目'}];\n" : "const extraTracks = [];\n") + #"""

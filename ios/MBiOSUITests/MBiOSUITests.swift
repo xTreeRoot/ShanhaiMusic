@@ -853,7 +853,7 @@ final class MBiOSUITests: XCTestCase {
         selectTab("设置", app: app)
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "语言")).firstMatch.tap()
         app.buttons["English"].tap()
-        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["dismiss-settings"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Appearance")).firstMatch.exists)
         capture("设置-English", app: app)
         selectTab("Discover", app: app)
@@ -867,7 +867,7 @@ final class MBiOSUITests: XCTestCase {
         selectTab("Settings", app: app)
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Language")).firstMatch.tap()
         app.buttons["简体中文"].tap()
-        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["dismiss-settings"].waitForExistence(timeout: 5))
         capture("设置-简体中文", app: app)
         app.buttons["dismiss-settings"].tap()
         XCTAssertTrue(app.tabBars.buttons["我的"].isSelected)
@@ -1019,7 +1019,11 @@ final class MBiOSUITests: XCTestCase {
                 app.buttons["dismiss-plugin-check-error"].tap()
             } else {
                 XCTAssertTrue(install.waitForExistence(timeout: 5))
-                capture("插件-权限确认", app: app)
+                XCTAssertTrue(app.staticTexts["优化推荐分类切换，保留完整首页内容。"].exists)
+                XCTAssertFalse(app.staticTexts["media.example.test"].exists)
+                app.descendants(matching: .any)["plugin-review-network-permissions"].firstMatch.tap()
+                XCTAssertTrue(app.staticTexts["media.example.test"].waitForExistence(timeout: 5))
+                capture("插件-新版说明与折叠权限", app: app)
                 app.buttons["取消"].tap()
                 XCTAssertTrue(install.waitForNonExistence(timeout: 5))
             }
@@ -1834,6 +1838,21 @@ extension MBiOSUITests {
         app.buttons["plugin-filter-tab-games"].tap()
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 games内容第")).firstMatch.waitForExistence(timeout: 8))
         app.buttons["plugin-filter-tab-all"].tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 all内容第")).firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["播放 全部内容"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["plugin-filter-tab-all"].isSelected)
+        scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.08)).press(forDuration: 0.05,
+            thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.85)))
+        XCTAssertTrue(app.buttons["播放 全部内容"].waitForExistence(timeout: 8))
+        capture("推荐分类-返回全部并刷新", app: app)
+        selectTab("我的", app: app)
+        for (label, content) in [("订阅", "subscriptions内容第"), ("我的频道", "channel内容第"), ("点赞", "插件示例歌曲"), ("音乐专区", "music内容第")] {
+            let link = app.buttons[label]
+            if !link.isHittable { app.swipeUp() }
+            XCTAssertTrue(link.waitForExistence(timeout: 8)); link.tap()
+            XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 " + content)).firstMatch.waitForExistence(timeout: 8))
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+        XCTAssertFalse(app.buttons["喜欢的歌曲"].exists)
+        capture("插件我的-个人入口", app: app)
     }
 }

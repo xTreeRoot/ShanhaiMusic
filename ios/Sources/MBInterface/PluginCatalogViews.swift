@@ -9,9 +9,22 @@ struct PluginPersonalLinks: View {
     @State private var available: Set<String> = []
     private let entries = [("playlists", "平台歌单"), ("liked", "喜欢的歌曲"), ("recent", "最近播放"), ("savedAlbums", "收藏专辑"), ("shows", "订阅播客"), ("stations", "电台")]
     var body: some View {
-        if let page = account?.page { NavigationLink("我的主页") { PluginBrowseView(source: source, page: page, select: select, menu: menu) } }
+        let personal = source.personalNavigation
+        ForEach(personal, id: \.previewKey) { item in
+            if let page = item.page {
+                NavigationLink(item.title ?? page) { PluginBrowseView(source: source, page: page, select: select, menu: menu) }
+            } else if let method = item.builtin, available.contains(method) {
+                let title = item.title ?? entries.first(where: { $0.0 == method })?.1 ?? method
+                NavigationLink(LocalizedStringKey(title)) { PluginCatalogPage(source: source, request: .collection(method, title), select: select, menu: menu) }
+            }
+        }
+        if let page = account?.page, !personal.contains(where: { $0.page == page }) {
+            NavigationLink("我的主页") { PluginBrowseView(source: source, page: page, select: select, menu: menu) }
+        }
         ForEach(entries, id: \.0) { method, title in
-            if available.contains(method) { NavigationLink(LocalizedStringKey(title)) { PluginCatalogPage(source: source, request: .collection(method, title), select: select, menu: menu) } }
+            if available.contains(method), !personal.contains(where: { $0.builtin == method && $0.page == nil }) {
+                NavigationLink(LocalizedStringKey(title)) { PluginCatalogPage(source: source, request: .collection(method, title), select: select, menu: menu) }
+            }
         }
         Color.clear.frame(height: 0).task {
             var found: Set<String> = []
@@ -34,6 +47,7 @@ struct PluginCatalogPage: View {
     let menu: (Track) -> AnyView
     @State private var content: PluginBrowse?
     @State private var filterPage: String?
+    @State private var homeTab: String?
     @State private var filterTabs: [PluginBrowse.Link] = []
     @State private var navigationPreviews: [String: PluginNavigationPreview] = [:]
     @State private var error: String?
@@ -77,8 +91,9 @@ struct PluginCatalogPage: View {
     }
 
     private func chooseFilter(_ page: String) {
-        guard filterPage != page else { return }
-        initialLoad?.cancel(); filterPage = page
+        let next = request.isHome && page == homeTab ? nil : page
+        guard filterPage != next else { return }
+        initialLoad?.cancel(); filterPage = next
         content = nil; more = false
         initialLoad = Task { await load(refresh: true) }
     }
@@ -244,6 +259,7 @@ struct PluginCatalogPage: View {
             if append, var previous = content { previous.sections += page.sections.enumerated().map { index, section in section.reidentified("\(offset)-\(index)") }; content = previous; offset += count }
             else { content = page; offset = count }
             if !page.tabs.isEmpty { filterTabs = page.tabs }
+            if request.isHome && filterPage == nil { homeTab = page.selectedTab }
             more = hasMore && count > 0
             artworkPrefetch?.cancel()
             let artwork = page.artworkTracks(sourceID: source.manifest.id)

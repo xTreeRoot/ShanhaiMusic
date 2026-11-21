@@ -13,6 +13,7 @@ internal data class PluginUpdateReport(
     val skipped: List<String> = emptyList(),
     val failures: List<PluginUpdateFailure> = emptyList(),
     val unchanged: List<String> = emptyList(),
+    val notes: Map<String, String> = emptyMap(),
 )
 
 internal class PluginUpdates(private val installer: PluginInstaller,
@@ -39,7 +40,7 @@ internal class PluginUpdates(private val installer: PluginInstaller,
 
     suspend fun prepare(update: PluginUpdate): PendingPlugin = installer.prepareArchive(
         update.plugin.repository, update.plugin, remoteRevision = update.release.revision,
-    ) { download(update.release, it) }
+    ) { download(update.release, it) }.copy(releaseNotes = update.release.notes)
 
     suspend fun apply(report: PluginUpdateReport, review: suspend (PendingPlugin) -> Boolean): PluginUpdateReport {
         val installed = mutableListOf<String>()
@@ -61,7 +62,8 @@ internal class PluginUpdates(private val installer: PluginInstaller,
                 failures += PluginUpdateFailure(name, error.message)
             }
         }
-        return PluginUpdateReport(installed = installed, skipped = skipped, failures = failures, unchanged = report.unchanged)
+        return PluginUpdateReport(installed = installed, skipped = skipped, failures = failures, unchanged = report.unchanged,
+            notes = report.available.mapNotNull { update -> update.release.notes?.let { update.plugin.displayName to it } }.toMap())
     }
 }
 

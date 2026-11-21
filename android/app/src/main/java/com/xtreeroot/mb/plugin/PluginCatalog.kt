@@ -70,7 +70,7 @@ internal class PluginCatalog(
     suspend fun invalidate() = runtime.catalogCache.invalidate()
     suspend fun supports(method: String) = runtime.supports(method)
 
-    suspend fun navigation(): List<PluginCatalogLink> = manifest.navigation.mapNotNull { item ->
+    suspend fun navigation(placement: PluginNavigationPlacement = PluginNavigationPlacement.Discovery): List<PluginCatalogLink> = manifest.navigation.filter { it.placement == placement }.mapNotNull { item ->
         val page = item.page?.takeIf(String::isNotBlank)
         if (page != null) {
             val title = item.title ?: page

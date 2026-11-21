@@ -49,6 +49,65 @@ class AccountPageDeviceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app = instrumentation.targetContext.applicationContext as MBApplication
 
+    @Test fun pluginReviewShowsNotesCollapsesPermissionsAndOpensGroupedSettings() = runBlocking {
+        val id = "manager-ui-${UUID.randomUUID()}"
+        val archive = File(app.cacheDir, "$id.zip").apply { writeBytes(pluginZip(id)) }
+        val store = ViewModelStore()
+        val manager = withContext(Dispatchers.Main) {
+            ViewModelProvider(store, ViewModelProvider.AndroidViewModelFactory.getInstance(app))[PluginManagerModel::class.java]
+        }
+        val source = object : AccountSource {
+            override val id = "manager-fixture"
+            override suspend fun search(query: String, page: Int) = TrackPage(emptyList(), false)
+            override suspend fun account(): SourceAccount? = null
+            override suspend fun signIn(prompt: suspend (SignInPrompt) -> Unit): SourceAccount = error("unused")
+            override suspend fun signOut() {}
+        }
+        try {
+            withPage(source, dark = false, content = {
+                val state by manager.state.collectAsStateWithLifecycle()
+                PluginsView(manager, state.copy(pending = state.pending?.copy(releaseNotes = "Fixed recommendation refresh")), {}, {})
+            }) {
+                withContext(Dispatchers.Main) { manager.prepareZip(android.net.Uri.fromFile(archive)) }
+                withTimeout(5_000) { while (manager.state.value.pending == null && manager.state.value.check !is PluginCheck.Failed) delay(25) }
+                assertEquals(null, manager.state.value.error)
+                assertEquals(null, manager.state.value.check)
+                awaitNode("Fixed recommendation refresh")
+                assertNull(node("api.example.test"))
+                tap("Network permissions"); awaitNode("api.example.test")
+                tap("Network permissions"); withTimeout(5_000) { while (node("api.example.test") != null) delay(25) }
+                capture("android-plugin-review-notes-collapsed-permissions")
+                tap("Install"); awaitNode("Fixture Music")
+                capture("android-plugin-grouped-overview")
+                tap("Fixture Music"); awaitNode("Local Name")
+                capture("android-plugin-grouped-settings")
+                tap("Local Name"); awaitNode("Save")
+                fun editable(node: AccessibilityNodeInfo): AccessibilityNodeInfo? = node.takeIf { it.isEditable }
+                    ?: (0 until node.childCount).firstNotNullOfOrNull { node.getChild(it)?.let(::editable) }
+                val field = withTimeout(5_000) {
+                    var found: AccessibilityNodeInfo? = null
+                    while (found == null) {
+                        val roots = listOfNotNull(instrumentation.uiAutomation.rootInActiveWindow) + instrumentation.uiAutomation.windows.mapNotNull { it.root }
+                        found = roots.firstNotNullOfOrNull(::editable)
+                        if (found == null) delay(25)
+                    }
+                    found
+                }
+                org.junit.Assert.assertTrue(field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "Local Fixture")
+                }))
+                tap("Save")
+                withTimeout(5_000) { while (app.plugins.installed().single { it.id == id }.displayName != "Local Fixture") delay(25) }
+                awaitNode("Local Fixture")
+                assertEquals("Local Fixture", app.plugins.installed().single { it.id == id }.displayName)
+            }
+        } finally {
+            withContext(Dispatchers.Main) { store.clear() }
+            app.plugins.installed().firstOrNull { it.id == id }?.let { app.plugins.remove(it); it.dataDirectory.deleteRecursively() }
+            app.refreshPlugins(); archive.delete()
+        }
+    }
+
     @Test fun catalogFilterTabsReplaceContentWithoutPushingNavigation() = runBlocking {
         val id = "filter-ui-${UUID.randomUUID()}"
         val data = ByteArrayOutputStream().apply { ZipOutputStream(this).use { zip ->
@@ -72,7 +131,8 @@ class AccountPageDeviceTest {
                 assertEquals("music", withContext(Dispatchers.Main) { navigator.home.filter?.page })
                 capture("android-catalog-filter-tabs")
                 tap("Games"); awaitNode("games item 0"); assertNull(node("music item 0"))
-                tap("All"); awaitNode("all item 0"); assertNull(node("games item 0"))
+                tap("All"); awaitNode("All item"); assertNull(node("games item 0")); assertNull(navigator.home.filter)
+                tap("Music"); awaitNode("music item 0"); tap("All"); awaitNode("All item")
             }
         } finally { app.plugins.remove(plugin); app.refreshPlugins(); plugin.dataDirectory.deleteRecursively() }
     }
@@ -153,8 +213,15 @@ class AccountPageDeviceTest {
                 awaitNode("Fixture Listener")
                 awaitNode("Source Playlists")
                 capture("android-account-plugin-dark")
-                tap("My Profile")
-                assertRequest(PluginCatalogRequest.Browse("personal", "My Profile"), navigator)
+                assertNull(node("My Profile")); assertNull(node("Liked Songs"))
+                tap("Channel")
+                assertRequest(PluginCatalogRequest.Browse("personal", "Channel"), navigator)
+                tap("Subscriptions")
+                assertRequest(PluginCatalogRequest.Browse("subscriptions", "Subscriptions"), navigator)
+                tap("Liked Videos")
+                assertRequest(PluginCatalogRequest.Collection(PluginCollection.Liked, "Liked Videos"), navigator)
+                tap("Music Hub")
+                assertRequest(PluginCatalogRequest.Browse("music", "Music Hub"), navigator)
                 tap("Source Playlists")
                 assertRequest(PluginCatalogRequest.Collection(PluginCollection.Playlists, "Source Playlists"), navigator)
                 tap("Settings")
@@ -264,7 +331,7 @@ class AccountPageDeviceTest {
     private fun pluginZip(id: String) = ByteArrayOutputStream().apply {
         ZipOutputStream(this).use { zip ->
             zip.putNextEntry(ZipEntry("plugin.json"))
-            zip.write("""{"id":"$id","name":"Fixture Music"}""".encodeToByteArray())
+            zip.write("""{"id":"$id","name":"Fixture Music","permissions":{"network":["api.example.test"]},"navigation":[{"page":"subscriptions","title":"Subscriptions","placement":"personal"},{"page":"personal","title":"Channel","placement":"personal"},{"builtin":"liked","title":"Liked Videos","placement":"personal"},{"page":"music","title":"Music Hub","placement":"personal"}]}""".encodeToByteArray())
             zip.closeEntry()
             zip.putNextEntry(ZipEntry("index.js"))
             zip.write("""

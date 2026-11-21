@@ -57,17 +57,23 @@ struct PluginsView: View {
         List {
             Group {
                 Section {
-                    Button("一键导入/覆盖", systemImage: "square.and.arrow.down.on.square") { stars = true }
-                        .disabled(model.busy || model.pending != nil)
-                        .accessibilityIdentifier("plugin-import-stars")
-                }
-                if model.installed.contains(where: { $0.repository != nil }) {
-                    Section("插件更新") {
+                    HStack {
+                        Button("一键导入/覆盖", systemImage: "square.and.arrow.down.on.square") { stars = true }
+                            .disabled(model.busy || model.pending != nil)
+                            .accessibilityIdentifier("plugin-import-stars")
+                        Spacer(minLength: 12)
                         Button("全部更新", systemImage: "arrow.down.circle") { Task { await model.updateAll() } }
                             .accessibilityIdentifier("plugin-update-all")
-                            .disabled(model.busy)
+                            .disabled(model.busy || !model.installed.contains(where: { $0.repository != nil }))
+                    }.buttonStyle(.borderless)
+                }
+                if model.updatingAll || model.updateStatus != nil {
+                    Section {
                         if model.updatingAll { ProgressView("正在更新插件") }
                         if let status = model.updateStatus { Text(status).font(.caption).foregroundStyle(.secondary) }
+                        ForEach(model.installed.filter { model.updateNotes[$0.id] != nil }) { plugin in
+                            DisclosureGroup(model.displayName(plugin)) { Text(model.updateNotes[plugin.id] ?? "").font(.callout) }
+                        }
                     }
                 }
                 Section {
@@ -103,7 +109,7 @@ struct PluginsView: View {
             }.modifier(SkinRow())
         }
         .modifier(MusicGroupedList())
-        .navigationTitle("插件")
+        .navigationTitle("")
         #if os(iOS)
         .toolbar { ToolbarItem(placement: .primaryAction) { EditButton().disabled(model.busy) } }
         #endif
@@ -135,11 +141,17 @@ struct PluginsView: View {
                     Group {
                         Section {
                             LabeledContent("名称", value: pending.manifest.displayName)
+                            if let current = model.installed.first(where: { $0.id == pending.manifest.id }) {
+                                LabeledContent("当前版本", value: current.manifest.version ?? "")
+                            }
                             LabeledContent("版本", value: pending.manifest.version ?? "")
                             LabeledContent("宿主兼容版本", value: pending.manifest.minAppVersion ?? "0.1.0")
                         }
-                        Section("网络权限") {
-                            ForEach(pending.manifest.permissions?.network ?? [], id: \.self) { Text($0).font(.body.monospaced()) }
+                        Section("新版说明") { Text(pending.releaseNotes ?? "此版本未提供更新说明").font(.callout).textSelection(.enabled) }
+                        Section {
+                            DisclosureGroup("网络权限") {
+                                ForEach(pending.manifest.permissions?.network ?? [], id: \.self) { Text($0).font(.body.monospaced()) }
+                            }.accessibilityIdentifier("plugin-review-network-permissions")
                         }
                         if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
 
@@ -204,7 +216,7 @@ private struct PluginStarsView: View {
                 Text(entry.repository).font(.caption).foregroundStyle(.secondary)
                 let network = manifest.permissions?.network ?? []
                 if network.isEmpty { Text("不需要网络权限").font(.caption) }
-                else { Text(network.joined(separator: ", ")).font(.caption.monospaced()) }
+                else { DisclosureGroup("网络权限") { Text(network.joined(separator: ", ")).font(.caption.monospaced()) } }
             }
             if let issue = entry.issue { Text(issue).font(.caption).foregroundStyle(.secondary) }
         }
@@ -265,6 +277,7 @@ private struct PluginSettingsView: View {
                 if plugin.repository != nil {
                     Button("更新插件") { Task { await model.update(plugin) } }.disabled(model.busy)
                     if let issue = model.updateIssues[plugin.id] { Text(issue).font(.caption).foregroundStyle(.secondary) }
+                    if let notes = model.updateNotes[plugin.id] { Section("新版说明") { Text(notes).font(.callout) } }
                 }
                 Section { DisclosureGroup("网络权限") { ForEach(plugin.manifest.permissions?.network ?? [], id: \.self) { Text($0).font(.caption.monospaced()) } }.accessibilityIdentifier("plugin-network-permissions") }
                 Button("保存") {

@@ -83,7 +83,7 @@ struct SettingsView: View {
                 }.modifier(SkinRow())
             }
             .modifier(SkinSurface(defaultColor: MBTheme.grouped, list: true))
-            .navigationTitle("设置")
+            .navigationTitle("")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.accessibilityIdentifier("dismiss-settings") } }
             .confirmationDialog("清空搜索记录？", isPresented: $clearingHistory, titleVisibility: .visible) {
                 Button("清空搜索记录", role: .destructive) { preferences.values.searchHistory = [] }

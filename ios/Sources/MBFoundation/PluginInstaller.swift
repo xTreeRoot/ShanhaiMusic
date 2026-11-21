@@ -15,6 +15,7 @@ public struct PendingPlugin: Identifiable, Sendable {
     let directory: URL
     var repository: String? = nil
     var revision: String? = nil
+    public var releaseNotes: String? = nil
 }
 
 /// 安装先在临时目录检查，确认后原子替换代码，账号与设置留在独立数据目录。
@@ -23,6 +24,7 @@ public actor PluginInstaller {
     private struct Release: Sendable {
         let revision: String
         let address: URL
+        let notes: String?
     }
     private lazy var preferenceCache = PluginPreferenceCache(root: root)
     private let root: URL
@@ -159,7 +161,7 @@ public actor PluginInstaller {
         let value = try JSONDecoder().decode(PluginJSON.self, from: data)
         guard let sha = value["sha"].string, sha.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil,
               let url = URL(string: "https://api.github.com/repos/" + repo + "/zipball/" + sha) else { throw NetworkFailure.response }
-        return Release(revision: sha, address: url)
+        return Release(revision: sha, address: url, notes: value["commit"]["message"].string)
     }
 
     private func prepareGitHub(_ repo: String, release: Release) async throws -> PendingPlugin {
@@ -172,7 +174,9 @@ public actor PluginInstaller {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
         defer { try? FileManager.default.removeItem(at: file) }
         try bytes.write(to: file)
-        var pending = try prepare(file); pending.repository = repo; pending.revision = release.revision; return pending
+        var pending = try prepare(file); pending.repository = repo; pending.revision = release.revision
+        pending.releaseNotes = release.notes
+        return pending
     }
 
     /// 来源和 ID 都相同才覆盖；版本号相同但提交不同也属于更新。

@@ -56,7 +56,10 @@ internal data class PluginManifest(
             val navigation = if (json.isNull("navigation")) null else json.getJSONArray("navigation")
             val destinations = List(navigation?.length() ?: 0) { index ->
                 val item = checkNotNull(navigation).getJSONObject(index)
-                PluginNavigation(item.optionalText("title"), item.optionalText("page"), item.optionalText("builtin"), item.optionalText("icon"))
+                val placement = item.optionalText("placement")?.let { value ->
+                    PluginNavigationPlacement.entries.find { it.key == value } ?: throw PluginException("Invalid navigation placement")
+                } ?: PluginNavigationPlacement.Discovery
+                PluginNavigation(item.optionalText("title"), item.optionalText("page"), item.optionalText("builtin"), item.optionalText("icon"), placement)
             }
             val methods = json.optJSONArray("signInMethods")
             val signInMethods = List(methods?.length() ?: 0) { index ->
@@ -102,7 +105,10 @@ internal data class PluginManifest(
 
 internal data class PluginHeaderRule(val hosts: List<String>, val kinds: Set<String>, val headers: Map<String, String>)
 
-internal data class PluginNavigation(val title: String?, val page: String?, val builtin: String?, val icon: String?)
+internal enum class PluginNavigationPlacement(val key: String) { Discovery("discovery"), Personal("personal") }
+
+internal data class PluginNavigation(val title: String?, val page: String?, val builtin: String?, val icon: String?,
+                                    val placement: PluginNavigationPlacement = PluginNavigationPlacement.Discovery)
 
 internal data class PluginSetting(val key: String, val label: String, val type: String?, val help: String?,
                                   val link: String?, val options: List<Option>) {

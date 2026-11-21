@@ -21,7 +21,7 @@ import ZIPFoundation
         let url = try #require(request.url)
         let body: Data
         switch url.path {
-        case "/repos/Owner/Fixture/commits/HEAD": body = Data("{\"sha\":\"\(sha)\"}".utf8)
+        case "/repos/Owner/Fixture/commits/HEAD": body = Data("{\"sha\":\"\(sha)\",\"commit\":{\"message\":\"修复推荐切换与分页\"}}".utf8)
         case "/repos/Owner/Fixture/zipball/" + sha: body = bytes
         default: Issue.record("Unexpected request: \(url.path)"); throw NetworkFailure.response
         }
@@ -29,6 +29,7 @@ import ZIPFoundation
     }
     let pending = try await installer.prepareGitHub("https://github.com/Owner/Fixture.git")
     #expect(pending.repository == "Owner/Fixture")
+    #expect(pending.releaseNotes == "修复推荐切换与分页")
     #expect(pending.revision == sha && pending.manifest.version == "0.4.0")
 }
 
@@ -59,6 +60,7 @@ import ZIPFoundation
         var pending = try await installer.prepare(fixture)
         pending.repository = repo
         pending.revision = String(repeating: id == "same" ? "a" : "b", count: 40)
+        pending.releaseNotes = "Fixed refresh and pagination"
         return pending
     })
     await model.restore()
@@ -67,6 +69,7 @@ import ZIPFoundation
     #expect(model.installed.first { $0.id == "same" }?.revision == String(repeating: "a", count: 40))
     #expect(model.disabled.contains("changed") && model.sources["changed"] == nil)
     #expect(model.updates["permissions"] == "1.0.0")
+    #expect(model.updateNotes["changed"] == "Fixed refresh and pagination")
     #expect(model.updateIssues["offline"] != nil && model.updateIssues["wrong"] != nil)
     #expect(model.installed.count == 5)
     for plugin in model.installed {

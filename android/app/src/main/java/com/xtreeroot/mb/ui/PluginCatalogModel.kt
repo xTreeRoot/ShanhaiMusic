@@ -37,9 +37,16 @@ internal sealed interface CatalogDestination {
             private set
         val currentRequest get() = filter ?: request
         var tabs by mutableStateOf<List<com.xtreeroot.mb.plugin.PluginCatalogLink>>(emptyList())
+        private var homeTab: String? = null
+        fun rememberTabs(page: PluginCatalogPage?) {
+            if (page == null) return
+            if (page.tabs.isNotEmpty()) tabs = page.tabs
+            if (request == PluginCatalogRequest.Home && filter == null) homeTab = page.selectedTab
+        }
         fun selectFilter(next: PluginCatalogRequest.Browse) {
-            if (filter == next) return
-            filter = next; pager.invalidate(clear = true)
+            val selected = next.takeUnless { request == PluginCatalogRequest.Home && it.page == homeTab }
+            if (filter == selected) return
+            filter = selected; pager.invalidate(clear = true)
         }
         suspend fun refresh(source: PluginSource) = pager.refresh({ source.catalog.invalidate() }) {
             source.catalog.load(currentRequest, includePreviews = filter == null)

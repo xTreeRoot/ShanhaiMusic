@@ -16,9 +16,13 @@ extension PluginManifest.Navigation {
 }
 
 extension PluginSource {
+    public nonisolated var personalNavigation: [PluginManifest.Navigation] {
+        (manifest.navigation ?? []).filter { $0.placement == .personal && ($0.page != nil || $0.builtin != nil) }
+    }
+
     public nonisolated func discoveryNavigation(_ home: PluginBrowse?) -> [PluginManifest.Navigation] {
         (manifest.navigation ?? []).filter { item in
-            guard item.builtin != "home", item.builtin != "search", item.page != "home", item.page != "search",
+            guard item.placement != .personal, item.builtin != "home", item.builtin != "search", item.page != "home", item.page != "search",
                   let destination = item.page ?? item.builtin else { return false }
             return !(home?.sections.contains { $0.morePage == destination || (item.title?.isEmpty == false && $0.title == item.title) } ?? false)
         }

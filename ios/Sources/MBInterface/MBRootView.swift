@@ -96,7 +96,9 @@ public struct MBRootView: View {
             _plugins = State(initialValue: PluginModel(installer: installer) { installer, repo in
                 try await Task.sleep(for: .seconds(5))
                 let fixture = try preview.pluginFixture()
-                return try await installer.prepare(repo == "fixture/failure" ? fixture.appendingPathComponent("missing.zip") : fixture)
+                var pending = try await installer.prepare(repo == "fixture/failure" ? fixture.appendingPathComponent("missing.zip") : fixture)
+                pending.releaseNotes = "优化推荐分类切换，保留完整首页内容。"
+                return pending
             })
             return
         }

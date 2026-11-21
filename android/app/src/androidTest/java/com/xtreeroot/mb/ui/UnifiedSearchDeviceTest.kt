@@ -118,19 +118,34 @@ class UnifiedSearchDeviceTest {
 
     @Test fun renameOrderSwipeAndModeTogglePropagate() = runBlocking {
         fixture {
-            tap("More Actions"); tap("Settings"); tap("Plugins"); await("Rename")
-            tap("Rename"); await("Local Name")
+            tap("More Actions"); tap("Settings"); tap("Plugins"); await("First")
+            val first = android.graphics.Rect(); nodes("First").first().getBoundsInScreen(first)
+            val down = SystemClock.uptimeMillis()
+            val press = MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, first.centerX().toFloat(), first.centerY().toFloat(), 0)
+            instrumentation.sendPointerSync(press); press.recycle()
+            SystemClock.sleep(android.view.ViewConfiguration.getLongPressTimeout().toLong() + 100)
+            val release = MotionEvent.obtain(down, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, first.centerX().toFloat(), first.centerY().toFloat(), 0)
+            instrumentation.sendPointerSync(release); release.recycle(); await("Local Name")
             val field = allNodes().first { it.className?.toString() == "android.widget.EditText" }
             setText(field, "Local First"); tap("Save"); await("Local First")
-            tap("Sort"); await("Up")
-            val up = nodes("Up").first { node -> generateSequence(node) { it.parent }.firstOrNull { it.isClickable }?.isEnabled == true }
-            click(up)
-            withTimeout(5_000) { while (app.plugins.installed().first().id != ids.last()) delay(25) }
-            tap("Done"); tap("Done"); await("Local First")
+            tap("Edit"); await("Reorder Second")
+            val handle = Rect(); nodes("Reorder Second").first().getBoundsInScreen(handle)
+            val target = Rect(); nodes("Reorder Local First").first().getBoundsInScreen(target)
+            val dragStart = SystemClock.uptimeMillis()
+            for (step in 0..24) {
+                val action = when (step) { 0 -> MotionEvent.ACTION_DOWN; 24 -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
+                val event = MotionEvent.obtain(dragStart, SystemClock.uptimeMillis(), action,
+                    handle.centerX().toFloat(), handle.centerY() + (target.centerY() - handle.centerY()) * step / 24f, 0)
+                instrumentation.sendPointerSync(event); event.recycle(); SystemClock.sleep(20)
+            }
+            awaitState("拖动后插件顺序未更新") { app.plugins.installed().filter { it.id in ids }.map { it.id } == ids.reversed() }
+            tap("Done"); await("Edit")
+            tap("Back"); await("Appearance")
+            tap("Done"); await("More Actions"); await("First song")
             swipeRight()
-            withTimeout(5_000) { while (app.settings.values.value.selectedSourceId != ids.last()) delay(25) }
+            awaitState("发现页横滑后没有切换平台") { app.settings.values.value.selectedSourceId == ids.last() }
             tap("Music Mode")
-            withTimeout(5_000) { while (app.settings.values.value.playbackMode != PlaybackMode.Video) delay(25) }
+            awaitState("点击音乐模式后没有切换到视频模式") { app.settings.values.value.playbackMode == PlaybackMode.Video }
             await("Video Mode"); screenshot("android-discovery-platforms.png")
             tap("Search"); await("Second ▾")
             tap("Second ▾"); await("Local First")
@@ -151,8 +166,8 @@ class UnifiedSearchDeviceTest {
             await("Appearance")
             tap("Done")
             tap("Plugins")
-            await("Sort")
-            tap("Done")
+            await("Edit")
+            tap("Back")
             await("My Music")
         }
     }
@@ -170,6 +185,10 @@ class UnifiedSearchDeviceTest {
     private suspend fun tap(text: String) {
         try { withTimeout(5_000) { while (nodes(text).none(::click)) delay(25) } }
         catch (error: TimeoutCancellationException) { throw AssertionError("Could not click: $text", error) }
+    }
+    private suspend fun awaitState(message: String, condition: suspend () -> Boolean) {
+        try { withTimeout(5_000) { while (!condition()) delay(25) } }
+        catch (error: TimeoutCancellationException) { throw AssertionError(message, error) }
     }
     private fun setText(node: AccessibilityNodeInfo, value: String) {
         val editable = node.takeIf { it.isEditable } ?: allNodes().first { it.isEditable }

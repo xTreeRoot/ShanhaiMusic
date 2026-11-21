@@ -83,9 +83,9 @@ internal fun SettingsView(values: AppPreferences, update: ((AppPreferences) -> A
     val offline by saved.offline.collectAsStateWithLifecycle()
     BackHandler(network || skin) { network = false; skin = false }
     Scaffold(containerColor = surface, contentColor = MaterialTheme.colorScheme.onBackground, topBar = {
-        TopAppBar(largeTitle = !network && !skin, title = {
+        TopAppBar(largeTitle = false, title = {
             Text(when { network -> mb("网络与系统代理", "Network & System Proxy")
-                skin -> mb("背景皮肤", "Background Skin"); else -> mb("设置", "Settings") })
+                skin -> mb("背景皮肤", "Background Skin"); else -> "" })
         }, actions = {
             TextButton(onClick = { if (network || skin) { network = false; skin = false } else close() }) {
                 Text(if (network || skin) mb("返回设置", "Back to Settings") else mb("完成", "Done"))

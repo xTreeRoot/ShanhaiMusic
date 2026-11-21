@@ -65,7 +65,7 @@ internal class PluginManagerModel(application: Application) : AndroidViewModel(a
     fun prepareGitHub(input: String) = prepare {
         val repo = PluginRepository.parse(input)
         val remote = app.pluginPackages.latestRevision(repo)
-        app.plugins.prepareArchive(repo, remoteRevision = remote.revision) { app.pluginPackages.download(remote, it) }
+        app.plugins.prepareArchive(repo, remoteRevision = remote.revision) { app.pluginPackages.download(remote, it) }.copy(releaseNotes = remote.notes)
     }
 
     fun importGitHub(input: String) = run {
