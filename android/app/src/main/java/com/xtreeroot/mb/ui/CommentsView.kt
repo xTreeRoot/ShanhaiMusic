@@ -98,7 +98,7 @@ internal fun CommentsSheet(source: InteractionSource, track: Track, signedIn: Bo
 @Composable
 internal fun TrackComments(source: InteractionSource, track: Track, signedIn: Boolean,
                            modifier: Modifier = Modifier, maxHeight: androidx.compose.ui.unit.Dp? = null,
-                           sharedPages: CommentPages? = null) = key(source, track.id, signedIn, sharedPages) {
+                           sharedPages: CommentPages? = null, showHeader: Boolean = true) = key(source, track.id, signedIn, sharedPages) {
     val pages = sharedPages ?: remember { CommentPages(source, track.sourceTrackId) }
     val state by pages.state.collectAsStateWithLifecycle()
     val capabilities = state.capabilities
@@ -119,7 +119,7 @@ internal fun TrackComments(source: InteractionSource, track: Track, signedIn: Bo
             EmptyMessage(mb("此音源不支持评论", "Comments are not available for this source"))
             return@Column
         }
-        if (sharedPages == null) Text(mb("评论 · ${page.total}", "Comments · ${page.total}"),
+        if (sharedPages == null && showHeader) Text(mb("评论 · ${page.total}", "Comments · ${page.total}"),
             Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.titleLarge)
         val likeActionFailed = mb("评论点赞失败", "Could not change comment like")
         val listModifier = if (maxHeight == null) Modifier.weight(1f) else Modifier.heightIn(max = maxHeight)

@@ -56,13 +56,15 @@ class PluginRuntimeTest {
 
     @Test fun browsePagesForwardOffsetsAndPreservePortraitMetadata() = fixture(
         """
-        export function browse({offset = 0}) { return {sections:[{tracks:[{id:String(offset),name:'Portrait',video:{width:1080,height:1920,short:true}}]}],more:offset===0}; }
+        export function browse({page,offset = 0}) { return {tabs:[{title:'All',page:'all'},{title:'Music',page:'music'}],selectedTab:page,sections:[{tracks:[{id:String(offset),name:'Portrait',video:{width:1080,height:1920,short:true}}]}],more:offset===0}; }
         """.trimIndent(),
     ) { runtime, _, _ ->
         val source = PluginSource(manifest, runtime)
         val request = PluginCatalogRequest.Browse("shorts", "Shorts")
         val first = source.catalog.load(request)
         assertEquals(1, first.nextOffset)
+        assertEquals("shorts", first.selectedTab)
+        assertEquals(listOf("all", "music"), first.tabs.map { (it.destination as PluginCatalogRequest.Browse).page })
         val track = first.sections.single().tracks.single()
         assertEquals(1080, track.videoWidth)
         assertEquals(1920, track.videoHeight)

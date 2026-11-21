@@ -21,25 +21,16 @@ import androidx.compose.ui.unit.dp
 internal val LocalMBPrimaryAction = staticCompositionLocalOf { false }
 
 @Composable
-internal fun MBButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
-                      contentPadding: PaddingValues = PaddingValues(horizontal = 22.dp, vertical = 12.dp),
-                      content: @Composable RowScope.() -> Unit) {
-    Button(onClick, modifier.heightIn(min = 48.dp), enabled, shape = RoundedCornerShape(18.dp), elevation = null,
-        contentPadding = contentPadding, content = content)
-}
-
-@Composable
 internal fun MBTextButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
                           contentPadding: PaddingValues = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                           content: @Composable RowScope.() -> Unit) {
     val colors = MaterialTheme.colorScheme
     val primary = LocalMBPrimaryAction.current
-    Button(onClick, modifier.heightIn(min = 44.dp), enabled, shape = RoundedCornerShape(16.dp), elevation = null,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (primary) colors.primary else colors.surfaceContainer,
-            contentColor = if (primary) colors.onPrimary else colors.onSurface,
-            disabledContainerColor = colors.surfaceContainer.copy(alpha = 0.5f),
-            disabledContentColor = colors.onSurface.copy(alpha = 0.38f)), contentPadding = contentPadding, content = content)
+    TextButton(onClick, modifier.heightIn(min = 44.dp), enabled, shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.textButtonColors(
+            contentColor = if (primary) colors.primary else colors.onSurface,
+            disabledContentColor = colors.onSurface.copy(alpha = 0.38f)),
+        contentPadding = contentPadding, content = content)
 }
 
 @Composable

@@ -33,6 +33,8 @@ struct PluginCatalogPage: View {
     let select: ([Track], Int) -> Void
     let menu: (Track) -> AnyView
     @State private var content: PluginBrowse?
+    @State private var filterPage: String?
+    @State private var filterTabs: [PluginBrowse.Link] = []
     @State private var navigationPreviews: [String: PluginNavigationPreview] = [:]
     @State private var error: String?
     @State private var loading = false
@@ -54,10 +56,16 @@ struct PluginCatalogPage: View {
     @Environment(\.stationPlayback) private var playback
     @Environment(\.sourceNames) private var sourceNames
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            if !filterTabs.isEmpty {
+                SourceTabs(sources: filterTabs.map { SourceTab(id: $0.page, name: $0.title) },
+                           selected: filterPage ?? content?.selectedTab ?? filterTabs[0].page,
+                           select: chooseFilter, namespace: "plugin-filter")
+            }
             if request.isHome {
                 PluginDiscoveryHome(source: source, capabilities: capabilities, content: content, loading: loading, error: error,
-                                    retry: { Task { await load(refresh: true) } }, select: select, menu: menu, previews: navigationPreviews, refresh: { await load(refresh: true) })
+                                    retry: { Task { await load(refresh: true) } }, select: select, menu: menu, previews: navigationPreviews, refresh: { await load(refresh: true) },
+                                    showNavigation: filterPage == nil, nextOffset: more ? offset : nil, loadMore: { await load(append: true) })
             } else {
                 catalogList
             }
@@ -66,6 +74,13 @@ struct PluginCatalogPage: View {
         .navigationTitle(title)
         .onAppear { startLoading() }
         .onDisappear { initialLoad?.cancel(); initialLoad = nil; artworkPrefetch?.cancel() }
+    }
+
+    private func chooseFilter(_ page: String) {
+        guard filterPage != page else { return }
+        initialLoad?.cancel(); filterPage = page
+        content = nil; more = false
+        initialLoad = Task { await load(refresh: true) }
     }
 
     private var catalogList: some View {
@@ -211,8 +226,8 @@ struct PluginCatalogPage: View {
         defer { if revision == loadRevision { loading = false } }
         do {
             let page: PluginBrowse, hasMore: Bool, count: Int
-            if refresh && !request.isHome { await source.invalidateCatalog() }
-            switch request {
+            if refresh && (!request.isHome || filterPage != nil) { await source.invalidateCatalog() }
+            switch filterPage.map(PluginPageRequest.browse) ?? request {
             case .home:
                 if refresh {
                     let snapshot = try await source.refreshDiscovery()
@@ -228,6 +243,7 @@ struct PluginCatalogPage: View {
             guard revision == loadRevision, !Task.isCancelled else { return }
             if append, var previous = content { previous.sections += page.sections.enumerated().map { index, section in section.reidentified("\(offset)-\(index)") }; content = previous; offset += count }
             else { content = page; offset = count }
+            if !page.tabs.isEmpty { filterTabs = page.tabs }
             more = hasMore && count > 0
             artworkPrefetch?.cancel()
             let artwork = page.artworkTracks(sourceID: source.manifest.id)

@@ -100,6 +100,10 @@ private struct SignInView: View {
                         }
                     } else if model.isSigningIn { ProgressView() }
                     Text(LocalizedStringKey(prompt.message)).multilineTextAlignment(.center)
+                } else if let request = pluginUI?.oauthBrowser {
+                    Image(systemName: "safari").font(.system(size: 42)).foregroundStyle(.secondary)
+                    Text("请在系统浏览器完成授权，完成后会返回山海").multilineTextAlignment(.center)
+                    Button("打开浏览器") { Task { await pluginUI?.reopenOAuthBrowser(request.id) } }.buttonStyle(.plain)
                 } else if model.isSigningIn { ProgressView("正在准备登录") }
                 if let error = model.errorMessage {
                     Text(LocalizedStringKey(error)).foregroundStyle(.red)
@@ -107,7 +111,7 @@ private struct SignInView: View {
                 }
             }
             .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle("扫码登录")
+            .navigationTitle("登录")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { model.cancelSignIn(); dismiss() } } }
         }
         .modifier(PluginSignInPresentation(service: pluginUI))

@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import com.xtreeroot.mb.ui.components.MBAlertDialog as AlertDialog
-import com.xtreeroot.mb.ui.components.MBButton as Button
 import com.xtreeroot.mb.ui.components.MBDropdownMenu as DropdownMenu
 import com.xtreeroot.mb.ui.components.MBMenuItem as DropdownMenuItem
 import com.xtreeroot.mb.ui.components.MBTextButton as FilledTonalButton
@@ -485,11 +484,11 @@ internal fun LocalCollectionHero(title: String, artist: String, tracks: List<Tra
 internal fun LocalPlaybackButtons(tracks: List<Track>, play: (List<Track>, Boolean) -> Unit) {
     val enabled = tracks.any { !it.isUnavailable }
     FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = { play(tracks, false) }, enabled = enabled) {
+        TextButton(onClick = { play(tracks, false) }, enabled = enabled) {
             Icon(Icons.Default.PlayArrow, null, Modifier.size(18.dp))
             Text(mb("播放全部", "Play All"), Modifier.padding(start = 6.dp))
         }
-        FilledTonalButton(onClick = { play(tracks, true) }, enabled = enabled) {
+        TextButton(onClick = { play(tracks, true) }, enabled = enabled) {
             Icon(painterResource(R.drawable.ic_shuffle), null, Modifier.size(18.dp))
             Text(mb("随机播放", "Shuffle Play"), Modifier.padding(start = 6.dp))
         }

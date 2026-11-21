@@ -23,6 +23,9 @@ public struct PluginWebSignIn: Identifiable, Sendable {
 @MainActor @Observable public final class PluginUIService {
     @ObservationIgnored private let oauth = PluginOAuthSession()
     public func authorize(_ request: PluginOAuthRequest) async throws -> PluginJSON { try await oauth.signIn(request) }
+    public var oauthBrowser: PluginOAuthBrowserPage? { oauth.browserPage }
+    @discardableResult public func handleOAuthCallback(_ url: URL) -> Bool { oauth.handle(url) }
+    public func reopenOAuthBrowser(_ id: UUID) async { await oauth.reopen(id) }
     public var signIn: PluginWebSignIn?
     public var link: PluginWebLink?
     public func open(_ url: URL, title: String) { link = PluginWebLink(title: title, url: url) }

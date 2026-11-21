@@ -240,7 +240,12 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, SignInMet
             }
             sections.append(PluginBrowse.Section(id: String(index), entities: try await entities(section), empty: section["empty"].string ?? "", trackLayout: section["trackLayout"].string ?? "", title: section["title"].string ?? "", tracks: try await tracks(section["tracks"]), links: links, morePage: section["morePage"].string))
         }
-        return PluginBrowse(title: value["title"].string ?? displayName, subtitle: value["subtitle"].string ?? "", description: value["description"].string ?? "", sections: sections)
+        var tabPages: Set<String> = []
+        let tabs = value["tabs"].array.prefix(32).compactMap { item -> PluginBrowse.Link? in
+            guard let title = item["title"].string, let page = item["page"].string, !title.isEmpty, !page.isEmpty, tabPages.insert(page).inserted else { return nil }
+            return PluginBrowse.Link(title: title, subtitle: "", page: page)
+        }
+        return PluginBrowse(title: value["title"].string ?? displayName, subtitle: value["subtitle"].string ?? "", description: value["description"].string ?? "", sections: sections, tabs: tabs, selectedTab: value["selectedTab"].string)
     }
 }
 
@@ -251,6 +256,8 @@ public struct PluginBrowse: Sendable {
     public var subtitle = ""
     public var description = ""
     public var sections: [Section] = []
+    public var tabs: [Link] = []
+    public var selectedTab: String? = nil
 }
 
 public extension PluginBrowse.Section {

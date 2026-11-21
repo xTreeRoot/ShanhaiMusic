@@ -14,6 +14,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginCatalogPagerTest {
+    @Test fun filterChangeClearsOldPageAndRejectsItsLateResponse() = runBlocking {
+        val destination = CatalogDestination.Content(com.xtreeroot.mb.plugin.PluginCatalogRequest.Home)
+        destination.pager.load { page("Original", 1) }
+        val entered = CompletableDeferred<Unit>()
+        val late = CompletableDeferred<PluginCatalogPage>()
+        val loading = launch { destination.pager.load(append = true) { entered.complete(Unit); late.await() } }
+        entered.await()
+        val filter = com.xtreeroot.mb.plugin.PluginCatalogRequest.Browse("music", "Music")
+        destination.selectFilter(filter)
+        assertNull(destination.pager.state.value.page)
+        assertEquals(filter, destination.currentRequest)
+        destination.pager.load { offset -> assertEquals(0, offset); page("Music", null) }
+        late.complete(page("Old", null)); loading.join()
+        assertEquals("Music", destination.pager.state.value.page?.sections?.single()?.title)
+    }
+
     @Test fun refreshDuringPendingRequestRejectsItsLateResultAndKeepsNewestContent() = runBlocking {
         val pager = PluginCatalogPager()
         pager.load { page("Original", 3) }

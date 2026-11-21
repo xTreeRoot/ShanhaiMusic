@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -88,7 +89,7 @@ internal fun rememberVideoFrame(track: Track, systemWindow: Boolean = false): Vi
 @Composable
 internal fun VideoStage(state: VideoFrameState?, playback: PlaybackState, toggle: () -> Unit, seek: (Long) -> Unit,
                         retry: () -> Unit, fullScreen: Boolean, setFullScreen: (Boolean) -> Unit,
-                        topBar: @Composable BoxScope.() -> Unit = {}) {
+                        portrait: Boolean = false, topBar: @Composable BoxScope.() -> Unit = {}) {
     val error = state?.error
     if (error != null && !fullScreen) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Retry(error, retry)
@@ -122,14 +123,14 @@ internal fun VideoStage(state: VideoFrameState?, playback: PlaybackState, toggle
             header()
         } else VideoFrame(state?.player, state?.loading != false, playback, toggle, seek, modifier, qualityState = state, topBar = header)
     } else VideoFrame(state?.player, state?.loading != false, playback, toggle, seek, Modifier.fillMaxSize(), qualityState = state,
-        enterFullscreen = { setFullScreen(true) }, topBar = topBar)
+        enterFullscreen = { setFullScreen(true) }, portrait = portrait, topBar = topBar)
 }
 
 @OptIn(UnstableApi::class)
 @Composable
 private fun VideoFrame(engine: Player?, loading: Boolean, playback: PlaybackState, toggle: () -> Unit,
                        seek: (Long) -> Unit, modifier: Modifier, qualityState: VideoFrameState? = null, enterFullscreen: (() -> Unit)? = null,
-                       topBar: @Composable BoxScope.() -> Unit = {}) {
+                       portrait: Boolean = false, topBar: @Composable BoxScope.() -> Unit = {}) {
     var visible by remember(playback.current?.id, playback.index) { mutableStateOf(true) }
     var revision by remember { mutableIntStateOf(0) }
     val interactions = remember { MutableInteractionSource() }
@@ -148,18 +149,27 @@ private fun VideoFrame(engine: Player?, loading: Boolean, playback: PlaybackStat
         }
     }
     Box(modifier, contentAlignment = Alignment.Center) {
-        AndroidView(factory = { context -> PlayerView(context).apply { useController = false } },
+        AndroidView(factory = { context -> (if (portrait) {
+            // 竖屏视频会随评论面板缩放，使用 Media3 支持的 TextureView 与 Compose 一起合成。
+            android.view.LayoutInflater.from(context).inflate(com.xtreeroot.mb.R.layout.portrait_video_view, null) as PlayerView
+        } else PlayerView(context)).apply {
+            useController = false
+        } },
             update = { view -> view.player = engine }, onRelease = { view -> view.player = null },
             modifier = Modifier.fillMaxSize())
         if (loading) Loading()
         Box(Modifier.matchParentSize().pointerInput(playback.current?.id, playback.index) {
-            detectTapGestures(onTap = { toggleControls() }, onDoubleTap = { currentToggle(); revision += 1 })
+            detectTapGestures(onTap = { if (portrait) currentToggle() else toggleControls() }, onDoubleTap = { currentToggle(); revision += 1 })
         }.semantics {
             contentDescription = pictureLabel
-            onClick(label = controlsLabel) { toggleControls(); true }
+            onClick(label = if (portrait) toggleLabel else controlsLabel) { if (portrait) currentToggle() else toggleControls(); true }
             customActions = listOf(CustomAccessibilityAction(toggleLabel) { currentToggle(); revision += 1; true })
         })
-        if (visible) {
+        if (portrait && !playback.playWhenReady && !loading) {
+            Icon(Icons.Default.PlayArrow, null,
+                modifier = Modifier.padding(24.dp), tint = Color.White)
+        }
+        if (visible && !portrait) {
             topBar()
             MaterialTheme(colorScheme = darkColorScheme(primary = Color.White)) {
                 CompositionLocalProvider(LocalContentColor provides Color.White) {

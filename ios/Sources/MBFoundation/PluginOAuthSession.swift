@@ -8,6 +8,16 @@ import AppKit
 
 /// 系统浏览器完成授权后仅交换一次性授权码；取消或迟到回调不能完成另一次登录。
 @MainActor final class PluginOAuthSession: NSObject, ASWebAuthenticationPresentationContextProviding {
+    #if os(iOS)
+    private let external = PluginOAuthExternalSession { url in await UIApplication.shared.open(url) }
+    var browserPage: PluginOAuthBrowserPage? { external.page }
+    func handle(_ url: URL) -> Bool { external.handle(url) }
+    func reopen(_ id: UUID) async { await external.reopen(id) }
+    #else
+    var browserPage: PluginOAuthBrowserPage? { nil }
+    func handle(_ url: URL) -> Bool { false }
+    func reopen(_ id: UUID) async {}
+    #endif
     private var session: ASWebAuthenticationSession?
     private var pending: CheckedContinuation<URL, any Error>?
     private var active: UUID?
@@ -18,6 +28,9 @@ import AppKit
         let entries = Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []
         let registered = entries.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
         guard registered.contains(scheme) else { throw PluginFailure.execution("当前 MB 尚未配置此登录回调，请更新应用") }
+        #if os(iOS)
+        let token = try await external.authorize(request)
+        #else
         let flow = try PluginOAuthFlow(request: request)
         let callback: URL = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, any Error>) in
@@ -34,6 +47,7 @@ import AppKit
         } onCancel: { Task { @MainActor [weak self] in self?.cancel(request.id) } }
         try Task.checkCancellation()
         let token = try flow.tokenRequest(callback: callback)
+        #endif
         let (data, response) = try await NetworkClient.shared.data(for: token, maximumBytes: 64 << 10, followRedirects: false)
         try Task.checkCancellation()
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw PluginFailure.execution("系统授权交换失败，请重新登录") }

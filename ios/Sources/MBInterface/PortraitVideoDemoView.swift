@@ -5,10 +5,13 @@ import SwiftUI
 /// 显式验收入口，只使用本地示例，发布构建不包含此页面。
 public struct PortraitVideoDemoView: View {
     @State private var playback: PlaybackModel
-    @State private var video = VideoModel(source: nil)
+    @State private var video: VideoModel
+    @State private var quality = "auto"
     @State private var library = LocalLibraryModel(store: LocalLibraryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
     public init() {
-        let playback = PlaybackModel(source: nil, engine: NativeAudioEngine())
+        let fixture = DemoVideoSource.fixture()
+        let playback = PlaybackModel(source: fixture, engine: NativeAudioEngine())
+        _video = State(initialValue: VideoModel(source: fixture))
         let tracks = ["竖屏示例一", "竖屏示例二"].enumerated().map { index, title in
             var track = Track(sourceID: "preview", sourceTrackID: String(index), title: title, artist: "本地界面验收")
             track.videoWidth = 1080; track.videoHeight = 1920; track.shortVideo = true
@@ -19,7 +22,10 @@ public struct PortraitVideoDemoView: View {
     }
     public var body: some View {
         VideoPageView(video: video, playback: playback, interactionSource: DemoSource(), accountRevision: 0, openMusic: {}, saveResource: { _ in }, menu: { _ in AnyView(Text("示例歌单")) })
+            .environment(\.videoQualityPreference, $quality)
             .task { video.updateTrack(playback.queue.current); video.watchCurrent() }
+            .onChange(of: playback.positionMilliseconds) { _, value in video.sync(positionMilliseconds: value, playing: playback.state == .playing) }
+            .onChange(of: playback.state) { _, value in video.sync(positionMilliseconds: playback.positionMilliseconds, playing: value == .playing) }
             .onChange(of: playback.selectionRevision) { _, _ in video.updateTrack(playback.queue.current); video.watchCurrent() }
     }
 }

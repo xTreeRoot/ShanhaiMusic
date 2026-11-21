@@ -62,3 +62,55 @@ private func oauthPermissions() throws -> PluginManifest.Permissions? {
         #expect(throws: PluginFailure.self) { try PluginOAuthRequest(.object(options), permissions: permissions) }
     }
 }
+
+@MainActor @Test func externalOAuthOpensBrowserAndAcceptsOnlyMatchingSingleUseCallback() async throws {
+    var opened: URL?
+    let browser = PluginOAuthExternalSession { url in opened = url; return true }
+    let request = try PluginOAuthRequest(oauthOptions(), permissions: oauthPermissions())
+    let pending = Task { try await browser.authorize(request) }
+    while opened == nil { await Task.yield() }
+    let url = try #require(opened)
+    let state = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "state" }?.value)
+    #expect(browser.page?.id == request.id)
+    #expect(!browser.handle(URL(string: "mb-fixture:/oauthredirect?state=wrong&code=x")!))
+    #expect(!browser.handle(URL(string: "mb-fixture:/other?state=\(state)&code=x")!))
+    #expect(!browser.handle(URL(string: "mb-fixture:/oauthredirect?state=\(state)&code=x&code=y")!))
+    #expect(browser.page != nil)
+    let callback = URL(string: "mb-fixture:/oauthredirect?state=\(state)&code=one-time")!
+    #expect(browser.handle(callback))
+    let token = try await pending.value
+    #expect(token.url == request.tokenEndpoint)
+    #expect(String(decoding: token.httpBody ?? Data(), as: UTF8.self).contains("code=one-time"))
+    #expect(browser.page == nil && !browser.handle(callback))
+}
+
+@MainActor @Test func externalOAuthCancellationRejectsLateReturnAndKeepsNextAttemptActive() async throws {
+    var opened: [URL] = []
+    let browser = PluginOAuthExternalSession { url in opened.append(url); return true }
+    let request = try PluginOAuthRequest(oauthOptions(), permissions: oauthPermissions())
+    let first = Task { try await browser.authorize(request) }
+    while opened.isEmpty { await Task.yield() }
+    let state = try #require(URLComponents(url: opened[0], resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "state" }?.value)
+    first.cancel()
+    do { _ = try await first.value; Issue.record("cancelled authorization completed") } catch is CancellationError {} catch { throw error }
+    let nextRequest = try PluginOAuthRequest(oauthOptions(), permissions: oauthPermissions())
+    let second = Task { try await browser.authorize(nextRequest) }
+    while opened.count < 2 { await Task.yield() }
+    #expect(!browser.handle(URL(string: "mb-fixture:/oauthredirect?state=\(state)&code=old")!))
+    #expect(browser.page?.id == nextRequest.id)
+    second.cancel()
+    do { _ = try await second.value; Issue.record("cancelled authorization completed") } catch is CancellationError {} catch { throw error }
+}
+
+@MainActor @Test func externalOAuthBrowserFailureAndExplicitDenialReleasePendingAttempt() async throws {
+    let request = try PluginOAuthRequest(oauthOptions(), permissions: oauthPermissions())
+    let failed = PluginOAuthExternalSession { _ in false }
+    do { _ = try await failed.authorize(request); Issue.record("browser failed to open") } catch { #expect(failed.page == nil) }
+    var opened: URL?
+    let browser = PluginOAuthExternalSession { url in opened = url; return true }
+    let pending = Task { try await browser.authorize(request) }
+    while opened == nil { await Task.yield() }
+    let state = try #require(URLComponents(url: opened!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "state" }?.value)
+    #expect(browser.handle(URL(string: "mb-fixture:/oauthredirect?state=\(state)&error=access_denied")!))
+    do { _ = try await pending.value; Issue.record("denied authorization completed") } catch { #expect(browser.page == nil) }
+}

@@ -7,6 +7,7 @@ struct VideoPageView: View {
     let playback: PlaybackModel
     let interactionSource: (any InteractionSource)?
     let accountRevision: Int
+    var librarySource: (any LibrarySource)? = nil
     let openMusic: () -> Void
     var browse: (() -> Void)? = nil
     var saveResource: (Track) -> Void = { _ in }
@@ -17,7 +18,7 @@ struct VideoPageView: View {
     var body: some View {
         Group {
         if video.aspectRatio < 1, let track = playback.queue.current {
-            PortraitVideoView(track: track, video: video, playback: playback, interactionSource: interactionSource, openMusic: openMusic, browse: browse, saveResource: saveResource, menu: menu)
+            PortraitVideoView(track: track, video: video, playback: playback, interactionSource: interactionSource, librarySource: librarySource, openMusic: openMusic, browse: browse, saveResource: saveResource, menu: menu)
         } else {
         GeometryReader { geometry in
             let sideBySide = geometry.size.width >= 800 && geometry.size.width > geometry.size.height

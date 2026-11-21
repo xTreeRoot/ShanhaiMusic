@@ -32,7 +32,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
-import com.xtreeroot.mb.ui.components.MBButton as Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import com.xtreeroot.mb.ui.components.MBListItem as ListItem
@@ -156,7 +155,7 @@ internal fun CategoryView(model: BrowseModel, category: DiscoveryCategory,
         }
         val first = tracks.firstOrNull { !it.isUnavailable }
         if (first != null) item(span = { GridItemSpan(maxLineSpan) }) {
-            Button(onClick = { play(tracks, first) },
+            TextButton(onClick = { play(tracks, first) },
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) { Text(mb("播放全部", "Play All")) }
         }
         gridItems(tracks, key = Track::id) { track ->

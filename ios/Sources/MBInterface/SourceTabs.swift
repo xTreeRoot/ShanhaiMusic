@@ -9,6 +9,7 @@ struct SourceTabs: View {
     let sources: [SourceTab]
     let selected: String
     let select: (String) -> Void
+    var namespace = "source"
     @Environment(\.backgroundSkinImage) private var skinImage
     @Environment(\.skinAccent) private var skinAccent
 
@@ -33,14 +34,14 @@ struct SourceTabs: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(active ? .isSelected : [])
-                        .accessibilityIdentifier("source-tab-\(source.id)")
+                        .accessibilityIdentifier("\(namespace)-tab-\(source.id)")
                         .id(source.id)
                     }
                 }.padding(.horizontal, 12)
             }
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-            .accessibilityIdentifier("source-tabs")
+            .accessibilityIdentifier("\(namespace)-tabs")
             .onChange(of: [selected] + sources.map(\.id), initial: true) { _, _ in
                 proxy.scrollTo(selected)
             }

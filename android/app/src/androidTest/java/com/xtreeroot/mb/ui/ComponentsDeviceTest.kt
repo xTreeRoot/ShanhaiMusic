@@ -49,7 +49,7 @@ class ComponentsDeviceTest {
                                 Column(Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     MBTextField(input.value, { input.value = it }, label = { Text("Repository") }, modifier = Modifier.semantics { contentDescription = "Repository Input" })
                                     MBSwitch(checked.value, { checked.value = it }, Modifier.semantics { contentDescription = "Enable Source" })
-                                    MBButton({ disabledClicks++ }, enabled = false) { Text("Disabled Action") }
+                                    MBTextButton({ disabledClicks++ }, enabled = false) { Text("Disabled Action") }
                                     Box {
                                         MBTextButton({ menu.value = true }) { Text("Open Menu") }
                                         MBDropdownMenu(menu.value, { menu.value = false }) {

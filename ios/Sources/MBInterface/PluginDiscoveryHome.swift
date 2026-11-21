@@ -13,6 +13,9 @@ struct PluginDiscoveryHome: View {
     let menu: (Track) -> AnyView
     var previews: [String: PluginNavigationPreview] = [:]
     var refresh: () async -> Void = {}
+    var showNavigation = true
+    var nextOffset: Int? = nil
+    var loadMore: () async -> Void = {}
     @ScaledMetric(relativeTo: .subheadline) private var cardHeight = 246.0
 
     var body: some View {
@@ -69,8 +72,11 @@ struct PluginDiscoveryHome: View {
                         }
                     }
                 }
-                ForEach(Array(source.discoveryNavigation(content).enumerated()), id: \.offset) { _, item in
+                ForEach(Array((showNavigation ? source.discoveryNavigation(content) : []).enumerated()), id: \.offset) { _, item in
                     PluginNavigationShelf(source: source, item: item, select: select, menu: menu, refreshed: previews[item.previewKey])
+                }
+                if let nextOffset, !loading && error == nil {
+                    ProgressView().task(id: nextOffset) { await loadMore() }
                 }
                 if loading && content == nil { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 80) }
                 if !loading && content?.sections.isEmpty != false && error == nil {

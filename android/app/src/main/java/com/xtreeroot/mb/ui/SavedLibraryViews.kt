@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import com.xtreeroot.mb.ui.components.MBAlertDialog as AlertDialog
-import com.xtreeroot.mb.ui.components.MBButton as Button
 import com.xtreeroot.mb.ui.components.MBCheckbox as Checkbox
 import com.xtreeroot.mb.ui.components.MBDropdownMenu as DropdownMenu
 import com.xtreeroot.mb.ui.components.MBMenuItem as DropdownMenuItem
@@ -104,11 +103,11 @@ internal fun DataLocationPage(library: PortableLibrary, back: () -> Unit) {
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (status.linked) {
-                        Button(enabled = !status.busy, onClick = library::saveNow) { Text(mb("立即备份", "Back Up Now")) }
+                        TextButton(enabled = !status.busy, onClick = library::saveNow) { Text(mb("立即备份", "Back Up Now")) }
                         TextButton(enabled = !status.busy, onClick = { choose.launch(null) }) {
                             Text(mb("更换或恢复目录", "Change or Restore Folder"))
                         }
-                    } else Button(enabled = !status.busy, onClick = { choose.launch(null) }) {
+                    } else TextButton(enabled = !status.busy, onClick = { choose.launch(null) }) {
                         Text(mb("选择目录或恢复", "Choose Folder or Restore"))
                     }
                 }

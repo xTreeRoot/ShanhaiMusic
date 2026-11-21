@@ -352,20 +352,30 @@ final class MBiOSUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--portrait-demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launchEnvironment["MB_VIDEO_UI_FIXTURE"] = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("android/app/src/androidTest/assets/video-portrait.mp4").path
         XCUIDevice.shared.orientation = .portrait; app.launch()
-        XCTAssertTrue(app.staticTexts["竖屏示例一"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["竖屏示例一"].waitForExistence(timeout: 5))
         app.swipeUp()
-        XCTAssertTrue(app.staticTexts["竖屏示例二"].waitForExistence(timeout: 5))
-        app.buttons["上一个"].tap()
-        XCTAssertTrue(app.staticTexts["竖屏示例一"].waitForExistence(timeout: 5))
-        app.buttons["收藏"].tap(); XCTAssertTrue(app.buttons["已收藏"].exists)
-        capture("竖屏-通用操作", app: app)
+        XCTAssertTrue(app.buttons["竖屏示例二"].waitForExistence(timeout: 5))
+        app.swipeDown()
+        XCTAssertTrue(app.buttons["竖屏示例一"].waitForExistence(timeout: 5))
+        capture("竖屏-主画面与右侧互动", app: app)
         app.buttons["评论"].tap()
-        XCTAssertTrue(app.navigationBars["评论与点赞"].waitForExistence(timeout: 5))
-        app.buttons["完成"].tap()
+        XCTAssertTrue(app.staticTexts["慢下来，听见晚风里的片刻。"].waitForExistence(timeout: 8))
+        capture("竖屏-评论底部面板", app: app)
+        app.buttons["关闭"].tap()
+        app.buttons["portrait-more"].tap()
+        app.buttons["收藏到资料库"].tap(); XCTAssertTrue(app.buttons["已收藏"].exists)
+        capture("竖屏-无填充更多面板", app: app)
+        app.buttons["画质"].tap()
+        XCTAssertTrue(app.buttons["video-quality-720p"].waitForExistence(timeout: 5)); app.buttons["video-quality-720p"].tap()
+        app.buttons["关闭"].tap()
+        app.buttons["portrait-more"].tap()
         app.buttons["字幕"].tap()
-        XCTAssertTrue(app.navigationBars["字幕"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["字幕"].waitForExistence(timeout: 5))
         capture("竖屏-字幕", app: app)
+
     }
 
     @MainActor func testAppUpdateSettingsCanOpenAndReturnWithoutLosingSettings() throws {
@@ -1797,5 +1807,33 @@ extension MBiOSUITests {
         // 底部歌词、输出和队列保留一致图标槽；评论已移到歌曲信息右侧。
         XCTAssertEqual(route.frame.midY, app.buttons["字幕"].frame.minY + 14, accuracy: 4)
         capture("播放-音频输出与操作图标对齐", app: app)
+    }
+}
+
+extension MBiOSUITests {
+    @MainActor func testPluginFilterTabsChangeContentInPlaceAndRefreshSelectedFilter() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--plugin-demo", "--filter-fixture", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch(); selectTab("设置", app: app); app.buttons["settings-plugins"].tap()
+        XCTAssertTrue(app.buttons["安装"].waitForExistence(timeout: 8)); app.buttons["安装"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "示例插件")).firstMatch.waitForExistence(timeout: 8))
+        selectTab("发现", app: app)
+        app.buttons["source-tab-fixture"].tap()
+        let music = app.buttons["plugin-filter-tab-music"]
+        XCTAssertTrue(music.waitForExistence(timeout: 8)); music.tap()
+        XCTAssertTrue(app.buttons["播放 music内容第1次"].waitForExistence(timeout: 8))
+        XCTAssertTrue(music.isSelected)
+        capture("推荐分类-横滚Tab原地切换", app: app)
+        let scroll = app.scrollViews["plugin-discovery-scroll"]
+        scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.08)).press(forDuration: 0.05,
+            thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.85)))
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 music内容第")).firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["播放 music内容第1次"].waitForNonExistence(timeout: 8))
+        XCTAssertTrue(music.isSelected)
+        app.buttons["plugin-filter-tab-games"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 games内容第")).firstMatch.waitForExistence(timeout: 8))
+        app.buttons["plugin-filter-tab-all"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 all内容第")).firstMatch.waitForExistence(timeout: 8))
     }
 }

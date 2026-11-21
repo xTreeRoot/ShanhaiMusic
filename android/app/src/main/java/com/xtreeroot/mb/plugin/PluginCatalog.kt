@@ -57,7 +57,8 @@ internal data class PluginCatalogPreview(val page: PluginCatalogPage?, val error
 
 internal data class PluginCatalogPage(val title: String, val subtitle: String, val description: String,
                                       val sections: List<PluginCatalogSection>, val nextOffset: Int? = null,
-                                      val navigationPreviews: Map<PluginCatalogRequest, PluginCatalogPreview> = emptyMap())
+                                      val navigationPreviews: Map<PluginCatalogRequest, PluginCatalogPreview> = emptyMap(),
+                                      val tabs: List<PluginCatalogLink> = emptyList(), val selectedTab: String? = null)
 
 internal class PluginCatalog(
     private val manifest: PluginManifest,
@@ -176,6 +177,11 @@ internal class PluginCatalog(
         value.text("title") ?: fallbackTitle, value.text("subtitle").orEmpty(), value.text("description").orEmpty(),
         value.list("sections").objects().map { section(it) },
         nextOffset(offset, value.list("sections").objects().sumOf { row -> row.list("tracks").length() + PluginEntityKind.entries.sumOf { row.list(it.key).length() } }, value.optBoolean("more")),
+        tabs = value.list("tabs").objects().take(32).mapNotNull { tab ->
+            val title = tab.text("title") ?: return@mapNotNull null
+            val page = tab.text("page") ?: return@mapNotNull null
+            PluginCatalogLink(title, "", PluginCatalogRequest.Browse(page, title))
+        }.distinctBy { it.destination }, selectedTab = value.text("selectedTab"),
     )
 
     private suspend fun single(title: String, value: JSONObject, subtitle: String = "", description: String = "",

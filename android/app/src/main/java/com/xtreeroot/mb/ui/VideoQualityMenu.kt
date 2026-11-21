@@ -1,5 +1,6 @@
 package com.xtreeroot.mb.ui
 
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -42,5 +43,22 @@ import com.xtreeroot.mb.ui.components.MBTextButton
             }
             frame?.quality?.let { actual -> DropdownMenuItem(text = { Text(mb("当前画质 $actual", "Current quality $actual")) }, onClick = {}, enabled = false) }
         }
+    }
+}
+
+/** 竖屏面板使用与横屏菜单相同的持久画质配置，无填充文字选项。 */
+@Composable internal fun VideoQualityOptions(frame: VideoFrameState?) {
+    val app = LocalContext.current.applicationContext as MBApplication
+    val preferences by app.settings.values.collectAsStateWithLifecycle()
+    val options = listOf("auto" to mb("自动（最高可用）", "Automatic (Best Available)")) + frame?.qualities.orEmpty().map { it.id to it.label }
+    for ((id, label) in options) {
+        MBTextButton(onClick = { app.settings.update { it.copy(videoQuality = id) } }, modifier = Modifier.fillMaxWidth().testTag("video-quality-$id")
+            .semantics { selected = preferences.videoQuality == id }) {
+            Text(label, Modifier.weight(1f))
+            if (preferences.videoQuality == id) Text("✓")
+        }
+    }
+    if (preferences.videoQuality != "auto" && frame?.qualities.orEmpty().none { it.id == preferences.videoQuality }) {
+        Text(mb("首选 ${preferences.videoQuality} · 当前视频不可用", "Preferred ${preferences.videoQuality} unavailable"))
     }
 }

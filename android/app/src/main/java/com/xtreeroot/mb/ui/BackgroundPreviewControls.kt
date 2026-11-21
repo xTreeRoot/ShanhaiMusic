@@ -65,7 +65,7 @@ internal fun BackgroundPreviewControls(state: AppearanceBackgroundState, opacity
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = cancel, enabled = !state.busy) { Text(mb("取消", "Cancel")) }
                 if (state.busy) CircularProgressIndicator(Modifier.size(24.dp))
-                Button(onClick = confirm, enabled = !state.busy) { Text(mb("使用背景", "Use Background")) }
+                TextButton(onClick = confirm, enabled = !state.busy) { Text(mb("使用背景", "Use Background")) }
             }
         }
     }

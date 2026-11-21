@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import com.xtreeroot.mb.ui.components.MBAlertDialog as AlertDialog
-import com.xtreeroot.mb.ui.components.MBButton as Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
@@ -63,7 +62,7 @@ internal fun SignInDialog(state: AccountState, model: AccountModel) {
         AlertDialog(onDismissRequest = model::cancelSignIn, title = { Text(mb("选择登录方式", "Choose sign-in method")) },
             text = { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 state.signInMethods.forEach { method ->
-                    Button(onClick = { model.chooseSignInMethod(method.id) }, modifier = Modifier.fillMaxWidth()) { Text(method.label) }
+                    TextButton(onClick = { model.chooseSignInMethod(method.id) }, modifier = Modifier.fillMaxWidth()) { Text(method.label) }
                 }
             } }, confirmButton = {}, dismissButton = { TextButton(onClick = model::cancelSignIn) { Text(mb("取消", "Cancel")) } })
         return

@@ -101,7 +101,7 @@ internal fun catalogTitle(destination: CatalogDestination, source: PluginSource)
 private fun PluginCatalogContent(source: PluginSource, destination: CatalogDestination.Content, navigator: PluginCatalogNavigator,
                                  play: (List<Track>, Track) -> Unit,
                                  playStation: ((List<Track>, Track, PlaybackStation) -> Unit)? = null) {
-    val request = destination.request
+    val request = destination.currentRequest
     val pager = destination.pager
     val status by pager.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -142,6 +142,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
         }
     }
     val page = status.page
+    LaunchedEffect(page?.tabs) { if (!page?.tabs.isNullOrEmpty()) destination.tabs = checkNotNull(page).tabs }
     PrefetchArtwork(page?.sections.orEmpty().flatMap { section ->
         section.tracks.mapNotNull { it.artworkReference() } +
             (section.entities.mapNotNull { it.image } + section.links.mapNotNull { it.image }).map { ArtworkReference(it.url, it.headers) }
@@ -167,7 +168,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
             }
             var trackIndex = 0
             page.sections.forEach { section ->
-                if (request == PluginCatalogRequest.Home) {
+                if (destination.request == PluginCatalogRequest.Home) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         val more = section.more ?: links.firstOrNull { it.title.isNotBlank() && it.title == section.title }
                         PluginDiscoverySection(section.copy(more = more), navigator::open, select)
@@ -231,7 +232,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                 }
             }
         }
-        if (request == PluginCatalogRequest.Home && page != null) links.filter { link ->
+        if (destination.request == PluginCatalogRequest.Home && destination.filter == null && page != null) links.filter { link ->
             page.sections.none { section -> section.more?.destination == link.destination || link.title.isNotBlank() && section.title == link.title }
         }.forEach { link -> item(span = { GridItemSpan(maxLineSpan) }) { PluginNavigationShelf(source, link, navigator::open, select, page.navigationPreviews[link.destination]) } }
         if (status.busy && (page == null || status.appending)) item(span = { GridItemSpan(maxLineSpan) }) { Loading() }
@@ -247,10 +248,19 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
             item(span = { GridItemSpan(maxLineSpan) }) { EmptyMessage(mb("暂无内容", "No content")) }
         }
     }
+    Column(Modifier.fillMaxSize()) {
+        if (destination.tabs.isNotEmpty()) {
+            val options = destination.tabs.mapNotNull { link -> (link.destination as? PluginCatalogRequest.Browse)?.let { it.page to link.title } }.toMap()
+            MusicTabs(options, destination.filter?.page ?: page?.selectedTab ?: options.keys.first()) { selected ->
+                destination.tabs.firstOrNull { (it.destination as? PluginCatalogRequest.Browse)?.page == selected }
+                    ?.let { destination.selectFilter(it.destination as PluginCatalogRequest.Browse) }
+            }
+        }
     PullToRefreshBox(isRefreshing = status.busy && !status.appending && page != null,
-        onRefresh = { if (!changing) scope.launch { destination.refresh(source) } }, modifier = Modifier.fillMaxSize()) {
+        onRefresh = { if (!changing) scope.launch { destination.refresh(source) } }, modifier = Modifier.fillMaxWidth().weight(1f)) {
         LazyVerticalGrid(columns = GridCells.Adaptive(155.dp), modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 12.dp), content = content)
+    }
     }
     when (edit) {
         PlaylistDialog.Name -> PlaylistNameDialog(mb("歌单名称", "Playlist Name"), entity?.let { page?.title ?: it.title }.orEmpty(),

@@ -33,8 +33,16 @@ internal sealed interface CatalogDestination {
     class Content(val request: PluginCatalogRequest) : CatalogDestination {
         val pager = PluginCatalogPager()
         var savedOverride by mutableStateOf<Boolean?>(null)
+        var filter by mutableStateOf<PluginCatalogRequest.Browse?>(null)
+            private set
+        val currentRequest get() = filter ?: request
+        var tabs by mutableStateOf<List<com.xtreeroot.mb.plugin.PluginCatalogLink>>(emptyList())
+        fun selectFilter(next: PluginCatalogRequest.Browse) {
+            if (filter == next) return
+            filter = next; pager.invalidate(clear = true)
+        }
         suspend fun refresh(source: PluginSource) = pager.refresh({ source.catalog.invalidate() }) {
-            source.catalog.load(request, includePreviews = true)
+            source.catalog.load(currentRequest, includePreviews = filter == null)
         }
     }
     class Search : CatalogDestination {
@@ -68,9 +76,9 @@ internal class PluginCatalogPager {
     val state = mutable.asStateFlow()
     private var generation = 0L
 
-    fun invalidate() {
+    fun invalidate(clear: Boolean = false) {
         generation++
-        mutable.update { it.copy(busy = false, appending = false, needsReload = true, revision = generation) }
+        mutable.update { if (clear) PluginCatalogStatus(revision = generation) else it.copy(busy = false, appending = false, needsReload = true, revision = generation) }
     }
 
     suspend fun refresh(invalidateCache: suspend () -> Unit, fetch: suspend (Int) -> PluginCatalogPage) {

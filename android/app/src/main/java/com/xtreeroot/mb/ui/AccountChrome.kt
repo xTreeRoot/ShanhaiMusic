@@ -1,5 +1,7 @@
 package com.xtreeroot.mb.ui
 
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -22,7 +24,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xtreeroot.mb.music.SourceAccount
-import com.xtreeroot.mb.ui.components.MBButton as Button
 import com.xtreeroot.mb.ui.components.MBFormDivider
 import com.xtreeroot.mb.ui.components.MBFormRow
 import com.xtreeroot.mb.ui.components.MBGroupedSection
@@ -46,7 +47,7 @@ internal fun AccountHeader(source: String, account: SourceAccount?, loading: Boo
                     Text(source, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                 }
             }
-            if (account == null && signInLabel != null) Button(onClick = signIn, enabled = !loading) { Text(signInLabel) }
+            if (account == null && signInLabel != null) TextButton(onClick = signIn, enabled = !loading) { Text(signInLabel) }
         }
         if (upload != null) MBFormRow(upload.title, disclosure = true, onClick = upload.open)
     }

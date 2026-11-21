@@ -107,7 +107,7 @@ private fun CountedInteraction(count: Long?, enabled: Boolean, onClick: () -> Un
             style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
     }
 }
-private fun compactCount(count: Long): String = when {
+internal fun compactCount(count: Long): String = when {
     count >= 100_000_000 -> String.format(Locale.ROOT, "%.1f亿", count / 100_000_000.0)
     count >= 10_000 -> String.format(Locale.ROOT, "%.1f万", count / 10_000.0)
     else -> NumberFormat.getIntegerInstance().format(count)

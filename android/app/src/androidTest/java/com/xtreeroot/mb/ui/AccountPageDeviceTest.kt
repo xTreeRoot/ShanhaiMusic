@@ -49,6 +49,34 @@ class AccountPageDeviceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app = instrumentation.targetContext.applicationContext as MBApplication
 
+    @Test fun catalogFilterTabsReplaceContentWithoutPushingNavigation() = runBlocking {
+        val id = "filter-ui-${UUID.randomUUID()}"
+        val data = ByteArrayOutputStream().apply { ZipOutputStream(this).use { zip ->
+            for ((name, text) in mapOf("plugin.json" to """{"id":"$id","name":"Filter Fixture"}""",
+                "index.js" to """const tabs=[{title:'All',page:'all'},{title:'Music',page:'music'},{title:'Games',page:'games'}];
+                export function home(){return {tabs,selectedTab:'all',sections:[{title:'Home',tracks:[{id:'all',name:'All item'}]}]};}
+                export function browse({page,offset}){return {tabs,selectedTab:page,sections:[{title:page,tracks:[{id:page+offset,name:page+' item '+offset}]}],more:offset===0};}""")) {
+                zip.putNextEntry(ZipEntry(name)); zip.write(text.encodeToByteArray()); zip.closeEntry()
+            }
+        } }.toByteArray()
+        val plugin = app.plugins.install(app.plugins.prepareZip { data.inputStream() })
+        try {
+            app.plugins.setEnabled(plugin, true); app.refreshPlugins()
+            val source = app.playbackSource(id) as PluginSource
+            val navigator = PluginCatalogNavigator()
+            withPage(source, dark = false, content = {
+                PluginCatalogBrowser(source, navigator.home, navigator, { _, _ -> }, { _, _, _ -> })
+            }) {
+                awaitNode("All item"); tap("Music"); awaitNode("music item 0")
+                assertNull(navigator.current); assertNull(node("All item"))
+                assertEquals("music", withContext(Dispatchers.Main) { navigator.home.filter?.page })
+                capture("android-catalog-filter-tabs")
+                tap("Games"); awaitNode("games item 0"); assertNull(node("music item 0"))
+                tap("All"); awaitNode("all item 0"); assertNull(node("games item 0"))
+            }
+        } finally { app.plugins.remove(plugin); app.refreshPlugins(); plugin.dataDirectory.deleteRecursively() }
+    }
+
     @Test fun pullRefreshRequestsNewHomeAndNavigationContentInsteadOfReusingCache() = runBlocking {
         val id = "refresh-ui-${UUID.randomUUID()}"
         val data = ByteArrayOutputStream().apply { ZipOutputStream(this).use { zip ->

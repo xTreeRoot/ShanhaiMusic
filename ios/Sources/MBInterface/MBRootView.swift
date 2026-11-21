@@ -182,6 +182,7 @@ public struct MBRootView: View {
                 }.modifier(PluginPreparationPresentation(model: plugins))
             }
             .onOpenURL { url in
+                if plugins.ui.handleOAuthCallback(url) { return }
                 if let repo = PluginInstaller.repository(fromInstallURL: url) { showingPlugins = true; Task { await plugins.prepareGitHub(repo) } }
             }
             .sheet(isPresented: $showingSettings) { NetworkSettingsView(model: networkSettings) }
@@ -215,7 +216,7 @@ public struct MBRootView: View {
                     await previewLibrary.prepare()
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--plugin-demo") {
-                        do { await plugins.prepare(try previewLibrary.pluginFixture(includeTrackProblems: demoTrackProblems, refreshFixture: ProcessInfo.processInfo.arguments.contains("--refresh-fixture"))) }
+                        do { await plugins.prepare(try previewLibrary.pluginFixture(includeTrackProblems: demoTrackProblems, refreshFixture: ProcessInfo.processInfo.arguments.contains("--refresh-fixture"), filterFixture: ProcessInfo.processInfo.arguments.contains("--filter-fixture"))) }
                         catch { plugins.reportError(error) }
                     }
                     #endif
@@ -532,7 +533,7 @@ public struct MBRootView: View {
     @ViewBuilder private func destination(_ page: MBPage) -> some View {
         switch page {
         case .video:
-            VideoPageView(video: video, playback: playback, interactionSource: interactionTrackID == playback.queue.current?.id ? currentInteractions : nil, accountRevision: account.revision, openMusic: {
+            VideoPageView(video: video, playback: playback, interactionSource: interactionTrackID == playback.queue.current?.id ? currentInteractions : nil, accountRevision: account.revision, librarySource: source as? any LibrarySource, openMusic: {
                 showingPlayer = true
                 Task { await video.choose(.music) }
             }, browse: minimizeVideo, saveResource: { track in Task { await localLibrary.saveResource(track) } }, menu: trackMenu)

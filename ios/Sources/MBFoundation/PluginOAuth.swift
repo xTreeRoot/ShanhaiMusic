@@ -70,10 +70,18 @@ struct PluginOAuthFlow: Sendable {
         ]
         return parts.url!
     }
+    func matches(callback: URL) -> Bool {
+        let expected = request.redirectURI
+        guard callback.absoluteString.utf8.count <= 8192,
+              callback.scheme == expected.scheme, callback.host == expected.host, callback.port == expected.port,
+              callback.path == expected.path, callback.user == nil, callback.password == nil, callback.fragment == nil,
+              let parts = URLComponents(url: callback, resolvingAgainstBaseURL: false) else { return false }
+        let states = (parts.queryItems ?? []).filter { $0.name == "state" }
+        return states.count == 1 && states[0].value == state
+    }
     func tokenRequest(callback: URL) throws -> URLRequest {
         let expected = request.redirectURI
-        guard callback.scheme == expected.scheme, callback.host == expected.host, callback.port == expected.port,
-              callback.path == expected.path, callback.user == nil, callback.password == nil, callback.fragment == nil,
+        guard matches(callback: callback),
               let parts = URLComponents(url: callback, resolvingAgainstBaseURL: false) else { throw PluginFailure.invalid("OAuth callback did not match") }
         let items = parts.queryItems ?? []
         func single(_ key: String) -> String? {

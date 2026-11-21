@@ -26,7 +26,7 @@ import com.xtreeroot.mb.MBApplication
 import com.xtreeroot.mb.edge.NodeException
 import com.xtreeroot.mb.edge.NodeFailure
 import com.xtreeroot.mb.edge.nodeOrigin
-import com.xtreeroot.mb.ui.components.MBButton
+import com.xtreeroot.mb.ui.components.MBTextButton
 import com.xtreeroot.mb.ui.components.MBFormDivider
 import com.xtreeroot.mb.ui.components.MBFormRow
 import com.xtreeroot.mb.ui.components.MBGroupedSection
@@ -97,7 +97,7 @@ internal fun NodeSettingsView(app: MBApplication, profileSync: NodeProfileSyncSt
                     }
                 }
             }
-            MBButton(onClick = connect, enabled = !busy && address.isNotBlank() && password.isNotEmpty(),
+            MBTextButton(onClick = connect, enabled = !busy && address.isNotBlank() && password.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp)) {
                 if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Text(if (loading) mb("正在接入…", "Connecting…") else if (binding != null) mb("重新接入", "Reconnect") else mb("接入节点", "Connect to Node"))

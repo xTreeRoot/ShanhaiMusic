@@ -57,7 +57,9 @@ class VideoDetailsDeviceTest {
         val id = "portrait-ui-${UUID.randomUUID()}"
         val plugin = app.plugins.install(app.plugins.prepareZip { fixtureZip(id).inputStream() })
         var activity: MainActivity? = null
-        val track = Track(id, "first", "Portrait fixture", "Creator", videoWidth = 1080, videoHeight = 1920, shortVideo = true)
+        var engine: androidx.media3.exoplayer.ExoPlayer? = null
+        val firstFrame = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val track = Track(id, "first", "Portrait fixture", "Creator", videoWidth = 1080, videoHeight = 1920, shortVideo = true, pageUrl = "https://media.example.test/watch")
         try {
             app.plugins.setEnabled(plugin, true); app.refreshPlugins()
             val screen = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
@@ -65,25 +67,43 @@ class VideoDetailsDeviceTest {
             withContext(Dispatchers.Main) {
                 val player = ViewModelProvider(screen)[PlaybackModel::class.java]
                 val preferences = app.settings.values.value
+                val clip = File(app.cacheDir, "portrait-ui-fixture.mp4")
+                instrumentation.context.assets.open("video-portrait.mp4").use { input -> clip.outputStream().use(input::copyTo) }
+                val videoPlayer = androidx.media3.exoplayer.ExoPlayer.Builder(app).build().also {
+                    it.addListener(object : androidx.media3.common.Player.Listener {
+                        override fun onRenderedFirstFrame() { firstFrame.complete(Unit) }
+                        override fun onPlayerError(error: androidx.media3.common.PlaybackException) { firstFrame.completeExceptionally(error) }
+                    })
+                    engine = it; it.setMediaItem(androidx.media3.common.MediaItem.fromUri(android.net.Uri.fromFile(clip))); it.prepare()
+                }
+                val videoFrame = com.xtreeroot.mb.playback.VideoFrameState(track.id, player = videoPlayer, loading = false, aspectRatio = 9f / 16f,
+                    quality = "1080p", qualities = listOf(com.xtreeroot.mb.music.VideoQualityOption("1080p", "1080p"), com.xtreeroot.mb.music.VideoQualityOption("720p", "720p")))
                 screen.setContent { com.xtreeroot.mb.ui.components.MBTheme(true) {
                     CompositionLocalProvider(LocalMBEnglish provides true) {
                         VideoDetailsScreen(player, PlaybackState(tracks = listOf(track), index = 0), preferences,
-                            accountId = null, fullScreen = false, setFullScreen = {}, browse = {}, chooseMode = {})
+                            accountId = null, fullScreen = false, setFullScreen = {}, browse = {}, chooseMode = {}, sharedFrame = videoFrame, ownsVideoFrame = false)
                     }
                 } }
             }
-            await("Portrait fixture"); await("Next"); await("Previous")
+            await("Portrait fixture"); await("Video Actions")
+            withTimeout(10_000) { firstFrame.await() }
+            await("Like"); await("Share")
             captureVideoControl("android-portrait-controls.png")
             tap("Comments"); await("First page request 1")
+            captureVideoControl("android-portrait-comments.png")
             instrumentation.uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
-            tap("Save")
+            tap("Video Actions"); tap("Save to Library")
             withTimeout(5_000) { while (app.resourceBookmarks.tracks.value.none { it.id == track.id }) delay(25) }
             await("Saved")
+            captureVideoControl("android-portrait-more.png")
+            tap("Video Quality"); tap("720p")
+            assertEquals("720p", app.settings.values.value.videoQuality)
+            tap("Close"); tap("Video Actions")
             tap("Captions"); await("No Captions")
             captureVideoControl("android-portrait-video.png")
         } finally {
             app.resourceBookmarks.remove(track.id)
-            withContext(Dispatchers.Main) { activity?.finish() }
+            withContext(Dispatchers.Main) { activity?.finish(); engine?.release() }
             app.plugins.remove(app.plugins.installed().single { it.id == id }); app.refreshPlugins()
         }
     }
@@ -514,6 +534,8 @@ class VideoDetailsDeviceTest {
             zip.putNextEntry(ZipEntry("index.js"))
             zip.write("""
                 let firstRequests = 0;
+                export function interactionSummary() { return {likes: 100000, comments: 123}; }
+                export function like() {}
                 export function video() { throw new Error('Fixture has no video stream'); }
                 export function comments({ trackId, offset }) {
                     const author = 'Fixture Listener';

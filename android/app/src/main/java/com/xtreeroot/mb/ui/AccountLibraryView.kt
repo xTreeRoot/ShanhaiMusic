@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import com.xtreeroot.mb.ui.components.MBButton as Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import com.xtreeroot.mb.ui.components.MBIconButton as IconButton
@@ -94,7 +93,7 @@ internal fun AccountLibraryView(model: LibraryPages, open: (LibraryRoute) -> Uni
         }
         val first = page.tracks.firstOrNull { !it.isUnavailable }
         if (first != null) item {
-            Button(onClick = { play(page.tracks, first) },
+            TextButton(onClick = { play(page.tracks, first) },
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) { Text(mb("播放全部", "Play All")) }
         }
         items(page.tracks, key = Track::id) { track -> TrackRow(track) { play(page.tracks, track) } }
