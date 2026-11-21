@@ -104,6 +104,7 @@ struct TrackCommentsList: View {
 }
 
 struct PersonArtwork: View {
+    @Environment(\.skinAccent) private var skinAccent
     let name: String
     let url: URL?
     var headers: [String: String] = [:]
@@ -115,7 +116,7 @@ struct PersonArtwork: View {
     var body: some View {
         Group {
             if let url { RemoteArtwork(track: artwork(url)) }
-            else { Circle().fill(MBTheme.accent.opacity(0.1)).overlay { Text(String(name.prefix(1))).font(.subheadline.weight(.semibold)).foregroundStyle(MBTheme.accent) } }
+            else { Circle().fill(skinAccent.opacity(0.1)).overlay { Text(String(name.prefix(1))).font(.subheadline.weight(.semibold)).foregroundStyle(skinAccent) } }
         }.clipShape(Circle()).accessibilityHidden(true)
     }
 }

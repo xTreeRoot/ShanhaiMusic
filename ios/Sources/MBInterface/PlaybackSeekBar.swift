@@ -5,6 +5,7 @@ import UIKit
 
 /// 小圆点和细轨道保留 44pt 触控区，音乐与视频使用一致的拖动与无障碍行为。
 struct PlaybackSeekBar: UIViewRepresentable {
+    @Environment(\.skinAccent) private var skinAccent
     @Binding var value: Double
     let bounds: ClosedRange<Double>
     let onEditingChanged: (Bool) -> Void
@@ -15,14 +16,7 @@ struct PlaybackSeekBar: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> CompactSeekSlider {
         let view = CompactSeekSlider()
-        view.minimumTrackTintColor = UIColor(MBTheme.accent)
         view.maximumTrackTintColor = .secondaryLabel.withAlphaComponent(0.22)
-        for (state, size) in [(UIControl.State.normal, CGFloat(9)), (.highlighted, CGFloat(12))] {
-            let image = UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { drawing in
-                UIColor(MBTheme.accent).setFill(); drawing.cgContext.fillEllipse(in: CGRect(x: 0, y: 0, width: size, height: size))
-            }
-            view.setThumbImage(image, for: state)
-        }
         view.addTarget(context.coordinator, action: #selector(Coordinator.begin), for: .touchDown)
         view.addTarget(context.coordinator, action: #selector(Coordinator.change(_:)), for: .valueChanged)
         view.addTarget(context.coordinator, action: #selector(Coordinator.end), for: [.touchUpInside, .touchUpOutside, .touchCancel])
@@ -33,6 +27,7 @@ struct PlaybackSeekBar: UIViewRepresentable {
     }
     func updateUIView(_ view: CompactSeekSlider, context: Context) {
         context.coordinator.parent = self
+        view.setAccent(UIColor(skinAccent))
         view.minimumValue = Float(bounds.lowerBound); view.maximumValue = Float(bounds.upperBound)
         view.isEnabled = enabled
         if !view.isTracking { view.value = Float(min(bounds.upperBound, max(bounds.lowerBound, value))) }
@@ -48,6 +43,17 @@ struct PlaybackSeekBar: UIViewRepresentable {
 }
 
 final class CompactSeekSlider: UISlider {
+    private var accent: UIColor?
+    func setAccent(_ color: UIColor) {
+        guard accent != color else { return }
+        accent = color; minimumTrackTintColor = color
+        for (state, size) in [(UIControl.State.normal, CGFloat(9)), (.highlighted, CGFloat(12))] {
+            let image = UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { drawing in
+                color.setFill(); drawing.cgContext.fillEllipse(in: CGRect(x: 0, y: 0, width: size, height: size))
+            }
+            setThumbImage(image, for: state)
+        }
+    }
     override func trackRect(forBounds bounds: CGRect) -> CGRect {
         let track = super.trackRect(forBounds: bounds)
         return CGRect(x: track.minX, y: bounds.midY - 1.5, width: track.width, height: 3)

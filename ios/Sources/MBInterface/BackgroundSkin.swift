@@ -8,9 +8,11 @@ import UniformTypeIdentifiers
     private(set) var image: CGImage?
     private(set) var preview: CGImage?
     var previewOpacity = 0.25
+    var previewStyle = BackgroundSkinStyle()
 
-    func beginPreview(_ candidate: CGImage, opacity: Double) {
+    func beginPreview(_ candidate: CGImage, opacity: Double, style: BackgroundSkinStyle = BackgroundSkinStyle()) {
         guard !busy else { return }
+        previewStyle = style
         previewOpacity = min(1, max(0, opacity)); preview = candidate; failed = false
     }
     func cancelPreview() { guard !busy else { return }; preview = nil; failed = false }
@@ -127,37 +129,5 @@ import UniformTypeIdentifiers
                   kCGImageSourceShouldCacheImmediately: true,
               ] as CFDictionary) else { throw CocoaError(.fileReadCorruptFile) }
         return image
-    }
-}
-
-extension EnvironmentValues {
-    @Entry var backgroundSkinImage: CGImage? = nil
-    @Entry var backgroundSkinOpacity: Double? = nil
-}
-
-struct SkinSurface: ViewModifier {
-    var defaultColor: Color? = nil
-    var list = false
-    var base = MBTheme.background
-    var enabled = true
-    @Environment(\.backgroundSkinImage) private var image
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.backgroundSkinOpacity) private var opacity
-
-    func body(content: Content) -> some View {
-        content
-            .scrollContentBackground(list && enabled && image != nil ? .hidden : .automatic)
-            .background {
-                if enabled, let image {
-                    GeometryReader { geometry in
-                        Image(decorative: image, scale: 1)
-                            .resizable().scaledToFill()
-                            .frame(width: geometry.size.width, height: geometry.size.height).clipped()
-                            .opacity(opacity ?? (colorScheme == .dark ? 0.35 : 0.22))
-                    }
-                    .background(base)
-                    .allowsHitTesting(false).accessibilityHidden(true)
-                } else if let defaultColor { defaultColor }
-            }
     }
 }

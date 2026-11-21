@@ -15,6 +15,7 @@ extension EnvironmentValues {
 }
 
 struct CaptionView: View {
+    @Environment(\.skinAccent) private var skinAccent
     let timeline: CaptionTimeline
     let positionMilliseconds: Int64
     let message: String?
@@ -99,7 +100,7 @@ struct CaptionView: View {
             .foregroundStyle(.secondary)
             .overlay(alignment: .leading) {
                 GeometryReader { geometry in
-                    MBTheme.accent.frame(width: geometry.size.width * (active ? progress : 0))
+                    skinAccent.frame(width: geometry.size.width * (active ? progress : 0))
                 }.mask(Text(word.text).font(.system(size: style == .tilt ? wordSize * 1.2 : wordSize, weight: style == .tilt && index % 2 == 0 ? .black : .semibold, design: style == .tilt ? .rounded : .default)))
             }
             .overlay {
@@ -112,7 +113,7 @@ struct CaptionView: View {
                             let x = size.width * progress + cos(angle) * age * 24
                             let y = size.height * 0.5 + sin(angle) * age * 22 - age * 15
                             context.opacity = 1 - age
-                            context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 2.5, height: 2.5)), with: .color(MBTheme.accent))
+                            context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 2.5, height: 2.5)), with: .color(skinAccent))
                         }
                     }.allowsHitTesting(false)
                 }

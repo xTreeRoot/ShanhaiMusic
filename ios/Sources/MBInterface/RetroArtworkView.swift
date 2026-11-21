@@ -3,6 +3,7 @@ import SwiftUI
 
 /// 旋转依播放位置插值，暂停和 seek 都停在相应角度；降低动态效果时静止。
 struct RetroArtworkView: View {
+    @Environment(\.skinAccent) private var skinAccent
     let track: Track
     let style: PlayerVisualStyle
     let positionMilliseconds: Int64
@@ -87,7 +88,7 @@ struct RetroArtworkView: View {
                         reel(turn: turn, fill: progress)
                     }.padding(.horizontal, 12).frame(height: 52).background(Color(white: 0.08), in: Capsule())
                 }
-                Rectangle().fill(MBTheme.accent).frame(height: 8).overlay(alignment: .bottom) { Rectangle().fill(MBTheme.accent.opacity(0.4)).frame(height: 2) }
+                Rectangle().fill(skinAccent).frame(height: 8).overlay(alignment: .bottom) { Rectangle().fill(skinAccent.opacity(0.4)).frame(height: 2) }
             }.padding(16).background(Color(red: 0.89, green: 0.87, blue: 0.8), in: RoundedRectangle(cornerRadius: 8)).padding(14).padding(.bottom, 22)
             VStack {
                 Spacer()

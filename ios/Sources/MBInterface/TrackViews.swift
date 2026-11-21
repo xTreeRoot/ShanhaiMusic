@@ -52,6 +52,7 @@ struct VideoTrackGrid: View {
 }
 
 struct VideoTrackRow: View {
+    @Environment(\.skinAccent) private var skinAccent
     let track: Track
     var selected = false
 
@@ -60,7 +61,7 @@ struct VideoTrackRow: View {
             VideoArtwork(track: track).frame(width: 122)
             VStack(alignment: .leading, spacing: 5) {
                 Text(track.title).font(.subheadline.weight(.medium)).lineLimit(2)
-                    .foregroundStyle(selected ? MBTheme.accent : .primary)
+                    .foregroundStyle(selected ? skinAccent : .primary)
                 Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }.frame(maxWidth: .infinity, alignment: .leading)
         }.contentShape(Rectangle())
@@ -130,6 +131,7 @@ struct TrackProblemAccessibility: ViewModifier {
 }
 
 struct TrackRow: View {
+    @Environment(\.skinAccent) private var skinAccent
     @Environment(\.stationPlayback) private var playback
     let track: Track
     var selected = false
@@ -140,10 +142,10 @@ struct TrackRow: View {
             ArtworkView(track: track)
             VStack(alignment: .leading, spacing: 5) {
                 Text(track.title).font(.body.weight(.medium)).lineLimit(2)
-                    .foregroundStyle(selected ? MBTheme.accent : .primary)
+                    .foregroundStyle(selected ? skinAccent : .primary)
                 Text(track.artist.isEmpty ? "未知作者" : track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 if let problem {
-                    Text(problem.label).font(.caption.weight(.medium)).foregroundStyle(MBTheme.accent)
+                    Text(problem.label).font(.caption.weight(.medium)).foregroundStyle(skinAccent)
                 }
             }
             Spacer(minLength: 8)

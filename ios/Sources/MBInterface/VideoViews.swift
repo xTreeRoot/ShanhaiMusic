@@ -69,6 +69,7 @@ struct VideoPageView: View {
 }
 
 private struct VideoDetailsView: View {
+    @Environment(\.skinAccent) private var skinAccent
     let track: Track
     let video: VideoModel
     let playback: PlaybackModel
@@ -93,7 +94,7 @@ private struct VideoDetailsView: View {
                             .overlay(alignment: .bottom) {
                                 if selectedTab == tab { Capsule().frame(width: 25, height: 3) }
                             }
-                            .foregroundStyle(selectedTab == tab ? MBTheme.accent : .secondary)
+                            .foregroundStyle(selectedTab == tab ? skinAccent : .secondary)
                     }.buttonStyle(.plain).accessibilityLabel(tab.title)
                         .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
                 }
@@ -189,6 +190,7 @@ private struct VideoQueueView: View {
 }
 
 private struct VideoFullscreenView: View {
+    @Environment(\.skinAccent) private var skinAccent
     let video: VideoModel
     let playback: PlaybackModel
     @Environment(\.dismiss) private var dismiss
@@ -211,7 +213,7 @@ private struct VideoFullscreenView: View {
             }
         }
         .accessibilityElement(children: .contain).accessibilityIdentifier("fullscreen-video")
-        .tint(MBTheme.accent)
+        .tint(skinAccent)
         #if os(iOS)
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
@@ -222,6 +224,7 @@ private struct VideoFullscreenView: View {
 }
 
 private struct VideoTransport: View {
+    @Environment(\.skinAccent) private var skinAccent
     let playback: PlaybackModel
     var fullscreen: (() -> Void)? = nil
     var editing: (Bool) -> Void = { _ in }
@@ -251,7 +254,7 @@ private struct VideoTransport: View {
                     Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 44, height: 44).contentShape(Rectangle())
                 }.accessibilityLabel("全屏播放")
             }
-        }.labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.white).tint(MBTheme.accent)
+        }.labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.white).tint(skinAccent)
             .accessibilityElement(children: .contain)
             .padding(.horizontal, 8)
             .onChange(of: playback.selectionRevision) { _, _ in scrubbing = false; selection = nil }

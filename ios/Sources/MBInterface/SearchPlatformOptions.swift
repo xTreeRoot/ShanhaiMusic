@@ -3,6 +3,7 @@ import SwiftUI
 
 /// 选项固定展开在搜索框下方，保持输入框可见、当前选择清楚。
 struct SearchPlatformOptions: View {
+    @Environment(\.skinAccent) private var skinAccent
     let sources: [SourceTab]
     let selected: String
     let choose: (String) -> Void
@@ -19,9 +20,9 @@ struct SearchPlatformOptions: View {
                         HStack(spacing: 10) {
                             Text(option.name).frame(maxWidth: .infinity, alignment: .leading)
                             if selected == option.id { Image(systemName: "checkmark").font(.caption.weight(.semibold)) }
-                        }.font(.subheadline).foregroundStyle(selected == option.id ? MBTheme.accent : Color.primary)
+                        }.font(.subheadline).foregroundStyle(selected == option.id ? skinAccent : Color.primary)
                             .padding(.horizontal, 14).frame(minHeight: 44)
-                            .background(selected == option.id ? MBTheme.accent.opacity(0.08) : .clear)
+                            .background(selected == option.id ? skinAccent.opacity(0.08) : .clear)
                     }.buttonStyle(.plain).accessibilityAddTraits(selected == option.id ? .isSelected : [])
                 }
             }.padding(.vertical, 4)

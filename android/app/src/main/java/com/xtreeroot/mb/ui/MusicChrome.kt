@@ -37,7 +37,7 @@ internal val musicDark = com.xtreeroot.mb.ui.components.mbDark
 
 @Composable
 internal fun MusicBottomDock(content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)
+    Column(Modifier.fillMaxWidth().background(skinSurface(MaterialTheme.colorScheme.background))
         .windowInsetsPadding(WindowInsets.navigationBars), content = content)
 }
 

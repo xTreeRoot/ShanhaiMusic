@@ -10,6 +10,7 @@ private struct BackgroundDraft: Identifiable {
 
 struct BackgroundSkinSettings: View {
     let skin: BackgroundSkin
+    @Bindable var preferences: PreferencesModel
     let opacity: Double
     @State private var choosing = false
     @State private var importing = false
@@ -29,7 +30,7 @@ struct BackgroundSkinSettings: View {
                 Button("选择背景图片", systemImage: "photo") { choosing = true }
                     .accessibilityIdentifier("choose-background-skin")
                 if let image = skin.image {
-                    Button("预览并调整透明度") { skin.beginPreview(image, opacity: opacity) }
+                    Button("预览并调整透明度") { skin.beginPreview(image, opacity: opacity, style: preferences.values.backgroundStyle) }
                         .accessibilityIdentifier("preview-current-background")
                 }
                 if skin.image != nil || skin.failed {
@@ -38,8 +39,13 @@ struct BackgroundSkinSettings: View {
                 }
                 if skin.busy || loadingPhoto { ProgressView() }
                 if skin.failed || importFailed { Text("无法更新背景图片").foregroundStyle(.red) }
-            }.disabled(skin.busy || loadingPhoto)
+            }.disabled(skin.busy || loadingPhoto).modifier(SkinRow())
+            Section {
+                Toggle("应用于音乐播放器背景", isOn: $preferences.values.backgroundStyle.appliesToPlayer)
+                    .accessibilityIdentifier("background-player-switch")
+            }.modifier(SkinRow())
         }
+        .modifier(SkinSurface(defaultColor: MBTheme.grouped, list: true))
         .navigationTitle("背景皮肤")
         .confirmationDialog("选择图片来源", isPresented: $choosing, titleVisibility: .visible) {
             Button("从文件选择") { importing = true }
@@ -79,7 +85,9 @@ struct BackgroundSkinSettings: View {
         .sheet(item: $draft) { value in
             BackgroundImageEditor(image: value.image) { candidate in
                 draft = nil
-                skin.beginPreview(candidate, opacity: opacity)
+                var style = preferences.values.backgroundStyle
+                style.zoom = 1; style.horizontal = 0; style.vertical = 0
+                skin.beginPreview(candidate, opacity: opacity, style: style)
             }
         }
         .task {

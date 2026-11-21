@@ -191,10 +191,19 @@ private enum DemoFailure: LocalizedError {
 extension DemoCatalog {
     /// 独立演示背景，便于验证移动、裁剪和确认，不读取用户相册。
     static var backgroundImage: CGImage? {
-        guard let context = CGContext(data: nil, width: 600, height: 400, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
-        context.setFillColor(CGColor(red: 0.85, green: 0.3, blue: 0.15, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 300, height: 400))
-        context.setFillColor(CGColor(red: 0.1, green: 0.5, blue: 0.9, alpha: 1)); context.fill(CGRect(x: 300, y: 0, width: 300, height: 400))
+        guard let context = CGContext(data: nil, width: 600, height: 1000, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
+              let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [
+                CGColor(red: 0.20, green: 0.28, blue: 0.45, alpha: 1),
+                CGColor(red: 0.81, green: 0.50, blue: 0.40, alpha: 1)
+              ] as CFArray, locations: [0, 1]) else { return nil }
+        context.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 600, y: 1000), options: [])
+        context.setFillColor(CGColor(red: 0.98, green: 0.78, blue: 0.52, alpha: 1))
+        context.fillEllipse(in: CGRect(x: 300, y: 580, width: 220, height: 220))
+        for index in 0..<4 {
+            context.setFillColor(CGColor(red: 0.10, green: 0.20, blue: 0.24, alpha: 0.2))
+            context.fillEllipse(in: CGRect(x: -300 + index * 100, y: -400 + index * 85, width: 1200, height: 700))
+        }
         return context.makeImage()
     }
 }

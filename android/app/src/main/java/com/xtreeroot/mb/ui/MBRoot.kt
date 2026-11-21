@@ -156,7 +156,10 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
     val english = preferences.language.usesEnglish()
     CompositionLocalProvider(LocalMBEnglish provides english, LocalVideoBrowse provides (preferences.playbackMode == PlaybackMode.Video),
         LocalTrackPlaybackIssues provides trackPlaybackIssues) {
-    com.xtreeroot.mb.ui.components.MBTheme(dark) {
+    val skinStyle = if (backgroundState.preview != null) backgroundState.previewStyle else preferences.backgroundStyle
+    val skinImage = backgroundState.preview ?: backgroundState.image
+    val skinOpacity = if (backgroundState.preview != null) backgroundState.previewOpacity else preferences.backgroundOpacity
+    com.xtreeroot.mb.ui.components.MBTheme(dark, accent = if (skinImage == null) null else skinStyle.accent.color(if (dark) musicDark.primary else musicLight.primary)) {
         var tab by rememberSaveable { mutableStateOf(Tab.Discover) }
         var category by rememberSaveable { mutableStateOf<DiscoveryCategory?>(null) }
         var showPlayer by rememberSaveable { mutableStateOf(false) }
@@ -368,20 +371,22 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         BackHandler(backgroundState.preview != null || showPlayer || showVideo || showQueue || showSettings || showService || showPlugins || category != null || accountRoute != null ||
             creatorRoute != null || page != null,
             onBack = back)
+        AppearanceBackdrop(if (systemVideo || showVideo || (showPlayer && !skinStyle.appliesToPlayer)) null else skinImage,
+            dark, skinOpacity, skinStyle) { surface ->
         Box(Modifier.fillMaxSize()) {
         if (systemVideo) {
             FloatingVideoWindow(videoFrame, playback, true, player::toggle, {}, {})
         } else if (showPlugins) {
             PluginsView(plugins, pluginState, removed = player::removeSource) { showPlugins = false }
         } else if (showService) {
-            AppearanceBackdrop(backgroundState.preview ?: backgroundState.image, dark, if (backgroundState.preview != null) backgroundState.previewOpacity else preferences.backgroundOpacity) { surface ->
+            run {
                 NodeSettingsView(app, nodeProfileState, nodeTarget != null, {
                     val target = currentNodeTarget()
                     nodeProfile.publish(target) { currentNodeTarget() == target }
                 }, surface) { showService = false }
             }
         } else if (showSettings) {
-            AppearanceBackdrop(backgroundState.preview ?: backgroundState.image, dark, if (backgroundState.preview != null) backgroundState.previewOpacity else preferences.backgroundOpacity) { surface ->
+            run {
                 SettingsView(preferences, settings::update, saved, browser, backgroundState, background, surface,
                     openPlugins = { showPlugins = true }) { showSettings = false }
             }
@@ -398,7 +403,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                     browse = minimizeVideo,
                     chooseMode = choosePlaybackMode, sharedFrame = videoFrame, ownsVideoFrame = false)
             }
-        } else AppearanceBackdrop(backgroundState.preview ?: backgroundState.image, dark, if (backgroundState.preview != null) backgroundState.previewOpacity else preferences.backgroundOpacity) { surface ->
+        } else run {
             val atRoot = page == null && category == null && accountRoute == null && creatorRoute == null
             val discoverRoot = atRoot && tab == Tab.Discover
             Scaffold(
@@ -438,7 +443,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                 },
                 bottomBar = {
                     if (backgroundState.preview != null) BackgroundPreviewControls(backgroundState, background::setPreviewOpacity,
-                        background::cancelPreview, background::confirmPreview)
+                        background::cancelPreview, background::confirmPreview, background::setPreviewStyle)
                     else if (!isWide || playback.current != null || playback.connectionIssue != null) MusicBottomDock {
                         playback.connectionIssue?.let { PlaybackConnectionNotice(it, player::retry) }
                         if (playback.current != null) {
@@ -455,7 +460,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                 },
             ) { padding ->
                 Row(Modifier.fillMaxSize().padding(padding)) {
-                    if (isWide) NavigationRail(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()),
+                    if (isWide) NavigationRail(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()), containerColor = surface,
                         windowInsets = WindowInsets(0, 0, 0, 0)) {
                         Tab.entries.forEach { item ->
                             NavigationRailItem(item == tab, onClick = { switchTab(item) },
@@ -499,6 +504,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         if (floatingVideo && !showVideo && !systemVideo && preferences.inAppVideoWindow) {
             FloatingVideoWindow(videoFrame, playback, false, player::toggle,
                 { floatingVideo = false; showVideo = true }, { floatingVideo = false; player.closeVideo() })
+        }
         }
         }
         if (browsingPlayback && creatorRoute != null && !showSettings && !showService && !showPlugins) {

@@ -28,7 +28,13 @@ class BackgroundAndUpdatesDeviceTest {
 
  @Test fun backgroundCropPreviewAndRecropDoNotApplyUntilConfirmation()=runBlocking {
   val screen=start(); val original=app.settings.values.value;val saved=app.appearanceBackground.load()
-  val source=Bitmap.createBitmap(600,400,Bitmap.Config.ARGB_8888).apply {eraseColor(Color.BLUE)}
+  val source=Bitmap.createBitmap(600,1000,Bitmap.Config.ARGB_8888).apply {
+   val canvas=android.graphics.Canvas(this)
+   val paint=android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {shader=android.graphics.LinearGradient(0f,0f,600f,1000f,
+    Color.rgb(50,72,115),Color.rgb(206,128,102),android.graphics.Shader.TileMode.CLAMP)}
+   canvas.drawPaint(paint);paint.shader=null;paint.color=Color.rgb(250,199,133)
+   canvas.drawCircle(400f,280f,110f,paint)
+  }
   val cropping=mutableStateOf(true)
   val models=androidx.lifecycle.ViewModelStore()
   val model=withContext(Dispatchers.Main) {androidx.lifecycle.ViewModelProvider(models,androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.getInstance(app))[AppearanceBackgroundModel::class.java]}
@@ -45,17 +51,44 @@ class BackgroundAndUpdatesDeviceTest {
    awaitNode("Discovery background preview controls");awaitNode("No available sources")
    setProgress("Background transparency",0.35f)
    await("live transparency") {kotlin.math.abs(model.state.value.previewOpacity-0.65f)<0.01f}
+   setProgress("Background image zoom",1.2f);setProgress("Background blur",4f)
+   tap("Theme Rose");tap("Background player switch")
+   assertEquals(original.backgroundStyle,app.settings.values.value.backgroundStyle)
    assertEquals(original.backgroundOpacity,app.settings.values.value.backgroundOpacity)
    assertEquals(saved!=null,app.appearanceBackground.load()!=null)
    capture("android-background-discovery-preview");tap("Use Background")
    await("confirmed image") {model.state.value.preview==null&&!model.state.value.busy}
    assertEquals(0.65f,SettingsStore(app).values.value.backgroundOpacity!!,0.01f)
+   val style=SettingsStore(app).values.value.backgroundStyle
+   assertEquals(1.2f,style.zoom,0.02f);assertEquals(4f,style.blur,0.02f)
+   assertEquals(com.xtreeroot.mb.preferences.BackgroundAccent.Rose,style.accent);assertTrue(style.appliesToPlayer)
    val result=checkNotNull(app.appearanceBackground.load());assertEquals(result.width,result.height)
-   withContext(Dispatchers.Main) {model.beginPreview(result,0.65f)}
-   awaitNode("Background transparency");setProgress("Background transparency",0.9f);tap("Cancel")
+   withContext(Dispatchers.Main) {model.beginPreview(result,0.65f,style)}
+   awaitNode("Background transparency");setProgress("Background transparency",0.9f);setProgress("Background blur",0f);tap("Cancel")
    await("cancel opacity") {model.state.value.preview==null}
    assertEquals(0.65f,SettingsStore(app).values.value.backgroundOpacity!!,0.01f)
-   assertEquals(Color.BLUE,checkNotNull(app.appearanceBackground.load()).getPixel(0,0))
+   assertEquals(style,SettingsStore(app).values.value.backgroundStyle)
+   assertTrue(result.sameAs(checkNotNull(app.appearanceBackground.load())))
+   tap("Search");awaitNode("Search songs or videos");capture("android-background-search")
+   tap("Library");awaitNode("Search Songs, Albums, Artists, Playlists");capture("android-background-library")
+   tap("Me");awaitNode("Install and enable a plugin");capture("android-background-account")
+   tap("Settings");awaitNode("Video Windows");capture("android-background-settings")
+   tap("Done")
+   val audio=File(app.cacheDir,"Skin-Fixture.wav").apply {writeBytes(com.xtreeroot.mb.playback.wave(60))}
+   val local=app.local.importFile(com.xtreeroot.mb.local.LocalAudioDocument(android.net.Uri.fromFile(audio)))
+   val player=withContext(Dispatchers.Main) {androidx.lifecycle.ViewModelProvider(screen)[com.xtreeroot.mb.playback.PlaybackModel::class.java]}
+   try {
+    withContext(Dispatchers.Main) {player.play(listOf(local.track),local.track)}
+    awaitNode("Close Player");capture("android-background-player-enabled")
+    tap("Close Player")
+    app.settings.update {it.copy(backgroundStyle=it.backgroundStyle.copy(appliesToPlayer=false))}
+    tap(local.track.title);awaitNode("Close Player");capture("android-background-player-disabled")
+    tap("Close Player")
+    await("player dismissed") {find("Close Player")==null}
+    app.settings.update {it.copy(appearance=com.xtreeroot.mb.preferences.AppAppearance.Dark)}
+    tap("Library");awaitNode("Search Songs, Albums, Artists, Playlists");capture("android-background-library-dark")
+    tap("Me");awaitNode("Install and enable a plugin");tap("Settings");awaitNode("Dark");capture("android-background-settings-dark")
+   } finally {withContext(Dispatchers.Main) {player.clear()};app.local.delete(local.track.sourceTrackId);audio.delete()}
   }finally {
    if(saved==null) app.appearanceBackground.clear() else app.appearanceBackground.save(saved)
    app.settings.update {original};withContext(Dispatchers.Main) {models.clear();screen.finish()}

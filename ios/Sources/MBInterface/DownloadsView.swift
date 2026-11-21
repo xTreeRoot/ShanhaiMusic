@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 enum LocalPage: Hashable { case songs, favorites, recent, albums, artists, album(String), artist(String), playlist(String) }
 
 struct DownloadsView: View {
+    @Environment(\.skinAccent) private var skinAccent
     let model: DownloadModel
     let library: LocalLibraryModel
     let playback: PlaybackModel
@@ -21,24 +22,26 @@ struct DownloadsView: View {
     var body: some View {
         NavigationStack {
             List {
-                if let progress = model.importProgress { HStack { ProgressView(); Text("正在导入 \(progress)").lineLimit(1) } }
-                if !model.downloading.isEmpty {
-                    Section("正在下载") {
-                        ForEach(model.downloading.keys.sorted(), id: \.self) { id in
-                            HStack { ProgressView(); Text(model.downloading[id] ?? ""); Spacer(); Button("取消") { model.cancel(id) } }
+                Group {
+                    if let progress = model.importProgress { HStack { ProgressView(); Text("正在导入 \(progress)").lineLimit(1) } }
+                    if !model.downloading.isEmpty {
+                        Section("正在下载") {
+                            ForEach(model.downloading.keys.sorted(), id: \.self) { id in
+                                HStack { ProgressView(); Text(model.downloading[id] ?? ""); Spacer(); Button("取消") { model.cancel(id) } }
+                            }
                         }
                     }
-                }
-                if query.isEmpty { navigation; ResourceLibrarySection(library: library, playback: playback); recentAdditions; playlists }
-                else { results }
-                Section {
-                    HStack { Text("播放缓存"); Spacer(); Text(ByteCountFormatter.string(fromByteCount: model.cacheBytes, countStyle: .file)).foregroundStyle(.secondary) }
-                    Button("清空播放缓存", role: .destructive) { clearingCache = true }.disabled(model.cacheBytes == 0)
-                }
-                if let error = model.errorMessage ?? library.errorMessage { Text(LocalizedStringKey(error)).font(.caption).foregroundStyle(.red) }
+                    if query.isEmpty { navigation; ResourceLibrarySection(library: library, playback: playback); recentAdditions; playlists }
+                    else { results }
+                    Section {
+                        HStack { Text("播放缓存"); Spacer(); Text(ByteCountFormatter.string(fromByteCount: model.cacheBytes, countStyle: .file)).foregroundStyle(.secondary) }
+                        Button("清空播放缓存", role: .destructive) { clearingCache = true }.disabled(model.cacheBytes == 0)
+                    }
+                    if let error = model.errorMessage ?? library.errorMessage { Text(LocalizedStringKey(error)).font(.caption).foregroundStyle(.red) }
+
+                }.modifier(SkinRow())
             }
             .modifier(MusicGroupedList())
-            .modifier(SkinSurface(list: true, base: MBTheme.grouped))
             .navigationTitle("")
             .modifier(CompactRootNavigation())
             .confirmationDialog("清空播放缓存？", isPresented: $clearingCache, titleVisibility: .visible) {
@@ -114,7 +117,7 @@ struct DownloadsView: View {
                     NavigationLink(value: LocalPage.playlist(item.id)) {
                         HStack(spacing: 12) {
                             if let track = library.resolve(item.trackIDs).first { ArtworkView(track: track) }
-                            else { Image(systemName: "music.note.list").font(.title2).frame(width: 52, height: 52).background(MBTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8)) }
+                            else { Image(systemName: "music.note.list").font(.title2).frame(width: 52, height: 52).background(skinAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8)) }
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(item.name).font(.headline)
                                 Text("\(library.resolve(item.trackIDs).count) 首").font(.caption).foregroundStyle(.secondary)
@@ -151,7 +154,7 @@ struct DownloadsView: View {
                     NavigationLink(value: LocalPage.playlist(item.id)) {
                         HStack(spacing: 12) {
                             if let track = library.resolve(item.trackIDs).first { ArtworkView(track: track) }
-                            else { Image(systemName: "music.note.list").font(.title2).frame(width: 52, height: 52).background(MBTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8)) }
+                            else { Image(systemName: "music.note.list").font(.title2).frame(width: 52, height: 52).background(skinAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8)) }
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(item.name).font(.headline)
                                 Text("\(library.resolve(item.trackIDs).count) 首").font(.caption).foregroundStyle(.secondary)

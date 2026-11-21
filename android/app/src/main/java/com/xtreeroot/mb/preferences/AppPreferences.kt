@@ -16,6 +16,7 @@ internal data class AppPreferences(
     val inAppVideoWindow: Boolean = true,
     val systemVideoWindow: Boolean = true,
     val backgroundOpacity: Float? = null,
+    val backgroundStyle: BackgroundSkinStyle = BackgroundSkinStyle(),
     val volume: Float = 0.8f,
     val quality: AudioQuality = AudioQuality.High,
     val normalization: AudioNormalization = AudioNormalization.Standard,
@@ -35,6 +36,7 @@ internal data class AppPreferences(
 ) {
     fun toJson(): JSONObject = JSONObject().put("appearance", appearance.name).put("language", language.name)
         .put("inAppVideoWindow", inAppVideoWindow).put("systemVideoWindow", systemVideoWindow)
+        .put("backgroundStyle", backgroundStyle.toJson())
         .put("backgroundOpacity", backgroundOpacity?.toDouble()).put("volume", volume.toDouble()).put("quality", quality.name).put("normalization", normalization.name)
         .put("playbackMode", playbackMode.name).put("automaticUpdateChecks", automaticUpdateChecks)
         .put("lyricsStage", lyricsStage).put("nowPlayingLyrics", nowPlayingLyrics).put("hotComments", hotComments)
@@ -50,6 +52,7 @@ internal data class AppPreferences(
             inAppVideoWindow = json.optBoolean("inAppVideoWindow", true),
             systemVideoWindow = json.optBoolean("systemVideoWindow", true),
             backgroundOpacity = json.optDouble("backgroundOpacity").takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)?.toFloat(),
+            backgroundStyle = BackgroundSkinStyle.parse(json.optJSONObject("backgroundStyle")),
             volume = json.optDouble("volume", 0.8).takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)?.toFloat() ?: 0.8f,
             quality = json.choice("quality", AudioQuality.High),
             normalization = json.choice("normalization", AudioNormalization.Standard),

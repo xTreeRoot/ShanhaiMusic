@@ -18,7 +18,7 @@ internal fun MBListItem(headlineContent: @Composable () -> Unit, modifier: Modif
                         trailingContent: @Composable (() -> Unit)? = null) {
     ListItem(headlineContent, Modifier.padding(horizontal = 12.dp, vertical = 3.dp).clip(RoundedCornerShape(18.dp)).then(modifier),
         supportingContent = supportingContent, leadingContent = leadingContent, trailingContent = trailingContent,
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface), tonalElevation = 0.dp)
+        colors = ListItemDefaults.colors(containerColor = com.xtreeroot.mb.ui.skinSurface()), tonalElevation = 0.dp)
 }
 
 @Composable
@@ -64,8 +64,10 @@ internal fun MBTopAppBar(title: @Composable () -> Unit, modifier: Modifier = Mod
                          navigationIcon: @Composable () -> Unit = {}, actions: @Composable RowScope.() -> Unit = {},
                          expandedHeight: Dp = 64.dp, colors: TopAppBarColors = TopAppBarDefaults.topAppBarColors(
                              containerColor = MaterialTheme.colorScheme.background), largeTitle: Boolean = false) {
+    val resolved = if (com.xtreeroot.mb.ui.LocalSkinEnabled.current) TopAppBarDefaults.topAppBarColors(
+        containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent) else colors
     if (largeTitle) {
-        Surface(modifier, color = colors.containerColor, contentColor = colors.titleContentColor) {
+        Surface(modifier, color = resolved.containerColor, contentColor = resolved.titleContentColor) {
             Column(Modifier.windowInsetsPadding(TopAppBarDefaults.windowInsets).padding(horizontal = 20.dp)) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     navigationIcon()
@@ -75,7 +77,7 @@ internal fun MBTopAppBar(title: @Composable () -> Unit, modifier: Modifier = Mod
                 ProvideTextStyle(MaterialTheme.typography.headlineLarge) { Box(Modifier.padding(top = 4.dp, bottom = 16.dp)) { title() } }
             }
         }
-    } else TopAppBar(title, modifier, navigationIcon, actions, expandedHeight = expandedHeight, colors = colors)
+    } else TopAppBar(title, modifier, navigationIcon, actions, expandedHeight = expandedHeight, colors = resolved)
 }
 
 @Composable
@@ -88,14 +90,14 @@ internal fun MBTab(selected: Boolean, onClick: () -> Unit, modifier: Modifier = 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MBTabRow(selectedTabIndex: Int, tabs: @Composable () -> Unit) {
-    PrimaryTabRow(selectedTabIndex, containerColor = MaterialTheme.colorScheme.background,
+    PrimaryTabRow(selectedTabIndex, containerColor = if (com.xtreeroot.mb.ui.LocalSkinEnabled.current) Color.Transparent else MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onSurface, divider = {}, tabs = tabs)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MBScrollableTabRow(selectedTabIndex: Int, edgePadding: Dp = 12.dp, tabs: @Composable () -> Unit) {
-    PrimaryScrollableTabRow(selectedTabIndex, containerColor = MaterialTheme.colorScheme.background,
+    PrimaryScrollableTabRow(selectedTabIndex, containerColor = if (com.xtreeroot.mb.ui.LocalSkinEnabled.current) Color.Transparent else MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onSurface, edgePadding = edgePadding, divider = {}, tabs = tabs)
 }
 

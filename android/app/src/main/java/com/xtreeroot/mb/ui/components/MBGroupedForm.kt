@@ -21,7 +21,7 @@ internal fun MBGroupedSection(title: String? = null, footer: String? = null, con
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 16.dp)) {
         if (title != null) Text(title, Modifier.padding(start = 16.dp, bottom = 6.dp).semantics { heading() },
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface) {
+        Surface(shape = RoundedCornerShape(14.dp), color = com.xtreeroot.mb.ui.skinSurface()) {
             Column(Modifier.fillMaxWidth(), content = content)
         }
         if (footer != null) Text(footer, Modifier.padding(horizontal = 16.dp, vertical = 6.dp),

@@ -20,43 +20,45 @@ struct AccountLibraryView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                Section {
-                    HStack(spacing: 16) {
-                        PersonArtwork(name: account.account?.name ?? "M", url: account.account?.avatarURL, headers: account.account?.avatarHeaders ?? [:], sourceID: account.displayName).frame(width: 64, height: 64)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(account.account?.name ?? AppLocalization.text("我的音乐")).font(.title2.bold())
-                            Text(platformName).font(.subheadline).foregroundStyle(.secondary)
+                Group {
+                    Section {
+                        HStack(spacing: 16) {
+                            PersonArtwork(name: account.account?.name ?? "M", url: account.account?.avatarURL, headers: account.account?.avatarHeaders ?? [:], sourceID: account.displayName).frame(width: 64, height: 64)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(account.account?.name ?? AppLocalization.text("我的音乐")).font(.title2.bold())
+                                Text(platformName).font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                        }.padding(.vertical, 18)
+                        if account.account == nil, account.available {
+                            Button("登录\(platformName)", systemImage: "qrcode.viewfinder") { showingSignIn = true; account.signIn() }
+                                .buttonStyle(.borderedProminent).frame(minHeight: 44)
                         }
-                        Spacer(minLength: 0)
-                    }.padding(.vertical, 18)
-                    if account.account == nil, account.available {
-                        Button("登录\(platformName)", systemImage: "qrcode.viewfinder") { showingSignIn = true; account.signIn() }
-                            .buttonStyle(.borderedProminent).frame(minHeight: 44)
+                        if let user = account.account, source != nil { NavigationLink("我的投稿", value: LibraryRoute.creator(user.id)) }
+                        if let message = account.errorMessage { Text(LocalizedStringKey(message)).font(.caption).foregroundStyle(.red) }
+                    }.listRowSeparator(.hidden)
+                    if let plugin {
+                        Section("我的内容") { PluginPersonalLinks(source: plugin, account: account.account, select: select, menu: { AnyView(TrackContextMenu(track: $0, playback: playback, downloads: downloads)) }) }
                     }
-                    if let user = account.account, source != nil { NavigationLink("我的投稿", value: LibraryRoute.creator(user.id)) }
-                    if let message = account.errorMessage { Text(LocalizedStringKey(message)).font(.caption).foregroundStyle(.red) }
-                }.listRowSeparator(.hidden)
-                if let plugin {
-                    Section("我的内容") { PluginPersonalLinks(source: plugin, account: account.account, select: select, menu: { AnyView(TrackContextMenu(track: $0, playback: playback, downloads: downloads)) }) }
-                }
-                if source != nil {
-                    Section("我的内容") {
-                        NavigationLink(value: LibraryRoute.favorites) { Label("收藏夹", systemImage: "folder.fill") }
-                        NavigationLink(value: LibraryRoute.liked) { Label("点赞的视频", systemImage: "heart.fill") }
-                        NavigationLink(value: LibraryRoute.history) { Label("观看历史", systemImage: "clock.fill") }
-                        NavigationLink(value: LibraryRoute.following) { Label("我的关注", systemImage: "person.2.fill") }
+                    if source != nil {
+                        Section("我的内容") {
+                            NavigationLink(value: LibraryRoute.favorites) { Label("收藏夹", systemImage: "folder.fill") }
+                            NavigationLink(value: LibraryRoute.liked) { Label("点赞的视频", systemImage: "heart.fill") }
+                            NavigationLink(value: LibraryRoute.history) { Label("观看历史", systemImage: "clock.fill") }
+                            NavigationLink(value: LibraryRoute.following) { Label("我的关注", systemImage: "person.2.fill") }
+                        }
                     }
-                }
-                Section {
-                    Button("设置", systemImage: "gearshape") { openSettings() }
-                    Button("插件", systemImage: "puzzlepiece.extension") { openPlugins() }
-                    Button("山海服务", systemImage: "externaldrive.connected.to.line.below") { openService() }
-                        .accessibilityIdentifier("open-shanhai-service")
-                }
-                if account.account != nil { Section { Button("退出登录", role: .destructive) { Task { await account.signOut() } } } }
+                    Section {
+                        Button("设置", systemImage: "gearshape") { openSettings() }
+                        Button("插件", systemImage: "puzzlepiece.extension") { openPlugins() }
+                        Button("山海服务", systemImage: "externaldrive.connected.to.line.below") { openService() }
+                            .accessibilityIdentifier("open-shanhai-service")
+                    }
+                    if account.account != nil { Section { Button("退出登录", role: .destructive) { Task { await account.signOut() } } } }
+
+                }.modifier(SkinRow())
             }
             .modifier(MusicGroupedList())
-            .modifier(SkinSurface(list: true, base: MBTheme.grouped))
             // 导航容器外的迷你播放器不计入 List 的滚动内容边距。
             .contentMargins(.bottom, playback.queue.current == nil ? 0 : 76, for: .scrollContent)
             .navigationTitle("")
@@ -131,44 +133,47 @@ struct LibraryPageView: View {
     }
     var body: some View {
         List {
-            ForEach(model.links) { link in
-                NavigationLink(value: link.route) {
-                    HStack {
-                        if let url = link.imageURL {
-                            ArtworkView(track: Track(sourceID: model.sourceID, sourceTrackID: link.id, title: link.title, artist: "", artworkURL: url, durationMilliseconds: 0))
-                        } else { Image(systemName: link.route.isCreator ? "person.crop.circle" : "folder").font(.title2).frame(width: 40) }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(link.title)
-                            if !link.subtitle.isEmpty { Text(link.subtitle).font(.caption).foregroundStyle(.secondary) }
+            Group {
+                ForEach(model.links) { link in
+                    NavigationLink(value: link.route) {
+                        HStack {
+                            if let url = link.imageURL {
+                                ArtworkView(track: Track(sourceID: model.sourceID, sourceTrackID: link.id, title: link.title, artist: "", artworkURL: url, durationMilliseconds: 0))
+                            } else { Image(systemName: link.route.isCreator ? "person.crop.circle" : "folder").font(.title2).frame(width: 40) }
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(link.title)
+                                if !link.subtitle.isEmpty { Text(link.subtitle).font(.caption).foregroundStyle(.secondary) }
+                            }
                         }
                     }
                 }
-            }
-            if !model.tracks.isEmpty {
-                Button { select(model.tracks, 0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
-            }
-            ForEach(Array(model.tracks.enumerated()), id: \.element.id) { index, track in
-                HStack(spacing: 4) {
-                    Button { select(model.tracks, index) } label: { TrackRow(track: track) }.buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
-                        .modifier(TrackProblemAccessibility(track: track))
-                    Menu { menu(track) } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("曲目操作 \(track.title)")
-                }.contextMenu { menu(track) }
-            }
-            if let error = model.errorMessage {
-                Text(LocalizedStringKey(error)).foregroundStyle(.secondary)
-                Button("重试") { Task { await model.retry() } }
-            }
-            if model.isLoading { ProgressView().frame(maxWidth: .infinity) }
-            else if model.tracks.isEmpty && model.links.isEmpty && model.errorMessage == nil {
-                ContentUnavailableView("暂无内容", systemImage: "tray")
-            }
-            if let cursor = model.nextCursor {
-                PaginationFooter(page: "\(model.paginationGeneration):\(cursor)", loading: model.isLoading, blocked: model.errorMessage != nil) {
-                    await model.loadMore(); prefetchArtwork()
+                if !model.tracks.isEmpty {
+                    Button { select(model.tracks, 0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
                 }
-            }
+                ForEach(Array(model.tracks.enumerated()), id: \.element.id) { index, track in
+                    HStack(spacing: 4) {
+                        Button { select(model.tracks, index) } label: { TrackRow(track: track) }.buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
+                            .modifier(TrackProblemAccessibility(track: track))
+                        Menu { menu(track) } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("曲目操作 \(track.title)")
+                    }.contextMenu { menu(track) }
+                }
+                if let error = model.errorMessage {
+                    Text(LocalizedStringKey(error)).foregroundStyle(.secondary)
+                    Button("重试") { Task { await model.retry() } }
+                }
+                if model.isLoading { ProgressView().frame(maxWidth: .infinity) }
+                else if model.tracks.isEmpty && model.links.isEmpty && model.errorMessage == nil {
+                    ContentUnavailableView("暂无内容", systemImage: "tray")
+                }
+                if let cursor = model.nextCursor {
+                    PaginationFooter(page: "\(model.paginationGeneration):\(cursor)", loading: model.isLoading, blocked: model.errorMessage != nil) {
+                        await model.loadMore(); prefetchArtwork()
+                    }
+                }
+
+            }.modifier(SkinRow())
         }
-        .listStyle(.plain)
+        .listStyle(.plain).modifier(SkinSurface(defaultColor: MBTheme.background, list: true))
         .modifier(PaginationViewport())
         .navigationTitle(Text(LocalizedStringKey(model.title)))
         .task { await model.restore(); prefetchArtwork() }

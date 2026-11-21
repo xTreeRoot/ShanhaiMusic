@@ -15,7 +15,7 @@ internal fun BackgroundImageFlow(state: AppearanceBackgroundState, model: Appear
     val preferences by app.settings.values.collectAsState()
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val opacity = preferences.backgroundOpacity ?: if (dark) 0.24f else 0.20f
-    if (state.image != null) TextButton(onClick = { model.beginPreview(state.image, opacity) }, enabled = !state.busy) {
+    if (state.image != null) TextButton(onClick = { model.beginPreview(state.image, opacity, preferences.backgroundStyle) }, enabled = !state.busy) {
         Text(mb("预览并调整透明度", "Preview and Adjust Transparency"))
     }
     var choosing by remember { mutableStateOf(false) }
@@ -36,7 +36,7 @@ internal fun BackgroundImageFlow(state: AppearanceBackgroundState, model: Appear
         confirmButton = { TextButton(onClick = { askingUrl = false; model.prepareRemote(address) }, enabled = address.isNotBlank()) { Text(mb("下一步", "Next")) } },
         dismissButton = { TextButton(onClick = { askingUrl = false }) { Text(mb("取消", "Cancel")) } })
     state.candidate?.let { candidate ->
-        BackgroundImageEditor(candidate, state.busy, state.error != null, model::discardCandidate, { model.beginPreview(it, opacity) })
+        BackgroundImageEditor(candidate, state.busy, state.error != null, model::discardCandidate, { model.beginPreview(it, opacity, preferences.backgroundStyle.copy(zoom = 1f, horizontal = 0f, vertical = 0f)) })
     }
     DisposableEffect(model) { onDispose { model.discardCandidate() } }
 }

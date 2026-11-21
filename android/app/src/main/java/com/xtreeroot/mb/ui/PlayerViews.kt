@@ -106,7 +106,7 @@ internal fun ColumnScope.MiniPlayer(state: PlaybackState, open: () -> Unit, togg
     val failure = state.failureMessage()
     val colors = MaterialTheme.colorScheme
     Surface(Modifier.align(Alignment.CenterHorizontally).padding(horizontal = 12.dp, vertical = 6.dp)
-        .widthIn(max = 680.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = colors.surfaceContainer,
+        .widthIn(max = 680.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = skinSurface(colors.surfaceContainer),
         shadowElevation = 2.dp, border = BorderStroke(0.5.dp, colors.outlineVariant.copy(alpha = 0.65f))) {
         Column {
             Row(Modifier.fillMaxWidth().padding(end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -209,7 +209,7 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
                 alpha = progress.coerceAtLeast(0.02f)
                 clip = true
             }
-        }).fillMaxSize().background(Brush.verticalGradient(listOf(colors.surfaceContainerLow, colors.background)))) {
+        }).fillMaxSize().then(if (LocalSkinEnabled.current) Modifier else Modifier.background(Brush.verticalGradient(listOf(colors.surfaceContainerLow, colors.background))))) {
         if (preferences.fog) {
             val bass by app.bassLevel.collectAsStateWithLifecycle()
             PlaybackFog(track, if (state.playing) bass else 0f, animate, Modifier.matchParentSize())

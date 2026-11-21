@@ -14,6 +14,9 @@ struct NowPlayingView: View {
     var downloads: DownloadModel? = nil
     var preferences: PreferencesModel? = nil
     let watchVideo: () -> Void
+    @Environment(\.backgroundSkinImage) private var skinImage
+    @Environment(\.backgroundSkinStyle) private var skinStyle
+    @Environment(\.skinAccent) private var skinAccent
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var textSize
     @State private var hotComments: [TrackComment] = []
@@ -47,12 +50,15 @@ struct NowPlayingView: View {
         .background {
             // 同一个背景覆盖安全区和内容区，雾气不再只给中间区域叠色。
             ZStack {
-                MBTheme.background
+                if skinImage == nil || !skinStyle.appliesToPlayer { MBTheme.background }
                 if let track = playback.queue.current, preferences?.values.fog == true {
                     PlaybackFog(track: track, bass: playback.bassLevel)
                 }
             }.ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
         }
+        .modifier(SkinSurface(defaultColor: MBTheme.background, enabled: skinStyle.appliesToPlayer))
+        .accessibilityIdentifier("music-player-root")
+        .accessibilityValue(skinImage != nil && skinStyle.appliesToPlayer ? "自定义播放器背景" : "默认播放器背景")
         .overlay(alignment: .top) {
             if let modeNotice {
                 Text(modeNotice).font(.subheadline.weight(.semibold)).padding(.horizontal, 18).padding(.vertical, 10)
@@ -60,7 +66,7 @@ struct NowPlayingView: View {
                     .accessibilityIdentifier("playback-mode-notice")
             }
         }
-        .tint(MBTheme.accent)
+        .tint(skinAccent)
         .sheet(isPresented: $showingQueue) { QueueView(playback: playback) }
         .sheet(isPresented: $showingComments) {
             if let interactionSource, let track = playback.queue.current { CommentsView(source: interactionSource, track: track).id("\(track.id):\(accountRevision):\(interactionSource != nil)") }
@@ -219,7 +225,7 @@ struct NowPlayingView: View {
     private func actionLabel(_ title: String, icon: String, active: Bool = false) -> some View {
         VStack(spacing: 3) { Image(systemName: icon).font(.title3).frame(width: 44, height: 28); Text(LocalizedStringKey(title)).font(.caption2) }
             .frame(minWidth: 60, minHeight: 48)
-            .background(active ? MBTheme.accent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
+            .background(active ? skinAccent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
     }
     private func widePlayer(track: Track) -> some View {
         VStack(spacing: 4) {
@@ -228,7 +234,7 @@ struct NowPlayingView: View {
                 ForEach(WidePlayerSection.allCases) { section in
                     Button { wideSection = section } label: {
                         Text(section.title).font(.subheadline.weight(.semibold)).padding(.horizontal, 10).frame(minHeight: 40)
-                            .background(wideSection == section ? MBTheme.accent.opacity(0.13) : .clear, in: Capsule())
+                            .background(wideSection == section ? skinAccent.opacity(0.13) : .clear, in: Capsule())
                     }.buttonStyle(.plain).accessibilityIdentifier("wide-player-" + section.rawValue)
                         .accessibilityAddTraits(wideSection == section ? .isSelected : [])
                 }
@@ -321,7 +327,7 @@ struct NowPlayingView: View {
             Button { playback.toggleShuffle(); announceMode(playback.queue.shuffled ? "已切换为随机播放" : "已切换为" + playback.queue.repeatMode.title) } label: {
                 VStack(spacing: 3) { Image(systemName: "shuffle"); Text(playback.queue.shuffled ? "随机播放" : "顺序播放").font(.caption2) }.frame(minWidth: 56, minHeight: 48)
             }.accessibilityLabel("随机播放")
-                .tint(playback.queue.shuffled ? MBTheme.accent : .secondary).accessibilityValue(Text(playback.queue.shuffled ? "开启" : "关闭"))
+                .tint(playback.queue.shuffled ? skinAccent : .secondary).accessibilityValue(Text(playback.queue.shuffled ? "开启" : "关闭"))
             Spacer(minLength: 4)
             Button("上一首", systemImage: "backward.end.fill") { playback.previous() }.labelStyle(.iconOnly).font(.title2).frame(width: 44, height: 52)
             Spacer(minLength: 4)
@@ -333,7 +339,7 @@ struct NowPlayingView: View {
             Spacer(minLength: 4)
             Button { playback.cycleRepeat(); announceMode("已切换为" + playback.queue.repeatMode.title) } label: {
                 VStack(spacing: 3) { Image(systemName: playback.queue.repeatMode == .one ? "repeat.1" : "repeat"); Text(LocalizedStringKey(playback.queue.repeatMode.title)).font(.caption2) }.frame(minWidth: 56, minHeight: 48)
-            }.accessibilityLabel(LocalizedStringKey(playback.queue.repeatMode.title)).tint(playback.queue.repeatMode == .off ? .secondary : MBTheme.accent)
+            }.accessibilityLabel(LocalizedStringKey(playback.queue.repeatMode.title)).tint(playback.queue.repeatMode == .off ? .secondary : skinAccent)
         }.foregroundStyle(.primary)
     }
 }
@@ -366,16 +372,16 @@ struct QueueView: View {
 }
 
 struct PlaybackOrderControls: View {
+    @Environment(\.skinAccent) private var skinAccent
     let playback: PlaybackModel
     var body: some View {
         HStack {
             Button("随机播放", systemImage: "shuffle") { playback.toggleShuffle() }
-                .tint(playback.queue.shuffled ? MBTheme.accent : .secondary)
+                .tint(playback.queue.shuffled ? skinAccent : .secondary)
                 .accessibilityValue(Text(playback.queue.shuffled ? "开启" : "关闭"))
             Spacer()
             Button(LocalizedStringKey(playback.queue.repeatMode.title), systemImage: playback.queue.repeatMode == .one ? "repeat.1" : "repeat") { playback.cycleRepeat() }
-                .tint(playback.queue.repeatMode == .off ? .secondary : MBTheme.accent)
+                .tint(playback.queue.repeatMode == .off ? .secondary : skinAccent)
         }.font(.subheadline)
     }
 }
-

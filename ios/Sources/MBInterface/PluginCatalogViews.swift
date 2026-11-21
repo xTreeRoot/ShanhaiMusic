@@ -27,6 +27,7 @@ enum PluginPageRequest {
 }
 
 struct PluginCatalogPage: View {
+    @Environment(\.skinAccent) private var skinAccent
     let source: PluginSource
     let request: PluginPageRequest
     let select: ([Track], Int) -> Void
@@ -60,7 +61,7 @@ struct PluginCatalogPage: View {
                 catalogList
             }
         }
-        .modifier(SkinSurface(defaultColor: MBTheme.background, enabled: request.isHome))
+        .modifier(SkinSurface(defaultColor: MBTheme.background))
         .navigationTitle(title)
         .onAppear { startLoading() }
         .onDisappear { initialLoad?.cancel(); initialLoad = nil; artworkPrefetch?.cancel() }
@@ -69,65 +70,68 @@ struct PluginCatalogPage: View {
 
     private var catalogList: some View {
         List {
-            if let content {
-                if !content.subtitle.isEmpty { Text(content.subtitle).font(.subheadline).foregroundStyle(.secondary) }
-                if !content.description.isEmpty { Text(content.description).font(.callout).foregroundStyle(.secondary) }
-                let tracks = content.sections.flatMap(\.tracks)
-                if !tracks.isEmpty, case .entity = request {
-                    Button { play(tracks, index: 0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
-                }
-                ForEach(content.sections) { section in
-                    Section {
-                        if section.trackLayout == "videos" {
-                            VideoTrackGrid(tracks: section.tracks, select: { play($0, index: $1) }, menu: menu, includeArtistInLabel: false)
-                        } else {
-                        ForEach(Array(section.tracks.enumerated()), id: \.offset) { index, track in
-                            HStack {
-                                Button { play(section.tracks, index: index) } label: { TrackRow(track: track) }.buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
-                                    .modifier(TrackProblemAccessibility(track: track))
-                                Menu { menu(track); playlistTrackActions(track, index: index) } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("曲目操作 \(track.title)")
-                            }.contextMenu { menu(track); playlistTrackActions(track, index: index) }
-                        }
-                        }
-                        ForEach(section.entities) { entity in
-                            NavigationLink { PluginCatalogPage(source: source, request: .entity(entity), select: select, menu: menu) } label: {
-                                HStack(spacing: 12) {
-                                    if entity.value["imageUrl"].string != nil { ArtworkView(track: entity.artworkTrack(sourceID: source.manifest.id)) }
-                                    else { Image(systemName: entity.kind == .artist ? "person.crop.circle.fill" : entity.kind == .playlist ? "music.note.list" : "square.stack.fill").font(.title2).foregroundStyle(MBTheme.accent).frame(width: 52, height: 52).background(MBTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10)) }
-                                    VStack(alignment: .leading, spacing: 5) { Text(entity.title).font(.headline); if !entity.subtitle.isEmpty { Text(entity.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
+            Group {
+                if let content {
+                    if !content.subtitle.isEmpty { Text(content.subtitle).font(.subheadline).foregroundStyle(.secondary) }
+                    if !content.description.isEmpty { Text(content.description).font(.callout).foregroundStyle(.secondary) }
+                    let tracks = content.sections.flatMap(\.tracks)
+                    if !tracks.isEmpty, case .entity = request {
+                        Button { play(tracks, index: 0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
+                    }
+                    ForEach(content.sections) { section in
+                        Section {
+                            if section.trackLayout == "videos" {
+                                VideoTrackGrid(tracks: section.tracks, select: { play($0, index: $1) }, menu: menu, includeArtistInLabel: false)
+                            } else {
+                            ForEach(Array(section.tracks.enumerated()), id: \.offset) { index, track in
+                                HStack {
+                                    Button { play(section.tracks, index: index) } label: { TrackRow(track: track) }.buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
+                                        .modifier(TrackProblemAccessibility(track: track))
+                                    Menu { menu(track); playlistTrackActions(track, index: index) } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("曲目操作 \(track.title)")
+                                }.contextMenu { menu(track); playlistTrackActions(track, index: index) }
+                            }
+                            }
+                            ForEach(section.entities) { entity in
+                                NavigationLink { PluginCatalogPage(source: source, request: .entity(entity), select: select, menu: menu) } label: {
+                                    HStack(spacing: 12) {
+                                        if entity.value["imageUrl"].string != nil { ArtworkView(track: entity.artworkTrack(sourceID: source.manifest.id)) }
+                                        else { Image(systemName: entity.kind == .artist ? "person.crop.circle.fill" : entity.kind == .playlist ? "music.note.list" : "square.stack.fill").font(.title2).foregroundStyle(skinAccent).frame(width: 52, height: 52).background(skinAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10)) }
+                                        VStack(alignment: .leading, spacing: 5) { Text(entity.title).font(.headline); if !entity.subtitle.isEmpty { Text(entity.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
+                                    }
                                 }
                             }
-                        }
-                        ForEach(section.links) { link in
-                            NavigationLink { PluginBrowseView(source: source, page: link.page, select: select, menu: menu) } label: {
-                                VStack(alignment: .leading) { Text(link.title); if !link.subtitle.isEmpty { Text(link.subtitle).font(.caption).foregroundStyle(.secondary) } }
+                            ForEach(section.links) { link in
+                                NavigationLink { PluginBrowseView(source: source, page: link.page, select: select, menu: menu) } label: {
+                                    VStack(alignment: .leading) { Text(link.title); if !link.subtitle.isEmpty { Text(link.subtitle).font(.caption).foregroundStyle(.secondary) } }
+                                }
                             }
-                        }
-                        if let page = section.morePage { NavigationLink("查看更多") { PluginBrowseView(source: source, page: page, select: select, menu: menu) } }
-                        if section.tracks.isEmpty && section.entities.isEmpty && section.links.isEmpty && !section.empty.isEmpty { Text(section.empty).foregroundStyle(.secondary) }
-                    } header: { Text(section.title) }
+                            if let page = section.morePage { NavigationLink("查看更多") { PluginBrowseView(source: source, page: page, select: select, menu: menu) } }
+                            if section.tracks.isEmpty && section.entities.isEmpty && section.links.isEmpty && !section.empty.isEmpty { Text(section.empty).foregroundStyle(.secondary) }
+                        } header: { Text(section.title) }
+                    }
                 }
-            }
-            if let action = saveAction, capabilities.contains(action.method) {
-                Button(LocalizedStringKey(enabled ? action.off : action.on), systemImage: enabled ? "checkmark.circle.fill" : "plus.circle") {
-                    guard case .entity(let item) = request else { return }
-                    Task { await change { try await source.change(action.method, entity: item, on: !enabled); enabled.toggle() } }
-                }.disabled(changing)
-            }
-            if case .collection("playlists", _) = request, capabilities.contains("createPlaylist") { Button("新建平台歌单") { name = ""; create = true } }
-            if case .entity(let item) = request, item.kind == .playlist && item.value["mine"] == .bool(true) && item.value["fixed"] != .bool(true) {
-                if capabilities.contains("addToPlaylist") { Button("添加平台歌曲") { adding = true } }
-                if capabilities.contains("renamePlaylist") { Button("重命名歌单") { name = content?.title ?? item.title; rename = true } }
-                if capabilities.contains("deletePlaylist") { Button("删除平台歌单", role: .destructive) { delete = true } }
-            }
-            if more { PaginationFooter(page: "\(loadRevision):\(offset)", loading: loading, blocked: error != nil || changing) { await load(append: true) } }
-            if loading { ProgressView() }
-            if let error { Text(error).foregroundStyle(.red); Button("重试") { Task { await load(append: appendFailed) } } }
-            if !loading && content?.sections.isEmpty != false && error == nil { ContentUnavailableView("暂无内容", systemImage: "music.note") }
+                if let action = saveAction, capabilities.contains(action.method) {
+                    Button(LocalizedStringKey(enabled ? action.off : action.on), systemImage: enabled ? "checkmark.circle.fill" : "plus.circle") {
+                        guard case .entity(let item) = request else { return }
+                        Task { await change { try await source.change(action.method, entity: item, on: !enabled); enabled.toggle() } }
+                    }.disabled(changing)
+                }
+                if case .collection("playlists", _) = request, capabilities.contains("createPlaylist") { Button("新建平台歌单") { name = ""; create = true } }
+                if case .entity(let item) = request, item.kind == .playlist && item.value["mine"] == .bool(true) && item.value["fixed"] != .bool(true) {
+                    if capabilities.contains("addToPlaylist") { Button("添加平台歌曲") { adding = true } }
+                    if capabilities.contains("renamePlaylist") { Button("重命名歌单") { name = content?.title ?? item.title; rename = true } }
+                    if capabilities.contains("deletePlaylist") { Button("删除平台歌单", role: .destructive) { delete = true } }
+                }
+                if more { PaginationFooter(page: "\(loadRevision):\(offset)", loading: loading, blocked: error != nil || changing) { await load(append: true) } }
+                if loading { ProgressView() }
+                if let error { Text(error).foregroundStyle(.red); Button("重试") { Task { await load(append: appendFailed) } } }
+                if !loading && content?.sections.isEmpty != false && error == nil { ContentUnavailableView("暂无内容", systemImage: "music.note") }
+
+            }.modifier(SkinRow())
         }
         .listStyle(.plain)
         .modifier(PaginationViewport())
-        .modifier(SkinSurface(list: true, enabled: request.isHome))
+        .modifier(SkinSurface(list: true))
         .navigationTitle(title)
         .alert("歌单名称", isPresented: $rename) { TextField("名称", text: $name); Button("取消", role: .cancel) {}; Button("保存") { Task { await playlistName(create: false) } }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || changing) }
         .alert("新建平台歌单", isPresented: $create) { TextField("名称", text: $name); Button("取消", role: .cancel) {}; Button("创建") { Task { await playlistName(create: true) } }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || changing) }

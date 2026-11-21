@@ -95,6 +95,11 @@ internal fun SettingsView(values: AppPreferences, update: ((AppPreferences) -> A
         if (network) NetworkSettings(values.proxy, { policy -> update { it.copy(proxy = policy) } }, Modifier.padding(padding))
         else if (skin) LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
             item { MBGroupedSection { BackgroundImageFlow(backgroundState, background) } }
+            item { MBGroupedSection {
+                MBFormRow(mb("应用于音乐播放器背景", "Apply to Music Player"), trailing = {
+                    Switch(values.backgroundStyle.appliesToPlayer, { enabled -> update { it.copy(backgroundStyle = it.backgroundStyle.copy(appliesToPlayer = enabled)) } })
+                })
+            } }
         }
         else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
             item { MBGroupedSection(mb("视频小窗", "Video Windows")) {

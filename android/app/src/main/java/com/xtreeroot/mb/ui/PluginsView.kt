@@ -1,5 +1,7 @@
 package com.xtreeroot.mb.ui
 
+import androidx.compose.ui.graphics.Color
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -70,7 +72,7 @@ internal fun PluginsView(model: PluginManagerModel, state: PluginManagerState, r
             model.prepareGitHub(repo)
         }
     }
-    Scaffold(topBar = {
+    Scaffold(containerColor = if (LocalSkinEnabled.current) Color.Transparent else MaterialTheme.colorScheme.background, topBar = {
         TopAppBar(largeTitle = true, title = { Text(mb("插件", "Plugins")) }, actions = {
             TextButton(onClick = close) { Text(mb("完成", "Done")) }
         })

@@ -41,6 +41,7 @@ struct PluginPreparationPresentation: ViewModifier {
 }
 
 struct PluginsView: View {
+    @Environment(\.skinAccent) private var skinAccent
     let model: PluginModel
     @State private var importing = false
     @State private var folder = false
@@ -54,49 +55,52 @@ struct PluginsView: View {
     @State private var localName = ""
     var body: some View {
         List {
-            Section {
-                Button("一键导入/覆盖", systemImage: "square.and.arrow.down.on.square") { stars = true }
-                    .disabled(model.busy || model.pending != nil)
-                    .accessibilityIdentifier("plugin-import-stars")
-            }
-            if model.installed.contains(where: { $0.repository != nil }) {
-                Section("插件更新") {
-                    Button("全部更新", systemImage: "arrow.down.circle") { Task { await model.updateAll() } }
-                        .accessibilityIdentifier("plugin-update-all")
-                        .disabled(model.busy)
-                    if model.updatingAll { ProgressView("正在更新插件") }
-                    if let status = model.updateStatus { Text(status).font(.caption).foregroundStyle(.secondary) }
+            Group {
+                Section {
+                    Button("一键导入/覆盖", systemImage: "square.and.arrow.down.on.square") { stars = true }
+                        .disabled(model.busy || model.pending != nil)
+                        .accessibilityIdentifier("plugin-import-stars")
                 }
-            }
-            Section {
-              ForEach(model.installed) { plugin in
-                NavigationLink {
-                    PluginSettingsView(model: model, plugin: plugin)
-                } label: {
-                    HStack(spacing: 14) {
-                        Image(systemName: "puzzlepiece.extension.fill").font(.title2).foregroundStyle(MBTheme.accent).frame(width: 48, height: 48).background(MBTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                        VStack(alignment: .leading, spacing: 5) {
-                        Text(model.displayName(plugin)).font(.headline)
-                        Text(plugin.manifest.version ?? "").font(.caption).foregroundStyle(.secondary)
-                        if let version = model.updates[plugin.id] { Text("可更新至 \(version)").font(.caption).foregroundStyle(.tint) }
-                        if let issue = model.updateIssues[plugin.id] { Text(issue).font(.caption).foregroundStyle(.secondary) }
-                        Text(LocalizedStringKey(model.disabled.contains(plugin.id) ? "已停用" : "已启用")).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }.padding(.vertical, 5)
+                if model.installed.contains(where: { $0.repository != nil }) {
+                    Section("插件更新") {
+                        Button("全部更新", systemImage: "arrow.down.circle") { Task { await model.updateAll() } }
+                            .accessibilityIdentifier("plugin-update-all")
+                            .disabled(model.busy)
+                        if model.updatingAll { ProgressView("正在更新插件") }
+                        if let status = model.updateStatus { Text(status).font(.caption).foregroundStyle(.secondary) }
+                    }
                 }
-                .swipeActions(allowsFullSwipe: false) { Button("删除", role: .destructive) { removing = plugin; confirmingRemoval = true }.disabled(model.busy) }
-                .contextMenu {
-                    Button("本地名称", systemImage: "pencil") { localName = model.presentation.names[plugin.id] ?? ""; renaming = plugin }
+                Section {
+                  ForEach(model.installed) { plugin in
+                    NavigationLink {
+                        PluginSettingsView(model: model, plugin: plugin)
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "puzzlepiece.extension.fill").font(.title2).foregroundStyle(skinAccent).frame(width: 48, height: 48).background(skinAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                            VStack(alignment: .leading, spacing: 5) {
+                            Text(model.displayName(plugin)).font(.headline)
+                            Text(plugin.manifest.version ?? "").font(.caption).foregroundStyle(.secondary)
+                            if let version = model.updates[plugin.id] { Text("可更新至 \(version)").font(.caption).foregroundStyle(.tint) }
+                            if let issue = model.updateIssues[plugin.id] { Text(issue).font(.caption).foregroundStyle(.secondary) }
+                            Text(LocalizedStringKey(model.disabled.contains(plugin.id) ? "已停用" : "已启用")).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }.padding(.vertical, 5)
+                    }
+                    .swipeActions(allowsFullSwipe: false) { Button("删除", role: .destructive) { removing = plugin; confirmingRemoval = true }.disabled(model.busy) }
+                    .contextMenu {
+                        Button("本地名称", systemImage: "pencil") { localName = model.presentation.names[plugin.id] ?? ""; renaming = plugin }
+                    }
+                  }.onMove { offsets, destination in Task { await model.move(from: offsets, to: destination) } }
                 }
-              }.onMove { offsets, destination in Task { await model.move(from: offsets, to: destination) } }
-            }
-            Section {
-                Button("从 ZIP 安装", systemImage: "doc.zipper") { importing = true }
-                Button("从文件夹安装", systemImage: "folder") { folder = true }
-                Button("从 GitHub 安装", systemImage: "arrow.down.circle") { github = true }
-                    .accessibilityIdentifier("plugin-install-github")
-            }.disabled(model.busy)
-            if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
+                Section {
+                    Button("从 ZIP 安装", systemImage: "doc.zipper") { importing = true }
+                    Button("从文件夹安装", systemImage: "folder") { folder = true }
+                    Button("从 GitHub 安装", systemImage: "arrow.down.circle") { github = true }
+                        .accessibilityIdentifier("plugin-install-github")
+                }.disabled(model.busy)
+                if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
+
+            }.modifier(SkinRow())
         }
         .modifier(MusicGroupedList())
         .navigationTitle("插件")
@@ -128,15 +132,18 @@ struct PluginsView: View {
         .sheet(item: Binding(get: { model.pending }, set: { value in if value == nil { Task { await model.discard() } } })) { pending in
             NavigationStack {
                 Form {
-                    Section {
-                        LabeledContent("名称", value: pending.manifest.displayName)
-                        LabeledContent("版本", value: pending.manifest.version ?? "")
-                        LabeledContent("宿主兼容版本", value: pending.manifest.minAppVersion ?? "0.1.0")
-                    }
-                    Section("网络权限") {
-                        ForEach(pending.manifest.permissions?.network ?? [], id: \.self) { Text($0).font(.body.monospaced()) }
-                    }
-                    if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
+                    Group {
+                        Section {
+                            LabeledContent("名称", value: pending.manifest.displayName)
+                            LabeledContent("版本", value: pending.manifest.version ?? "")
+                            LabeledContent("宿主兼容版本", value: pending.manifest.minAppVersion ?? "0.1.0")
+                        }
+                        Section("网络权限") {
+                            ForEach(pending.manifest.permissions?.network ?? [], id: \.self) { Text($0).font(.body.monospaced()) }
+                        }
+                        if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
+
+                    }.modifier(SkinRow())
                 }
                 .navigationTitle("安装插件")
                 .toolbar {
@@ -156,15 +163,18 @@ private struct PluginStarsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let entries = model.starsEntries {
-                    ForEach(entries, content: repositoryRow)
-                } else {
-                    TextField("GitHub 仓库或星标列表地址", text: $address)
-                        .autocorrectionDisabled().disabled(model.starsBusy)
-                        .accessibilityIdentifier("plugin-stars-address")
-                }
-                if model.starsBusy { ProgressView(model.starsEntries == nil ? "正在解析 GitHub 星标列表" : "正在导入插件") }
-                if let status = model.starsStatus { Text(status).font(.caption).foregroundStyle(.secondary) }
+                Group {
+                    if let entries = model.starsEntries {
+                        ForEach(entries, content: repositoryRow)
+                    } else {
+                        TextField("GitHub 仓库或星标列表地址", text: $address)
+                            .autocorrectionDisabled().disabled(model.starsBusy)
+                            .accessibilityIdentifier("plugin-stars-address")
+                    }
+                    if model.starsBusy { ProgressView(model.starsEntries == nil ? "正在解析 GitHub 星标列表" : "正在导入插件") }
+                    if let status = model.starsStatus { Text(status).font(.caption).foregroundStyle(.secondary) }
+
+                }.modifier(SkinRow())
             }
             .navigationTitle("一键导入/覆盖")
             .toolbar {
@@ -216,58 +226,61 @@ private struct PluginSettingsView: View {
     @State private var localName = ""
     var body: some View {
         Form {
-            Section {
-                Button { localName = model.presentation.names[plugin.id] ?? ""; editingName = true } label: {
-                    LabeledContent("本地名称", value: model.displayName(plugin))
-                }.accessibilityIdentifier("plugin-local-name")
-            }
-            Section("来源") {
-                if let repository = plugin.repository?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   let url = URL(string: "https://github.com/" + repository) {
-                    Link(destination: url) {
-                        Label(url.absoluteString, systemImage: "arrow.up.right.square")
-                            .font(.callout).textSelection(.enabled)
-                    }.accessibilityIdentifier("plugin-repository")
-                } else { LabeledContent("安装来源", value: "本地文件") }
-                LabeledContent("安装位置") {
-                    Text(plugin.directory.path).font(.caption.monospaced())
-                        .textSelection(.enabled).accessibilityIdentifier("plugin-install-location")
-                }
-            }
-            ForEach(plugin.manifest.settings ?? []) { setting in
+            Group {
                 Section {
-                    switch setting.type {
-                    case "password": SecureField(setting.label, text: binding(setting.key))
-                    case "boolean": Toggle(setting.label, isOn: Binding(get: { values[setting.key] == "true" }, set: { values[setting.key] = $0 ? "true" : "false" }))
-                    case "select":
-                        Picker(setting.label, selection: binding(setting.key)) {
-                            Text("未设置").tag("")
-                            ForEach(setting.options ?? [], id: \.value) { Text($0.label).tag($0.value) }
-                        }
-                    default: TextField(setting.label, text: binding(setting.key)).autocorrectionDisabled().focused($editing)
+                    Button { localName = model.presentation.names[plugin.id] ?? ""; editingName = true } label: {
+                        LabeledContent("本地名称", value: model.displayName(plugin))
+                    }.accessibilityIdentifier("plugin-local-name")
+                }
+                Section("来源") {
+                    if let repository = plugin.repository?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       let url = URL(string: "https://github.com/" + repository) {
+                        Link(destination: url) {
+                            Label(url.absoluteString, systemImage: "arrow.up.right.square")
+                                .font(.callout).textSelection(.enabled)
+                        }.accessibilityIdentifier("plugin-repository")
+                    } else { LabeledContent("安装来源", value: "本地文件") }
+                    LabeledContent("安装位置") {
+                        Text(plugin.directory.path).font(.caption.monospaced())
+                            .textSelection(.enabled).accessibilityIdentifier("plugin-install-location")
                     }
-                    if let link = setting.link, let url = URL(string: link), ["http", "https"].contains(url.scheme ?? "") { Link("查看说明", destination: url) }
-                } footer: { if let help = setting.help { Text(help) } }
-            }
-            Toggle("启用音源", isOn: Binding(get: { !model.disabled.contains(plugin.id) }, set: { enabled in Task { await model.setEnabled(plugin, enabled: enabled) } }))
-                .disabled(model.busy)
-            if plugin.repository != nil {
-                Button("更新插件") { Task { await model.update(plugin) } }.disabled(model.busy)
-                if let issue = model.updateIssues[plugin.id] { Text(issue).font(.caption).foregroundStyle(.secondary) }
-            }
-            Section { DisclosureGroup("网络权限") { ForEach(plugin.manifest.permissions?.network ?? [], id: \.self) { Text($0).font(.caption.monospaced()) } }.accessibilityIdentifier("plugin-network-permissions") }
-            Button("保存") {
-                editing = false; saving = true; saved = false
-                Task { await model.saveSettings(values, for: plugin); saving = false; saved = model.errorMessage == nil }
-            }.disabled(!loaded || saving)
-            if saving { ProgressView() }
-            if saved { Label("已保存", systemImage: "checkmark.circle").foregroundStyle(.secondary) }
-            if let error = error ?? model.errorMessage { Text(error).foregroundStyle(.red) }
-            Section {
-                Button("删除插件", systemImage: "trash", role: .destructive) { confirmingRemoval = true }
-                    .accessibilityIdentifier("delete-installed-plugin")
+                }
+                ForEach(plugin.manifest.settings ?? []) { setting in
+                    Section {
+                        switch setting.type {
+                        case "password": SecureField(setting.label, text: binding(setting.key))
+                        case "boolean": Toggle(setting.label, isOn: Binding(get: { values[setting.key] == "true" }, set: { values[setting.key] = $0 ? "true" : "false" }))
+                        case "select":
+                            Picker(setting.label, selection: binding(setting.key)) {
+                                Text("未设置").tag("")
+                                ForEach(setting.options ?? [], id: \.value) { Text($0.label).tag($0.value) }
+                            }
+                        default: TextField(setting.label, text: binding(setting.key)).autocorrectionDisabled().focused($editing)
+                        }
+                        if let link = setting.link, let url = URL(string: link), ["http", "https"].contains(url.scheme ?? "") { Link("查看说明", destination: url) }
+                    } footer: { if let help = setting.help { Text(help) } }
+                }
+                Toggle("启用音源", isOn: Binding(get: { !model.disabled.contains(plugin.id) }, set: { enabled in Task { await model.setEnabled(plugin, enabled: enabled) } }))
                     .disabled(model.busy)
-            }
+                if plugin.repository != nil {
+                    Button("更新插件") { Task { await model.update(plugin) } }.disabled(model.busy)
+                    if let issue = model.updateIssues[plugin.id] { Text(issue).font(.caption).foregroundStyle(.secondary) }
+                }
+                Section { DisclosureGroup("网络权限") { ForEach(plugin.manifest.permissions?.network ?? [], id: \.self) { Text($0).font(.caption.monospaced()) } }.accessibilityIdentifier("plugin-network-permissions") }
+                Button("保存") {
+                    editing = false; saving = true; saved = false
+                    Task { await model.saveSettings(values, for: plugin); saving = false; saved = model.errorMessage == nil }
+                }.disabled(!loaded || saving)
+                if saving { ProgressView() }
+                if saved { Label("已保存", systemImage: "checkmark.circle").foregroundStyle(.secondary) }
+                if let error = error ?? model.errorMessage { Text(error).foregroundStyle(.red) }
+                Section {
+                    Button("删除插件", systemImage: "trash", role: .destructive) { confirmingRemoval = true }
+                        .accessibilityIdentifier("delete-installed-plugin")
+                        .disabled(model.busy)
+                }
+
+            }.modifier(SkinRow())
         }
         .navigationTitle(model.displayName(plugin))
         .alert("本地名称", isPresented: $editingName) {

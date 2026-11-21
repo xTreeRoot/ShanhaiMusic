@@ -57,9 +57,9 @@ struct MusicErrorRow: View {
 struct MusicGroupedList: ViewModifier {
     func body(content: Content) -> some View {
         #if os(iOS)
-        content.listStyle(.insetGrouped)
+        content.listStyle(.insetGrouped).modifier(SkinSurface(defaultColor: MBTheme.grouped, list: true))
         #else
-        content.listStyle(.inset)
+        content.listStyle(.inset).modifier(SkinSurface(defaultColor: MBTheme.grouped, list: true))
         #endif
     }
 }

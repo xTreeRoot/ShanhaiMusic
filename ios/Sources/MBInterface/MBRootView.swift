@@ -59,6 +59,7 @@ public struct MBRootView: View {
     private let demo: Bool
     private let demoTrackProblems: Bool
     private var search: SearchModel { trackSearch }
+    private var skinAccent: Color { skin.preview == nil && skin.image == nil ? MBTheme.accent : (skin.preview != nil ? skin.previewStyle : preferences.values.backgroundStyle).accent.color }
 
     public init(source: any MusicSource, sourceID: String = "demo", demo: Bool = false) {
         let preview = demo ? DemoLibrary() : nil
@@ -158,11 +159,10 @@ public struct MBRootView: View {
             #endif
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if skin.preview != nil { BackgroundPreviewControls(skin: skin) {
-                    if let opacity = await skin.confirmPreview() { preferences.values.backgroundOpacity = opacity }
+                    let style = skin.previewStyle
+                    if let opacity = await skin.confirmPreview() { preferences.values.backgroundOpacity = opacity; preferences.values.backgroundStyle = style }
                 } }
             }
-            .environment(\.backgroundSkinImage, skin.preview ?? skin.image)
-            .environment(\.backgroundSkinOpacity, skin.preview != nil ? skin.previewOpacity : preferences.values.backgroundOpacity)
             .preferredColorScheme(preferences.values.appearance == .system ? nil : preferences.values.appearance == .dark ? .dark : .light)
             .playerPresentation(isPresented: $showingPlayer) { NowPlayingView(playback: playback, demo: demo, interactionSource: currentInteractions, librarySource: currentLibrarySource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: { video.watchCurrent() }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
             .sheet(isPresented: $showingQueue) { QueueView(playback: playback) }
@@ -325,7 +325,7 @@ public struct MBRootView: View {
         playback.holdForVideo((video.isVisible || video.isFloating) && (video.isLoading || video.isBuffering))
     }
 
-    public var body: some View {
+    private var playbackSurface: some View {
         AnyView(playbackObservedTabs)
             .overlay {
                 if video.isFloating && preferences.values.inAppVideoWindow {
@@ -359,6 +359,10 @@ public struct MBRootView: View {
                 if request.more { await request.model.loadMore() }
                 else { await request.model.search(request.query) }
             }
+    }
+
+    public var body: some View {
+        AnyView(playbackSurface)
             .environment(\.sourceNames, sourceDisplayNames)
             .environment(\.pluginUI, plugins.ui)
             .modifier(PluginLinkPresentation(service: plugins.ui))
@@ -367,7 +371,12 @@ public struct MBRootView: View {
             .environment(\.lyricSparks, preferences.values.stageSparks)
             .environment(\.lyricVisualStyle, preferences.values.lyricStyle)
             .environment(\.locale, Locale(identifier: preferences.values.language.languageCode))
-            .tint(MBTheme.accent)
+            .tint(skinAccent)
+            .modifier(SkinCanvas())
+            .environment(\.backgroundSkinImage, skin.preview ?? skin.image)
+            .environment(\.backgroundSkinOpacity, skin.preview != nil ? skin.previewOpacity : preferences.values.backgroundOpacity)
+            .environment(\.backgroundSkinStyle, skin.preview != nil ? skin.previewStyle : preferences.values.backgroundStyle)
+            .environment(\.skinAccent, skinAccent)
     }
 
     private func updateSuggestions() async {
@@ -387,18 +396,22 @@ public struct MBRootView: View {
         if usesSidebar {
             NavigationSplitView(columnVisibility: $columns) {
                 List {
-                    Section("发现") {
-                        Button("首页", systemImage: "house") { video.browse(); path = []; input = "" }
-                        ForEach(DiscoveryCategory.allCases) { category in
-                            Button(LocalizedStringKey(category.title)) { video.browse(); path = [.discovery(category)] }
+                    Group {
+                        Section("发现") {
+                            Button("首页", systemImage: "house") { video.browse(); path = []; input = "" }
+                            ForEach(DiscoveryCategory.allCases) { category in
+                                Button(LocalizedStringKey(category.title)) { video.browse(); path = [.discovery(category)] }
+                            }
                         }
-                    }
-                    Section("播放器") {
-                        Button("听歌模式", systemImage: "music.note") { chooseMode(.music) }
-                        Button("视频模式", systemImage: "play.rectangle") { chooseMode(.video) }
-                        Button("网络设置", systemImage: "gearshape") { showingSettings = true }
-                    }
+                        Section("播放器") {
+                            Button("听歌模式", systemImage: "music.note") { chooseMode(.music) }
+                            Button("视频模式", systemImage: "play.rectangle") { chooseMode(.video) }
+                            Button("网络设置", systemImage: "gearshape") { showingSettings = true }
+                        }
+
+                    }.modifier(SkinRow())
                 }
+                .modifier(SkinSurface(defaultColor: MBTheme.grouped, list: true))
                 .navigationTitle("山海")
                 .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 260)
             } detail: { navigation }
@@ -418,6 +431,8 @@ public struct MBRootView: View {
         NavigationStack(path: $path) {
             DiscoveryPager(sources: sourceTabs, providers: discoveryProviders, selected: selectedSourceID,
                            switchSource: switchSource, videoMode: video.mode == .video, select: select, menu: trackMenu)
+                // 分页容器会隔开子页面的 toolbar preference，导航栏皮肤需设置在实际导航根内容上。
+                .modifier(SkinSurface(defaultColor: MBTheme.background))
                 .navigationTitle("")
                 .modifier(CompactRootNavigation())
                 .toolbar {
@@ -425,7 +440,7 @@ public struct MBRootView: View {
                     toolbar
                 }
                 .navigationDestination(for: MBPage.self) { destination($0) }
-        }
+        }.modifier(SkinSurface(defaultColor: MBTheme.background))
         }
     }
 
@@ -464,7 +479,9 @@ public struct MBRootView: View {
             .navigationTitle("")
             .modifier(CompactRootNavigation())
             .navigationDestination(for: MBPage.self) { destination($0) }
+            .modifier(SkinSurface(defaultColor: MBTheme.background))
         }
+        .modifier(SkinSurface(defaultColor: MBTheme.background))
         .onChange(of: input) { _, value in
             if value.trimmingCharacters(in: .whitespacesAndNewlines) != search.query {
                 search.cancel()
@@ -497,7 +514,7 @@ public struct MBRootView: View {
                                     Image(systemName: category == .chart ? "chart.bar.fill" : category == .fresh ? "sparkles" : category == .trending ? "flame.fill" : "headphones").font(.title2)
                                     Text(LocalizedStringKey(category.title)).font(.headline)
                                 }.frame(maxWidth: .infinity, minHeight: 110, alignment: .leading).padding(16)
-                                    .background(MBTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                                    .background(skinAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
                             }.buttonStyle(.plain)
                         }
                     }
@@ -553,37 +570,40 @@ public struct MBRootView: View {
         } else if search.tracks.isEmpty && !search.hasMore { ContentUnavailableView.search(text: search.query) }
         else {
             List {
-                ForEach(search.warnings, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
-                ForEach(Array(search.tracks.enumerated()), id: \.element.id) { index, track in
-                    HStack(spacing: 4) {
-                        Button { selectSearch(search.tracks, index) } label: {
-                            let selected = playback.queue.current?.id == track.id
-                            VStack(alignment: .leading, spacing: 4) {
-                                TrackRow(track: track, selected: selected)
-                                Text("\(sourceTabs.first(where: { $0.id == track.sourceID })?.name ?? track.artist) · \(resourceTypeName(track.resourceType))\(track.resourceURL == nil ? "" : " · BT")")
-                                    .font(.caption).foregroundStyle(.secondary)
+                Group {
+                    ForEach(search.warnings, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+                    ForEach(Array(search.tracks.enumerated()), id: \.element.id) { index, track in
+                        HStack(spacing: 4) {
+                            Button { selectSearch(search.tracks, index) } label: {
+                                let selected = playback.queue.current?.id == track.id
+                                VStack(alignment: .leading, spacing: 4) {
+                                    TrackRow(track: track, selected: selected)
+                                    Text("\(sourceTabs.first(where: { $0.id == track.sourceID })?.name ?? track.artist) · \(resourceTypeName(track.resourceType))\(track.resourceURL == nil ? "" : " · BT")")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
                             }
+                                .buttonStyle(.plain).accessibilityLabel("选择 \(track.title)")
+                                .modifier(TrackProblemAccessibility(track: track, enabled: video.mode == .music))
+                            Menu { Button("保存到资料库", systemImage: "plus") { Task { await localLibrary.saveResource(track) } }; if track.resourceURL == nil { trackMenu(track) } else if let url = track.resourceURL { ShareLink(item: url) } } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("曲目操作 \(track.title)")
+                        }.contextMenu {
+                            Button("保存到资料库", systemImage: "plus") { Task { await localLibrary.saveResource(track) } }
+                            if track.resourceURL == nil { trackMenu(track) }
+                            else if let url = track.resourceURL { ShareLink(item: url) }
                         }
-                            .buttonStyle(.plain).accessibilityLabel("选择 \(track.title)")
-                            .modifier(TrackProblemAccessibility(track: track, enabled: video.mode == .music))
-                        Menu { Button("保存到资料库", systemImage: "plus") { Task { await localLibrary.saveResource(track) } }; if track.resourceURL == nil { trackMenu(track) } else if let url = track.resourceURL { ShareLink(item: url) } } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("曲目操作 \(track.title)")
-                    }.contextMenu {
-                        Button("保存到资料库", systemImage: "plus") { Task { await localLibrary.saveResource(track) } }
-                        if track.resourceURL == nil { trackMenu(track) }
-                        else if let url = track.resourceURL { ShareLink(item: url) }
                     }
-                }
-                if search.hasMore {
-                    VStack(spacing: 8) {
-                        if let message = search.errorMessage { Text(LocalizedStringKey(message)).font(.caption).foregroundStyle(.secondary) }
-                        if search.errorMessage != nil {
-                            Button("重试") { request = SearchRequest(model: search, query: search.query, more: true) }
-                        }
-                        PaginationFooter(page: "\(search.paginationGeneration):\(search.cursor)", loading: search.isLoading, blocked: search.errorMessage != nil) {
-                            await search.loadMore()
-                        }.id(ObjectIdentifier(search))
-                    }.frame(maxWidth: .infinity).listRowSeparator(.hidden)
-                }
+                    if search.hasMore {
+                        VStack(spacing: 8) {
+                            if let message = search.errorMessage { Text(LocalizedStringKey(message)).font(.caption).foregroundStyle(.secondary) }
+                            if search.errorMessage != nil {
+                                Button("重试") { request = SearchRequest(model: search, query: search.query, more: true) }
+                            }
+                            PaginationFooter(page: "\(search.paginationGeneration):\(search.cursor)", loading: search.isLoading, blocked: search.errorMessage != nil) {
+                                await search.loadMore()
+                            }.id(ObjectIdentifier(search))
+                        }.frame(maxWidth: .infinity).listRowSeparator(.hidden)
+                    }
+
+                }.modifier(SkinRow())
             }.listStyle(.plain).modifier(PaginationViewport()).modifier(SkinSurface(list: true))
         }
     }
@@ -752,4 +772,3 @@ private struct SearchRequest {
     let query: String
     var more = false
 }
-

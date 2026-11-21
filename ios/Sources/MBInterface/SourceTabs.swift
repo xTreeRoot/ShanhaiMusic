@@ -9,6 +9,8 @@ struct SourceTabs: View {
     let sources: [SourceTab]
     let selected: String
     let select: (String) -> Void
+    @Environment(\.backgroundSkinImage) private var skinImage
+    @Environment(\.skinAccent) private var skinAccent
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -26,7 +28,7 @@ struct SourceTabs: View {
                                 .fixedSize(horizontal: true, vertical: false)
                                 .contentShape(Rectangle())
                                 .overlay(alignment: .bottom) {
-                                    if active { Capsule().fill(MBTheme.accent).frame(height: 3).padding(.horizontal, 7).padding(.bottom, 4) }
+                                    if active { Capsule().fill(skinAccent).frame(height: 3).padding(.horizontal, 7).padding(.bottom, 4) }
                                 }
                         }
                         .buttonStyle(.plain)
@@ -45,7 +47,7 @@ struct SourceTabs: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 48)
-        .background(.bar)
+        .background { if skinImage == nil { Rectangle().fill(.bar) } }
     }
 }
 

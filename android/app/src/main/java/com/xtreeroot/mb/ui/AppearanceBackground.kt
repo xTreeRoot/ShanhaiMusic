@@ -26,9 +26,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+import com.xtreeroot.mb.preferences.BackgroundSkinStyle
+
 internal enum class BackgroundError { Load, Import, Clear }
 
-internal data class AppearanceBackgroundState(val image: Bitmap? = null, val busy: Boolean = true, val error: BackgroundError? = null, val candidate: Bitmap? = null, val preview: Bitmap? = null, val previewOpacity: Float = 0.25f)
+internal data class AppearanceBackgroundState(val image: Bitmap? = null, val busy: Boolean = true, val error: BackgroundError? = null, val candidate: Bitmap? = null, val preview: Bitmap? = null, val previewOpacity: Float = 0.25f, val previewStyle: BackgroundSkinStyle = BackgroundSkinStyle())
 
 internal class AppearanceBackgroundModel(application: Application) : AndroidViewModel(application) {
     private val store = (application as MBApplication).appearanceBackground
@@ -61,12 +63,15 @@ internal class AppearanceBackgroundModel(application: Application) : AndroidView
         editJob?.cancel()
         current.value = current.value.copy(busy = false, candidate = null, error = null)
     }
-    fun beginPreview(candidate: Bitmap, opacity: Float) {
+    fun beginPreview(candidate: Bitmap, opacity: Float, style: BackgroundSkinStyle = BackgroundSkinStyle()) {
         if (!current.value.busy) current.value = current.value.copy(candidate = null, preview = candidate,
-            previewOpacity = opacity.coerceIn(0f, 1f), error = null)
+            previewOpacity = opacity.coerceIn(0f, 1f), previewStyle = style, error = null)
     }
     fun setPreviewOpacity(opacity: Float) {
         if (!current.value.busy) current.value = current.value.copy(previewOpacity = opacity.coerceIn(0f, 1f))
+    }
+    fun setPreviewStyle(transform: (BackgroundSkinStyle) -> BackgroundSkinStyle) {
+        if (!current.value.busy) current.value = current.value.copy(previewStyle = transform(current.value.previewStyle))
     }
     fun cancelPreview() {
         if (!current.value.busy) current.value = current.value.copy(preview = null, error = null)
@@ -79,7 +84,7 @@ internal class AppearanceBackgroundModel(application: Application) : AndroidView
         editJob = viewModelScope.launch {
             try {
                 val saved = store.save(candidate)
-                getApplication<MBApplication>().settings.update { it.copy(backgroundOpacity = previous.previewOpacity) }
+                getApplication<MBApplication>().settings.update { it.copy(backgroundOpacity = previous.previewOpacity, backgroundStyle = previous.previewStyle) }
                 current.value = AppearanceBackgroundState(image = saved, busy = false)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { current.value = previous.copy(busy = false, error = BackgroundError.Import) }
@@ -101,22 +106,6 @@ internal class AppearanceBackgroundModel(application: Application) : AndroidView
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { previous.copy(busy = false, error = error) }
         }
-    }
-}
-
-@Composable
-internal fun AppearanceBackdrop(image: Bitmap?, dark: Boolean, opacity: Float? = null, content: @Composable (Color) -> Unit) {
-    val base = MaterialTheme.colorScheme.background
-    Box(Modifier.fillMaxSize()) {
-        if (image != null) {
-            Box(Modifier.matchParentSize().background(base))
-            Image(remember(image) { image.asImageBitmap() }, contentDescription = null, modifier = Modifier.matchParentSize(),
-                contentScale = ContentScale.Crop)
-            val alpha = opacity?.coerceIn(0f, 1f) ?: if (dark) 0.24f else 0.20f
-            val veil = (if (dark) Color.Black else Color.White).copy(alpha = 1f - alpha)
-            Box(Modifier.matchParentSize().background(veil))
-        }
-        content(if (image == null) base else Color.Transparent)
     }
 }
 

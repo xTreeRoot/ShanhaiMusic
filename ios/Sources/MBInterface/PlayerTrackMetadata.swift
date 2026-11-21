@@ -70,6 +70,7 @@ struct PlayerTrackMetadata: View {
 
 /// 歌曲底部面板共用全局音质偏好；选择后由现有播放链路用于后续歌曲。
 struct PlayerTrackActionsSheet: View {
+    @Environment(\.skinAccent) private var skinAccent
     let track: Track
     let downloads: DownloadModel?
     let preferences: PreferencesModel?
@@ -125,7 +126,7 @@ struct PlayerTrackActionsSheet: View {
                                     preferences.values.quality = quality
                                 } label: {
                                     Text(quality.title).font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).padding(.vertical, 12)
-                                        .background(preferences.values.quality == quality ? MBTheme.accent.opacity(0.12) : Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                                        .background(preferences.values.quality == quality ? skinAccent.opacity(0.12) : Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
                                 }.buttonStyle(.plain).accessibilityIdentifier("player-quality-" + quality.rawValue)
                                     .accessibilityAddTraits(preferences.values.quality == quality ? .isSelected : [])
                             }

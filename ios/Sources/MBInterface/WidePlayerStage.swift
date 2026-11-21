@@ -11,6 +11,7 @@ enum WidePlayerSection: String, CaseIterable, Identifiable {
 
 /// 横屏与桌面共享的舞台分区；队列选曲仍由同一个 PlaybackModel 控制。
 struct WidePlayerStage: View {
+    @Environment(\.skinAccent) private var skinAccent
     let playback: PlaybackModel
     let demo: Bool
     let section: WidePlayerSection
@@ -55,7 +56,7 @@ struct WidePlayerStage: View {
                                     GeometryReader { cell in
                                         ArtworkView(track: track, size: cell.size.width)
                                             .overlay(alignment: .bottomTrailing) {
-                                                if index == playback.queue.index { Image(systemName: "checkmark.circle.fill").font(.title2).symbolRenderingMode(.palette).foregroundStyle(.white, MBTheme.accent).padding(6) }
+                                                if index == playback.queue.index { Image(systemName: "checkmark.circle.fill").font(.title2).symbolRenderingMode(.palette).foregroundStyle(.white, skinAccent).padding(6) }
                                             }
                                     }.aspectRatio(1, contentMode: .fit)
                                     Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(1)
@@ -99,6 +100,7 @@ private struct PlayerComments: View {
 
 /// 沿用字幕的逐字时间，暂停与系统减少动态效果时停止字形摆动。
 private struct RhythmLyrics: View {
+    @Environment(\.skinAccent) private var skinAccent
     let timeline: CaptionTimeline
     let position: Int64
     let playing: Bool
@@ -119,7 +121,7 @@ private struct RhythmLyrics: View {
                         ForEach(Array(line.timedWords.enumerated()), id: \.offset) { offset, word in
                             Text(word.text).font(.system(size: 38, weight: .bold, design: .rounded)).foregroundStyle(.secondary)
                                 .overlay(alignment: .leading) {
-                                    GeometryReader { size in MBTheme.accent.frame(width: size.size.width * word.progress(at: position)) }
+                                    GeometryReader { size in skinAccent.frame(width: size.size.width * word.progress(at: position)) }
                                         .mask(Text(word.text).font(.system(size: 38, weight: .bold, design: .rounded)))
                                 }.fixedSize()
                                 .offset(y: reduceMotion ? 0 : sin(phase + Double(offset) * 0.65) * 7)

@@ -100,36 +100,39 @@ struct DiscoveryPageView: View {
     }
     var body: some View {
         List {
-            if let section = model.section, !section.tracks.isEmpty {
-                if videoMode {
-                    if let subtitle = section.subtitle { Text(subtitle).font(.subheadline).foregroundStyle(.secondary) }
-                    VideoTrackGrid(tracks: section.tracks, select: select, menu: menu).listRowSeparator(.hidden)
-                } else {
-                    Section {
-                        HStack(spacing: 12) {
-                            if let track = section.tracks.first { ArtworkView(track: track, size: 76) }
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(LocalizedStringKey(model.category.title)).font(.title2.bold())
-                                if let subtitle = section.subtitle { Text(subtitle).font(.subheadline).foregroundStyle(.secondary) }
-                                Text("\(section.tracks.count) 首").font(.caption).foregroundStyle(.secondary)
+            Group {
+                if let section = model.section, !section.tracks.isEmpty {
+                    if videoMode {
+                        if let subtitle = section.subtitle { Text(subtitle).font(.subheadline).foregroundStyle(.secondary) }
+                        VideoTrackGrid(tracks: section.tracks, select: select, menu: menu).listRowSeparator(.hidden)
+                    } else {
+                        Section {
+                            HStack(spacing: 12) {
+                                if let track = section.tracks.first { ArtworkView(track: track, size: 76) }
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(LocalizedStringKey(model.category.title)).font(.title2.bold())
+                                    if let subtitle = section.subtitle { Text(subtitle).font(.subheadline).foregroundStyle(.secondary) }
+                                    Text("\(section.tracks.count) 首").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }.padding(.vertical, 8)
+                            Button { select(section.tracks, 0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
+                        }.listRowSeparator(.hidden)
+                        Section {
+                            ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
+                                HStack(spacing: 4) {
+                                    Button { select(section.tracks, index) } label: { TrackRow(track: track) }.buttonStyle(.plain).accessibilityLabel("播放 \(track.title)，\(track.artist)")
+                                    Menu { menu(track) } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("曲目操作 \(track.title)")
+                                }.contextMenu { menu(track) }
                             }
-                        }.padding(.vertical, 8)
-                        Button { select(section.tracks, 0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
-                    }.listRowSeparator(.hidden)
-                    Section {
-                        ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
-                            HStack(spacing: 4) {
-                                Button { select(section.tracks, index) } label: { TrackRow(track: track) }.buttonStyle(.plain).accessibilityLabel("播放 \(track.title)，\(track.artist)")
-                                Menu { menu(track) } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("曲目操作 \(track.title)")
-                            }.contextMenu { menu(track) }
                         }
                     }
                 }
-            }
-            if let message = model.errorMessage { MusicErrorRow(message: message) { Task { await model.refresh() } } }
-            if model.isLoading && model.section == nil { ProgressView().frame(maxWidth: .infinity) }
-            else if model.section?.tracks.isEmpty == true { ContentUnavailableView("暂无视频", systemImage: "music.note") }
-        }.listStyle(.plain)
+                if let message = model.errorMessage { MusicErrorRow(message: message) { Task { await model.refresh() } } }
+                if model.isLoading && model.section == nil { ProgressView().frame(maxWidth: .infinity) }
+                else if model.section?.tracks.isEmpty == true { ContentUnavailableView("暂无视频", systemImage: "music.note") }
+
+            }.modifier(SkinRow())
+        }.listStyle(.plain).modifier(SkinSurface(defaultColor: MBTheme.background, list: true))
         .navigationTitle(Text(LocalizedStringKey(model.category.title)))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

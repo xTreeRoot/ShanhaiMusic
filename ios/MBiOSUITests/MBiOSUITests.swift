@@ -65,7 +65,7 @@ final class MBiOSUITests: XCTestCase {
 
     @MainActor func testBackgroundCropPreviewAndConfirmationApplyOnlyAtTheEnd() {
         let app = backgroundEditorApp()
-        app.sliders["背景缩放"].adjust(toNormalizedSliderPosition: 0.4)
+        app.sliders["背景缩放"].adjust(toNormalizedSliderPosition: 0.1)
         app.descendants(matching: .any)["background-crop-canvas"].firstMatch.swipeLeft()
         app.buttons["preview-background-image"].tap()
         let slider = app.sliders["background-transparency"]
@@ -73,6 +73,16 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertFalse(app.buttons["choose-background-skin"].exists)
         XCTAssertTrue(app.buttons["切换播放模式"].exists)
         slider.adjust(toNormalizedSliderPosition: 0.35)
+        app.sliders["background-image-zoom"].adjust(toNormalizedSliderPosition: 0.07)
+        app.sliders["background-blur"].adjust(toNormalizedSliderPosition: 0.15)
+        app.buttons["主题色 蔷薇"].tap()
+        let playerSwitch = app.switches["background-preview-player-switch"]
+        // SwiftUI 的 Toggle 可访问范围包含整行标题，真实开关位于行尾。
+        playerSwitch.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+            .withOffset(CGVector(dx: -25, dy: 0)).tap()
+        XCTAssertEqual(playerSwitch.value as? String, "1")
+        let selectedZoom = app.sliders["background-image-zoom"].value as? String
+        let selectedBlur = app.sliders["background-blur"].value as? String
         let selectedTransparency = slider.value as? String
         XCTAssertNotNil(selectedTransparency)
         capture("背景-发现页实时预览", app: app)
@@ -84,8 +94,45 @@ final class MBiOSUITests: XCTestCase {
         app.buttons["preview-current-background"].tap()
         XCTAssertTrue(slider.waitForExistence(timeout: 5))
         XCTAssertEqual(slider.value as? String, selectedTransparency)
+        XCTAssertEqual(app.sliders["background-image-zoom"].value as? String, selectedZoom)
+        XCTAssertEqual(app.sliders["background-blur"].value as? String, selectedBlur)
+        XCTAssertEqual(app.switches["background-preview-player-switch"].value as? String, "1")
         capture("背景-确认后使用", app: app)
+        app.sliders["background-blur"].adjust(toNormalizedSliderPosition: 0)
         app.buttons["cancel-background-edit"].tap()
+        selectTab("搜索", app: app)
+        capture("背景-搜索页连续背景", app: app)
+        let field = app.textFields["搜索视频、音乐、UP 主"]
+        field.tap(); field.typeText("skin fixture\n")
+        let song = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "选择 ")).firstMatch
+        XCTAssertTrue(song.waitForExistence(timeout: 5)); song.tap()
+        let player = app.descendants(matching: .any)["music-player-root"].firstMatch
+        XCTAssertTrue(player.waitForExistence(timeout: 5))
+        XCTAssertEqual(player.value as? String, "自定义播放器背景")
+        capture("背景-音乐播放器应用皮肤", app: app)
+        app.buttons["收起"].tap()
+        selectTab("资料库", app: app); capture("背景-资料库连续背景", app: app)
+        selectTab("我的", app: app); capture("背景-我的连续背景", app: app)
+        selectTab("设置", app: app); capture("背景-设置连续背景", app: app)
+        app.buttons["background-skin-settings"].tap()
+        if app.buttons["preview-background-image"].waitForExistence(timeout: 2) { app.buttons["cancel-background-edit"].tap() }
+        let savedSwitch = app.switches["background-player-switch"]
+        XCTAssertTrue(savedSwitch.waitForExistence(timeout: 5))
+        XCTAssertEqual(savedSwitch.value as? String, "1")
+        savedSwitch.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+            .withOffset(CGVector(dx: -25, dy: 0)).tap()
+        XCTAssertEqual(savedSwitch.value as? String, "0")
+        selectTab("搜索", app: app)
+        song.tap()
+        XCTAssertTrue(player.waitForExistence(timeout: 5))
+        XCTAssertEqual(player.value as? String, "默认播放器背景")
+        capture("背景-关闭播放器应用皮肤", app: app)
+        app.buttons["收起"].tap()
+        selectTab("设置", app: app)
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "外观")).firstMatch.tap()
+        app.buttons["深色"].tap()
+        capture("背景-深色设置连续背景", app: app)
+        selectTab("资料库", app: app); capture("背景-深色资料库连续背景", app: app)
     }
 
     @MainActor func testCancellingBackgroundPreviewAndInvalidURLPreserveCurrentSkin() {

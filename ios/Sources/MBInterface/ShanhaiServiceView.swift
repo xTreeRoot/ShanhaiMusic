@@ -67,7 +67,7 @@ struct ShanhaiServiceView: View {
                 if let message = model.message { Section { Text(message).font(.callout).accessibilityIdentifier("node-result") } }
             }
             .modifier(MusicGroupedList())
-            .modifier(SkinSurface(list: true, base: MBTheme.grouped))
+            .modifier(SkinSurface(defaultColor: MBTheme.grouped, list: true))
             .navigationTitle("山海服务")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             #if os(iOS)

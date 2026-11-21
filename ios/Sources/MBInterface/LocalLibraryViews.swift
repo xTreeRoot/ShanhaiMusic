@@ -11,51 +11,54 @@ struct LocalLibraryPage: View {
     @State private var query = ""
     var body: some View {
         List {
-            if page == .albums || page == .artists {
-                ForEach(collections.filter { LocalCatalog.matches($0.title, query: query) }) { collection in
-                    NavigationLink(value: page == .albums ? LocalPage.album(collection.id) : .artist(collection.id)) { LocalCollectionRow(collection: collection) }
-                }
-                if collections.isEmpty { ContentUnavailableView(LocalizedStringKey(page == .albums ? "暂无专辑" : "暂无作者"), systemImage: page == .albums ? "square.stack" : "person", description: Text("导入带标签的音频后会自动整理")) }
-            } else {
-                if !tracks.isEmpty {
-                    Section {
-                        if let track = tracks.first {
-                            HStack(spacing: 16) {
-                                ArtworkView(track: track, size: 88)
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(title).font(.title2.bold())
-                                    Text("\(tracks.count) 首").font(.subheadline).foregroundStyle(.secondary)
-                                }
-                            }.padding(.vertical, 12)
-                        }
-                        HStack(spacing: 12) {
-                            Button { playback.select(filtered, index: 0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
-                            Button { playback.select(filtered, index: 0); if !playback.queue.shuffled { playback.toggleShuffle() } } label: { MusicActionLabel(title: "随机播放", symbol: "shuffle") }.buttonStyle(.bordered)
-                        }.disabled(filtered.isEmpty)
-                    }.listRowSeparator(.hidden)
-                }
-                Section {
-                    LocalTrackRows(tracks: filtered, playback: playback, downloads: downloads, playlistID: playlistID, library: library)
-                        .onDelete { offsets in
-                            let selected = offsets.compactMap { filtered.indices.contains($0) ? filtered[$0] : nil }
-                            Task {
-                                if let playlistID { await library.remove(selected, from: playlistID) }
-                                else if page == .favorites { for track in selected { await library.toggleFavorite(track) } }
+            Group {
+                if page == .albums || page == .artists {
+                    ForEach(collections.filter { LocalCatalog.matches($0.title, query: query) }) { collection in
+                        NavigationLink(value: page == .albums ? LocalPage.album(collection.id) : .artist(collection.id)) { LocalCollectionRow(collection: collection) }
+                    }
+                    if collections.isEmpty { ContentUnavailableView(LocalizedStringKey(page == .albums ? "暂无专辑" : "暂无作者"), systemImage: page == .albums ? "square.stack" : "person", description: Text("导入带标签的音频后会自动整理")) }
+                } else {
+                    if !tracks.isEmpty {
+                        Section {
+                            if let track = tracks.first {
+                                HStack(spacing: 16) {
+                                    ArtworkView(track: track, size: 88)
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(title).font(.title2.bold())
+                                        Text("\(tracks.count) 首").font(.subheadline).foregroundStyle(.secondary)
+                                    }
+                                }.padding(.vertical, 12)
                             }
-                        }
-                        .onMove { offsets, destination in
-                            if let playlistID { Task { await library.move(in: playlistID, offsets: offsets, to: destination) } }
-                        }
-                        .deleteDisabled(playlistID == nil && page != .favorites)
-                        .moveDisabled(playlistID == nil || !query.isEmpty)
-                    if tracks.isEmpty { ContentUnavailableView("暂无歌曲", systemImage: "music.note", description: Text(LocalizedStringKey(playlistID == nil ? "在曲目菜单添加喜欢，或导入音频" : "点添加歌曲选择资料库里的音频"))) }
-                    else if filtered.isEmpty { ContentUnavailableView.search(text: query) }
+                            HStack(spacing: 12) {
+                                Button { playback.select(filtered, index: 0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
+                                Button { playback.select(filtered, index: 0); if !playback.queue.shuffled { playback.toggleShuffle() } } label: { MusicActionLabel(title: "随机播放", symbol: "shuffle") }.buttonStyle(.bordered)
+                            }.disabled(filtered.isEmpty)
+                        }.listRowSeparator(.hidden)
+                    }
+                    Section {
+                        LocalTrackRows(tracks: filtered, playback: playback, downloads: downloads, playlistID: playlistID, library: library)
+                            .onDelete { offsets in
+                                let selected = offsets.compactMap { filtered.indices.contains($0) ? filtered[$0] : nil }
+                                Task {
+                                    if let playlistID { await library.remove(selected, from: playlistID) }
+                                    else if page == .favorites { for track in selected { await library.toggleFavorite(track) } }
+                                }
+                            }
+                            .onMove { offsets, destination in
+                                if let playlistID { Task { await library.move(in: playlistID, offsets: offsets, to: destination) } }
+                            }
+                            .deleteDisabled(playlistID == nil && page != .favorites)
+                            .moveDisabled(playlistID == nil || !query.isEmpty)
+                        if tracks.isEmpty { ContentUnavailableView("暂无歌曲", systemImage: "music.note", description: Text(LocalizedStringKey(playlistID == nil ? "在曲目菜单添加喜欢，或导入音频" : "点添加歌曲选择资料库里的音频"))) }
+                        else if filtered.isEmpty { ContentUnavailableView.search(text: query) }
+                    }
+                    if playlistID != nil { Section { Button("添加歌曲", systemImage: "plus") { adding = true } } }
                 }
-                if playlistID != nil { Section { Button("添加歌曲", systemImage: "plus") { adding = true } } }
-            }
-            if let error = library.errorMessage { Text(LocalizedStringKey(error)).font(.caption).foregroundStyle(.red) }
+                if let error = library.errorMessage { Text(LocalizedStringKey(error)).font(.caption).foregroundStyle(.red) }
+
+            }.modifier(SkinRow())
         }
-        .listStyle(.plain)
+        .listStyle(.plain).modifier(SkinSurface(defaultColor: MBTheme.background, list: true))
         .navigationTitle(Text(LocalizedStringKey(title)))
         .searchable(text: $query, prompt: "在此页面搜索")
         #if os(iOS)

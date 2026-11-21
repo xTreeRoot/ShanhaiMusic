@@ -8,6 +8,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,8 +48,11 @@ private val mbTypography = Typography(
 )
 
 @Composable
-internal fun MBTheme(dark: Boolean, content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (dark) mbDark else mbLight, typography = mbTypography,
+internal fun MBTheme(dark: Boolean, accent: Color? = null, content: @Composable () -> Unit) {
+    val base = if (dark) mbDark else mbLight
+    val colors = if (accent == null) base else base.copy(primary = accent,
+        onPrimary = if (accent.luminance() > 0.5f) Color(0xFF17181A) else Color.White)
+    MaterialTheme(colorScheme = colors, typography = mbTypography,
         shapes = Shapes(extraSmall = RoundedCornerShape(8.dp), small = RoundedCornerShape(12.dp),
             medium = RoundedCornerShape(18.dp), large = RoundedCornerShape(24.dp), extraLarge = RoundedCornerShape(28.dp)),
         content = content)
