@@ -1,0 +1,61 @@
+name: Deploy Shanhai Website
+
+on:
+  push:
+    branches: [main]
+    paths: ['website/**', 'package.json', 'bun.lock', '.github/workflows/website.yml']
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shanhai-website-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'xTreeRoot/ShanhaiMusic' && (github.event_name == 'release' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.5
+      - name: Validate and build the static website
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bun install --frozen-lockfile
+          python3 -B -m unittest discover -s website/deploy
+          bun run website:build
+          bun --filter website check
+          git rev-parse HEAD > website/dist/client/build-revision.txt
+      - name: Publish to the static web server
+        env:
+          DEPLOY_KEY: ${{ secrets.SHANHAI_WEBSITE_DEPLOY_KEY }}
+          HOST_KEY: ${{ vars.SHANHAI_WEBSITE_SSH_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          ssh_dir=$(mktemp -d)
+          trap 'rm -r "$ssh_dir"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$HOST_KEY" > "$ssh_dir/known_hosts"
+          tar -czf - -C website/dist/client . | ssh -T -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \
+            -o ConnectTimeout=15 -i "$ssh_dir/key" shanhai-web@shanhai.treeroot.top publish
+      - name: Check the public deployment
+        run: |
+          set -euo pipefail
+          base=https://shanhai.treeroot.top
+          curl -fsS --retry 3 --max-time 15 "$base/build-revision.txt" | cmp website/dist/client/build-revision.txt -
+          for page in zh zh/download zh/plugins; do
+            curl -fsS --retry 3 --max-time 15 "$base/$page/" | cmp "website/dist/client/$page/index.html" -
+          done

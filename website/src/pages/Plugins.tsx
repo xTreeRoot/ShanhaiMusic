@@ -1,130 +1,53 @@
-/** 展示社区插件目录及山海插件安装入口。 */
-import { For, Show, createSignal, onMount } from 'solid-js'
+/** 展示山海维护的插件，不读取上游的通用插件列表。 */
+import { For } from 'solid-js'
 import { Layout } from '../components/Layout'
 import { GitHubMark, Icon } from '../components/Icon'
-import { builtPlugins, repo } from '../site'
-import { fetchPlugins, installLink, pluginTopic, shortName, type Plugin } from '../plugins'
-import { LangLink, Tr, useT } from '../i18n'
+import { useT } from '../i18n'
 
-function count(n: number) {
-  return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `${n}`
-}
+const catalog = 'https://github.com/stars/xTreeRoot/lists/fork-mygo-%E5%B1%B1%E6%B5%B7-%E8%87%AA%E8%A1%8C%E7%BB%B4%E6%8A%A4%E4%BB%93%E5%BA%93-%E5%A4%9A%E5%B9%B3%E5%8F%B0'
+
+const plugins = [
+  { repo: 'mygo-music-bilibili', name: ['Bilibili', '哔哩哔哩'], detail: ['Video and search', '视频与搜索'] },
+  { repo: 'mygo-music-netease', name: ['NetEase Cloud Music', '网易云音乐'], detail: ['Music and playlists', '音乐与歌单'] },
+  { repo: 'mygo-music-qqmusic', name: ['QQ Music', 'QQ 音乐'], detail: ['Music, playlists and lyrics', '音乐、歌单与歌词'] },
+  { repo: 'mygo-music-bodian', name: ['Bodian Music', '波点音乐'], detail: ['Music and radio', '音乐与电台'] },
+  { repo: 'mygo-music-soda', name: ['Soda Music', '汽水音乐'], detail: ['Music plugin', '音乐插件'] },
+  { repo: 'mygo-music-youtube-music', name: ['YouTube Music', 'YouTube Music'], detail: ['Music plugin', '音乐插件'] },
+  { repo: 'mb-plugin-douyin', name: ['Douyin node library', '抖音 · 节点资料库'], detail: ['Preview · requires a SocialCrawlerHub node account', '预览版 · 需要 SocialCrawlerHub 节点账号'], preview: 'v0.1.0/mb-douyin-0.1.0.zip' },
+] as const
 
 export function Plugins() {
   const t = useT()
-  // The page is rendered with the plugins there were as the site was built,
-  // and asks GitHub for the ones published since once it runs.
-  const [plugins, setPlugins] = createSignal<Plugin[]>(builtPlugins)
-  onMount(() => {
-    fetchPlugins()
-      .then(setPlugins)
-      .catch(() => {})
-  })
-
   return (
     <Layout>
-      <section class="download">
-        <div class="section-head">
-          <p class="eyebrow">{t('Plugins', '插件')}</p>
-          <h1 class="display">
-            <Tr
-              en={
-                <>
-                  <span>More music,</span> <span>from plugins.</span>
-                </>
-              }
-              zh={
-                <>
-                  <span>更多的音乐，</span>
-                  <span>来自插件。</span>
-                </>
-              }
-            />
-          </h1>
-          <p class="lede">
-            {t(
-              'Plugins published on GitHub by the people who make them. Install one here, or with the + in Settings > Plugins by its repository. A plugin asks before it reaches anything, and you can remove it from its ⋯ menu.',
-              '由作者发布在 GitHub 上的插件。在这里安装，或在「设置 > 插件」中点 +，填入它的仓库。插件访问任何东西前都会先征得你的同意，也可以从它的 ⋯ 菜单中移除。',
+      <section class="wrap page-section">
+        <div class="page-intro">
+          <p class="eyebrow">{t('SHANHAI PLUGINS', '山海维护')}</p>
+          <h1 class="display">{t('Plugin library', '山海插件库')}</h1>
+          <p class="lede">{t('Install from a repository or download its plugin ZIP and import it in Shanhai.', '可以跳转山海安装，也可以下载插件发布页的 ZIP，从山海内导入。')}</p>
+          <a class="btn btn-ghost" href={catalog}><GitHubMark size={17} />{t('View our GitHub Stars list', '打开我们的 GitHub 星标列表')}</a>
+        </div>
+        <div class="plugin-grid">
+          <For each={plugins}>
+            {(plugin) => (
+              <article class="card plugin-card">
+                <h2>{t(plugin.name[0], plugin.name[1])}</h2>
+                <p>{t(plugin.detail[0], plugin.detail[1])}</p>
+                <div class="download-actions">
+                  <a class="text-link" href={'preview' in plugin
+                    ? `https://github.com/xTreeRoot/${plugin.repo}/releases/download/${plugin.preview}`
+                    : `mb://install-plugin?repo=xTreeRoot/${plugin.repo}`}>
+                    <Icon name="download" size={16} />{'preview' in plugin ? t('Download ZIP', '下载 ZIP') : t('Open in Shanhai', '在山海安装')}
+                  </a>
+                  <a class="text-link" href={`https://github.com/xTreeRoot/${plugin.repo}/releases`}>
+                    <GitHubMark size={16} />{t('Releases', '发布页')}
+                  </a>
+                </div>
+              </article>
             )}
-          </p>
+          </For>
         </div>
-
-        <Show
-          when={plugins().length > 0}
-          fallback={<p class="plugin-empty">{t('No plugins have been published yet.', '还没有人发布插件。')}</p>}
-        >
-          <div class="plugin-list">
-            <For each={plugins()}>{(p) => <PluginCard plugin={p} />}</For>
-          </div>
-        </Show>
-
-        <div class="install publish">
-          <h2>{t('Publish your plugin', '发布你的插件')}</h2>
-          <p>
-            <Tr
-              en={
-                <>
-                  Put it in a public GitHub repository and add the topic <code>{pluginTopic}</code> to it: it shows here
-                  once GitHub has it. <a href={`${repo}#publishing-a-plugin`}>How to publish a plugin</a>
-                </>
-              }
-              zh={
-                <>
-                  把它放进一个公开的 GitHub 仓库，并给仓库加上话题 <code>{pluginTopic}</code>，GitHub 收录后它就会出现在这里。
-                  <a href={`${repo}#publishing-a-plugin`}>如何发布插件</a>
-                </>
-              }
-            />
-          </p>
-        </div>
-
-        <p class="fine download-more">
-          <Icon name="download" size={14} />
-          <LangLink to="/download">{t('Install Shanhai first', '先安装山海')}</LangLink>
-        </p>
       </section>
     </Layout>
-  )
-}
-
-function PluginCard(props: { plugin: Plugin }) {
-  const t = useT()
-  const p = () => props.plugin
-  return (
-    <article class="platform plugin-card">
-      <div class="plugin-card-head">
-        <img class="plugin-avatar" src={`${p().avatar}&s=80`} alt="" width="40" height="40" loading="lazy" />
-        <div class="plugin-title">
-          <h2>{shortName(p().name)}</h2>
-          <a class="plugin-repo" href={p().url}>
-            {p().repo}
-          </a>
-        </div>
-        <span class="plugin-stars" aria-label={t(`${p().stars} stars`, `${p().stars} 个星标`)}>
-          <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="m12 2.8 2.8 5.8 6.3.9-4.6 4.4 1.1 6.3L12 17.2l-5.6 3 1.1-6.3-4.6-4.4 6.3-.9z"
-              fill="currentColor"
-            />
-          </svg>
-          {count(p().stars)}
-        </span>
-      </div>
-      <p class="platform-note">{p().description || t('No description.', '没有简介。')}</p>
-      <div class="plugin-actions">
-        <a
-          class="build primary"
-          href={installLink(p().repo)}
-          aria-label={t(`Install ${shortName(p().name)}`, `安装 ${shortName(p().name)}`)}
-        >
-          <Icon name="download" size={16} />
-          <span class="build-label">{t('Install', '安装')}</span>
-        </a>
-        <a class="build" href={p().url} aria-label={t(`${p().repo} on GitHub`, `GitHub 上的 ${p().repo}`)}>
-          <GitHubMark size={15} />
-          <span class="build-label">GitHub</span>
-        </a>
-      </div>
-    </article>
   )
 }

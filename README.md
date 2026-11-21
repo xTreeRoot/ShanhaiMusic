@@ -1,10 +1,10 @@
 # 山海 · 万端归一
 
-**山海（Shanhai，原 MB）** 希望把分散的平台连接成一个入口，让听音乐、看视频、读资讯与交流拥有一致的体验。当前以音乐、视频和本地资料库为主，通过插件扩展平台；社交与聊天平台是后续方向。
+**山海（Shanhai）** 希望把分散的平台连接成一个入口，让听音乐、看视频、读资讯与交流拥有一致的体验。当前以音乐、视频和本地资料库为主，通过插件扩展平台；社交与聊天平台是后续方向。
 
 提供桌面、iOS / iPadOS 和 Android 原生客户端。桌面使用 Go + [MyGo](https://github.com/egoist/mygo)，iOS 使用 SwiftUI，Android 使用 Kotlin + Jetpack Compose。
 
-[下载发布版本](https://github.com/xTreeRoot/ShanhaiMusic/releases) · [插件开发](plugins/README.md) · [桌面打包](RELEASING.md)
+[山海官网](https://shanhai.treeroot.top/) · [下载发布版本](https://github.com/xTreeRoot/ShanhaiMusic/releases) · [山海插件库](https://shanhai.treeroot.top/zh/plugins/) · [插件开发](plugins/README.md) · [桌面打包](RELEASING.md)
 
 ## 三端源码
 
@@ -18,16 +18,7 @@
 
 各端功能与真机验证进度以对应目录的说明和验收记录为准。
 
-## 当前能力
 
-- 独立哔哩哔哩插件：首页推荐、搜索、扫码登录、个人内容、收藏、历史、评论与点赞；与其他信息源一样从插件管理安装。
-- 音乐与视频播放、歌词和字幕、队列、进度跳转、随机与循环播放。
-- 本地音乐、资料库、歌单、封面、下载与播放缓存。
-- 通过独立插件接入其他内容平台；插件管理支持仓库、ZIP 等安装方式，具体入口依客户端而定。
-- 移动端支持跨平台搜索、插件本地名称与排序，以及设置中的版本检查。更新包会校验后再交给系统安装或签名工具。
-- 中文与英文界面；桌面提供托盘和 macOS 刘海播放器，移动端接入系统播放控制。
-
-账号权限、媒体可用性、字幕和音质以对应平台及插件返回为准。未接入的社交和聊天服务不属于现有功能。
 
 ## 从 MB 升级
 
