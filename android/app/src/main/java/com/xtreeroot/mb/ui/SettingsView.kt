@@ -141,6 +141,9 @@ internal fun SettingsView(values: AppPreferences, update: ((AppPreferences) -> A
                         AudioQuality.High to mb("高品质", "High"), AudioQuality.Lossless to mb("无损", "Lossless")),
                         hint = mb("新加载时生效；无损不可用时回退", "Applies on new streams; falls back if lossless is unavailable")) { option -> update { it.copy(quality = option) } }
                     MBFormDivider()
+                    MBFormRow(mb("视频画质", "Video Quality"), detail = if (values.videoQuality == "auto") mb("自动（最高可用）", "Automatic (Best Available)") else values.videoQuality)
+                    if (values.videoQuality != "auto") TextButton(onClick = { update { it.copy(videoQuality = "auto") } }) { Text(mb("重置视频画质为自动", "Reset Video Quality to Automatic")) }
+                    MBFormDivider()
                     Choice(mb("响度标准化", "Loudness Normalization"), values.normalization,
                         listOf(AudioNormalization.Standard to mb("标准", "Standard"), AudioNormalization.Dynamic to mb("动态", "Dynamic"),
                             AudioNormalization.Off to mb("关闭", "Off"))) { option -> update { it.copy(normalization = option) } }

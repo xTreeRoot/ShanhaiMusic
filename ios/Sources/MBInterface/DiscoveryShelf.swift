@@ -14,6 +14,7 @@ struct DiscoveryShelf<Content: View>: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 4)
         }
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .frame(height: rowHeight * CGFloat(rowCount) + CGFloat(rowCount - 1) * 16 + 8)
     }
 }

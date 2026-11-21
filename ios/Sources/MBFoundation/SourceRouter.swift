@@ -30,6 +30,10 @@ public actor SourceRouter: PlaybackSource, VideoSource {
         guard let source = sources[track.sourceID] as? any VideoSource else { throw PluginFailure.unavailable }
         return try await source.video(track: track, quality: quality)
     }
+    public func video(track: Track, qualityID: String) async throws -> MediaResource {
+        guard let source = sources[track.sourceID] as? any VideoSource else { throw PluginFailure.unavailable }
+        return try await source.video(track: track, qualityID: qualityID)
+    }
     public func source(for track: Track) -> (any MusicSource)? { sources[track.sourceID] }
     public func source(id: String) -> (any MusicSource)? { sources[id] }
 }

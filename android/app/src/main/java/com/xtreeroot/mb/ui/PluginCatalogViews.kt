@@ -114,7 +114,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
     var changing by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
     suspend fun load(append: Boolean = false) = pager.load(append) { catalog.load(request, it) }
-    LaunchedEffect(source, request, status.needsReload) {
+    LaunchedEffect(source, request, status.revision) {
         if (status.needsReload) load()
     }
     LaunchedEffect(source, request) {
@@ -233,7 +233,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
         }
         if (request == PluginCatalogRequest.Home && page != null) links.filter { link ->
             page.sections.none { section -> section.more?.destination == link.destination || link.title.isNotBlank() && section.title == link.title }
-        }.forEach { link -> item(span = { GridItemSpan(maxLineSpan) }) { PluginNavigationShelf(source, link, navigator::open, select) } }
+        }.forEach { link -> item(span = { GridItemSpan(maxLineSpan) }) { PluginNavigationShelf(source, link, navigator::open, select, page.navigationPreviews[link.destination]) } }
         if (status.busy && (page == null || status.appending)) item(span = { GridItemSpan(maxLineSpan) }) { Loading() }
         status.error?.let { error -> item(span = { GridItemSpan(maxLineSpan) }) { Retry(error) { scope.launch { load(status.appendRetry) } } } }
         actionError?.let { error -> item(span = { GridItemSpan(maxLineSpan) }) {
@@ -248,7 +248,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
         }
     }
     PullToRefreshBox(isRefreshing = status.busy && !status.appending && page != null,
-        onRefresh = { if (!changing) scope.launch { catalog.invalidate(); pager.invalidate() } }, modifier = Modifier.fillMaxSize()) {
+        onRefresh = { if (!changing) scope.launch { destination.refresh(source) } }, modifier = Modifier.fillMaxSize()) {
         LazyVerticalGrid(columns = GridCells.Adaptive(155.dp), modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 12.dp), content = content)
     }

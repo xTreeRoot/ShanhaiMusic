@@ -22,6 +22,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var normalization = AudioNormalization.standard
     public var language = AppLanguage.system
     public var quality = AudioQuality.high
+    public var videoQuality = "auto"
     public var smoke = false
     public var fog = false
     public var growFromCover = false
@@ -31,7 +32,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var automaticUpdateChecks = true
     public var nowPlayingLyrics = true
     public init() {}
-    private enum CodingKeys: String, CodingKey { case inAppVideoWindow, systemVideoWindow, backgroundOpacity, backgroundStyle, automaticUpdateChecks, selectedSourceID, appearance, volume, cacheMegabytes, searchHistory, playerStyle, lyricStyle, normalization, language, quality, stageSparks, lyricsStage, nowPlayingLyrics, smoke, fog, growFromCover, hotComments }
+    private enum CodingKeys: String, CodingKey { case videoQuality, inAppVideoWindow, systemVideoWindow, backgroundOpacity, backgroundStyle, automaticUpdateChecks, selectedSourceID, appearance, volume, cacheMegabytes, searchHistory, playerStyle, lyricStyle, normalization, language, quality, stageSparks, lyricsStage, nowPlayingLyrics, smoke, fog, growFromCover, hotComments }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         inAppVideoWindow = try values.decodeIfPresent(Bool.self, forKey: .inAppVideoWindow) ?? true
@@ -55,6 +56,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         lyricsStage = try values.decodeIfPresent(Bool.self, forKey: .lyricsStage) ?? false
         nowPlayingLyrics = try values.decodeIfPresent(Bool.self, forKey: .nowPlayingLyrics) ?? true
         quality = try values.decodeIfPresent(AudioQuality.self, forKey: .quality) ?? .high
+        let savedVideoQuality = try values.decodeIfPresent(String.self, forKey: .videoQuality) ?? "auto"
+        videoQuality = VideoQualityOption.valid(savedVideoQuality) ? savedVideoQuality : "auto"
         language = try values.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
     }
 }

@@ -130,10 +130,14 @@ public struct MediaResource: Sendable {
     public let url: URL
     public let headers: [String: String]
     public let fileExtension: String
-    public init(url: URL, headers: [String: String], fileExtension: String) {
+    public let videoQuality: String?
+    public let videoQualities: [VideoQualityOption]
+    public init(url: URL, headers: [String: String], fileExtension: String, videoQuality: String? = nil, videoQualities: [VideoQualityOption] = []) {
         self.url = url
         self.headers = headers
         self.fileExtension = fileExtension
+        self.videoQuality = videoQuality
+        self.videoQualities = videoQualities
     }
 }
 
@@ -146,6 +150,7 @@ public protocol PlaybackSource: MusicSource {
 }
 
 public protocol VideoSource: MusicSource {
+    func video(track: Track, qualityID: String) async throws -> MediaResource
     func video(track: Track, quality: AudioQuality) async throws -> MediaResource
     func supportsVideo(track: Track) async -> Bool
     func video(track: Track) async throws -> MediaResource
@@ -173,6 +178,7 @@ public extension PlaybackSource {
     func captions(track: Track) async throws -> CaptionTimeline { try await captions(trackID: track.sourceTrackID) }
 }
 public extension VideoSource {
+    func video(track: Track, qualityID: String) async throws -> MediaResource { try await video(track: track) }
     func video(track: Track, quality: AudioQuality) async throws -> MediaResource { try await video(track: track) }
     func supportsVideo(track: Track) async -> Bool { true }
     func video(track: Track) async throws -> MediaResource { try await video(trackID: track.sourceTrackID) }

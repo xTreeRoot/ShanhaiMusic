@@ -1,6 +1,10 @@
 package com.xtreeroot.mb.plugin
 
 import com.xtreeroot.mb.music.Track
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -49,8 +53,11 @@ internal data class PluginCatalogSection(val title: String, val tracks: List<Tra
     val hasContent get() = tracks.isNotEmpty() || entities.isNotEmpty() || links.isNotEmpty() || more != null || empty.isNotBlank()
 }
 
+internal data class PluginCatalogPreview(val page: PluginCatalogPage?, val error: String? = null)
+
 internal data class PluginCatalogPage(val title: String, val subtitle: String, val description: String,
-                                      val sections: List<PluginCatalogSection>, val nextOffset: Int? = null)
+                                      val sections: List<PluginCatalogSection>, val nextOffset: Int? = null,
+                                      val navigationPreviews: Map<PluginCatalogRequest, PluginCatalogPreview> = emptyMap())
 
 internal class PluginCatalog(
     private val manifest: PluginManifest,
@@ -75,10 +82,11 @@ internal class PluginCatalog(
         }
     }
 
-    suspend fun load(request: PluginCatalogRequest, offset: Int = 0): PluginCatalogPage = when (request) {
+    suspend fun load(request: PluginCatalogRequest, offset: Int = 0, includePreviews: Boolean = false): PluginCatalogPage = when (request) {
         PluginCatalogRequest.Home -> {
             val home = if (supports("home")) cachedInvoke("home", JSONObject()).objectValue() else JSONObject()
-            page(home, manifest.name)
+            val result = page(home, manifest.name)
+            if (includePreviews) withNavigationPreviews(result) else result
         }
         is PluginCatalogRequest.Browse -> page(cachedInvoke("browse", arguments(offset).put("page", request.page)).objectValue(), request.title, offset)
         is PluginCatalogRequest.Collection -> collection(request, offset)
@@ -91,6 +99,20 @@ internal class PluginCatalog(
             if (request.kind == PluginSearchKind.Videos) value.put("trackLayout", "videos")
             single(request.query, value, next = nextOffset(offset, count, value.optBoolean("more")))
         }
+    }
+
+    /** 一次刷新等待首页与独立导航栏目全部完成，返回失败栏目而不覆盖已有内容。 */
+    private suspend fun withNavigationPreviews(home: PluginCatalogPage): PluginCatalogPage = coroutineScope {
+        val links = navigation().filter { link -> home.sections.none { section ->
+            section.more?.destination == link.destination || link.title.isNotBlank() && section.title == link.title
+        } }
+        val previews = links.map { link -> async {
+            val result = try { PluginCatalogPreview(load(link.destination)) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { PluginCatalogPreview(null, error.message ?: "加载失败") }
+            link.destination to result
+        } }.awaitAll().toMap()
+        home.copy(navigationPreviews = previews)
     }
 
     suspend fun setSaved(entity: PluginEntity, saved: Boolean) {

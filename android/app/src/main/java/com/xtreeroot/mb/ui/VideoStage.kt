@@ -120,15 +120,15 @@ internal fun VideoStage(state: VideoFrameState?, playback: PlaybackState, toggle
         if (error != null) Box(modifier, contentAlignment = Alignment.Center) {
             Retry(error, retry)
             header()
-        } else VideoFrame(state?.player, state?.loading != false, playback, toggle, seek, modifier, topBar = header)
-    } else VideoFrame(state?.player, state?.loading != false, playback, toggle, seek, Modifier.fillMaxSize(),
+        } else VideoFrame(state?.player, state?.loading != false, playback, toggle, seek, modifier, qualityState = state, topBar = header)
+    } else VideoFrame(state?.player, state?.loading != false, playback, toggle, seek, Modifier.fillMaxSize(), qualityState = state,
         enterFullscreen = { setFullScreen(true) }, topBar = topBar)
 }
 
 @OptIn(UnstableApi::class)
 @Composable
 private fun VideoFrame(engine: Player?, loading: Boolean, playback: PlaybackState, toggle: () -> Unit,
-                       seek: (Long) -> Unit, modifier: Modifier, enterFullscreen: (() -> Unit)? = null,
+                       seek: (Long) -> Unit, modifier: Modifier, qualityState: VideoFrameState? = null, enterFullscreen: (() -> Unit)? = null,
                        topBar: @Composable BoxScope.() -> Unit = {}) {
     var visible by remember(playback.current?.id, playback.index) { mutableStateOf(true) }
     var revision by remember { mutableIntStateOf(0) }
@@ -170,6 +170,7 @@ private fun VideoFrame(engine: Player?, loading: Boolean, playback: PlaybackStat
                         Column(Modifier.weight(1f).padding(bottom = 6.dp)) {
                             PlayerProgress(playback, smoke = false, seek = { seek(it); revision += 1 }, interactions = interactions)
                         }
+                        VideoQualityMenu(qualityState)
                         if (enterFullscreen != null) IconButton(onClick = enterFullscreen) {
                             Icon(androidx.compose.ui.res.painterResource(com.xtreeroot.mb.R.drawable.ic_fullscreen), mb("全屏播放", "Fullscreen"), tint = Color.White)
                         }

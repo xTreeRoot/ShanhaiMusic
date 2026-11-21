@@ -113,6 +113,11 @@ internal class PluginSource(
     override suspend fun video(trackId: String, quality: AudioQuality): MediaResource =
         media("video", JSONObject().put("id", trackId).put("quality", quality.name.lowercase()))
 
+    override suspend fun video(trackId: String, qualityID: String): MediaResource {
+        require(com.xtreeroot.mb.music.VideoQualityOption.valid(qualityID))
+        return media("video", JSONObject().put("id", trackId).put("quality", qualityID))
+    }
+
     override suspend fun supportsVideo(): Boolean = runtime.supports("video")
 
     override suspend fun supportsSignIn(): Boolean = runtime.supports("signIn")
@@ -259,7 +264,16 @@ internal class PluginSource(
         }
         val defaultExtension = if (method == "video") "mp4" else "m4a"
         val extension = value.optString("type", defaultExtension).lowercase().takeIf { it.matches(Regex("[a-z0-9]{1,8}")) } ?: defaultExtension
-        return MediaResource(parsed.toASCIIString(), headers, extension)
+        val choices = value.optJSONArray("videoQualities")
+        val qualities = (0 until minOf(32, choices?.length() ?: 0)).mapNotNull { index ->
+            val option = choices?.optJSONObject(index) ?: return@mapNotNull null
+            val id = option.optString("id")
+            val label = option.optString("label").trim().take(64)
+            if (!com.xtreeroot.mb.music.VideoQualityOption.valid(id) || id == "auto" || label.isEmpty()) null
+            else com.xtreeroot.mb.music.VideoQualityOption(id, label)
+        }.distinctBy { it.id }
+        val actual = (value.opt("videoQuality") as? String)?.takeIf(com.xtreeroot.mb.music.VideoQualityOption::valid)
+        return MediaResource(parsed.toASCIIString(), headers, extension, videoQuality = actual, videoQualities = qualities)
     }
 
     private suspend fun tracks(values: JSONArray): List<Track> =

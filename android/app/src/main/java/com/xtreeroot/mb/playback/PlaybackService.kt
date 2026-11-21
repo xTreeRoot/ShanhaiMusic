@@ -188,7 +188,7 @@ internal class PlaybackService : MediaLibraryService() {
         }
         val recovery = AudioRecovery(scope, player, ::invalidateAddress)
         val video = VideoPlayback(app, app.http, player, scope,
-            { app.playbackSource(it.sourceId) as? VideoSource }, { app.settings.values.value.quality })
+            { app.playbackSource(it.sourceId) as? VideoSource }, { app.settings.values.value.videoQuality })
         this.video = video
         val stations = StationPlayback(player, scope, { app.playbackSource(it) as? StationPlaybackSource }) { status ->
             app.stationStatus.value = status
@@ -457,6 +457,9 @@ internal class PlaybackService : MediaLibraryService() {
         }
         scope.launch {
             app.settings.values.map { it.quality }.distinctUntilChanged().drop(1).collect { preloader.cancel(); refreshPrefetch() }
+        }
+        scope.launch {
+            app.settings.values.map { it.videoQuality }.distinctUntilChanged().drop(1).collect { video.qualityChanged() }
         }
         scope.launch {
             combine(currentMedia, app.settings.values) { track, preferences ->

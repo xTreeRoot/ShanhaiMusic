@@ -1565,6 +1565,53 @@ extension MBiOSUITests {
 }
 
 extension MBiOSUITests {
+    @MainActor func testPullRefreshReplacesPluginHomeAndIndependentShelf() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--plugin-demo", "--refresh-fixture", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch(); selectTab("设置", app: app); app.buttons["settings-plugins"].tap()
+        XCTAssertTrue(app.buttons["安装"].waitForExistence(timeout: 8)); app.buttons["安装"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "示例插件")).firstMatch.waitForExistence(timeout: 8))
+        selectTab("发现", app: app)
+        let source = app.buttons["source-tab-fixture"]
+        XCTAssertTrue(source.waitForExistence(timeout: 8)); source.tap()
+        XCTAssertTrue(app.buttons["播放 首页第1次"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "栏目第1次")).firstMatch.waitForExistence(timeout: 8))
+        let scroll = app.scrollViews["plugin-discovery-scroll"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 8))
+        capture("下拉刷新-拉动前", app: app)
+        scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.08)).press(forDuration: 0.05,
+            thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.85)))
+        capture("下拉刷新-拉动后", app: app)
+        XCTAssertTrue(app.buttons["播放 首页第2次"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "栏目第2次")).firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["播放 首页第1次"].exists)
+        capture("下拉刷新-首页和独立栏目更新", app: app)
+    }
+
+    @MainActor func testVideoQualitySelectionAppliesToFollowingVideo() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launchEnvironment["MB_VIDEO_UI_FIXTURE"] = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Tests/MBFoundationTests/Fixtures/video-ui.mp4").path
+        app.launch()
+        if UIDevice.current.userInterfaceIdiom != .pad {
+            XCTAssertTrue(app.buttons["查看更多为你推荐"].waitForExistence(timeout: 8)); app.buttons["查看更多为你推荐"].tap()
+        }
+        chooseMode("视频模式", app: app)
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 晚风里的片刻")).firstMatch.tap()
+        let quality = app.buttons["video-quality"]
+        XCTAssertTrue(quality.waitForExistence(timeout: 12)); quality.tap()
+        let option = app.buttons["video-quality-720p"]
+        XCTAssertTrue(option.waitForExistence(timeout: 5)); option.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "首选 720p，当前 720p"), object: quality)], timeout: 12), .completed)
+        app.buttons["下一首"].tap()
+        XCTAssertTrue(quality.waitForExistence(timeout: 12))
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "首选 720p，当前 720p"), object: quality)], timeout: 12), .completed)
+        capture("视频画质-选择后下一条沿用", app: app)
+    }
+
     @MainActor func testReadyVideoReachesTopAndReturningToFloatingWindowStaysResponsive() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

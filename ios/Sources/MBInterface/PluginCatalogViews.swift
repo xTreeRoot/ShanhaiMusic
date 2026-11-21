@@ -33,6 +33,7 @@ struct PluginCatalogPage: View {
     let select: ([Track], Int) -> Void
     let menu: (Track) -> AnyView
     @State private var content: PluginBrowse?
+    @State private var navigationPreviews: [String: PluginNavigationPreview] = [:]
     @State private var error: String?
     @State private var loading = false
     @State private var loadRevision = 0
@@ -56,7 +57,7 @@ struct PluginCatalogPage: View {
         Group {
             if request.isHome {
                 PluginDiscoveryHome(source: source, capabilities: capabilities, content: content, loading: loading, error: error,
-                                    retry: { Task { await load() } }, select: select, menu: menu)
+                                    retry: { Task { await load(refresh: true) } }, select: select, menu: menu, previews: navigationPreviews, refresh: { await load(refresh: true) })
             } else {
                 catalogList
             }
@@ -65,7 +66,6 @@ struct PluginCatalogPage: View {
         .navigationTitle(title)
         .onAppear { startLoading() }
         .onDisappear { initialLoad?.cancel(); initialLoad = nil; artworkPrefetch?.cancel() }
-        .refreshable { await source.invalidateCatalog(); await load() }
     }
 
     private var catalogList: some View {
@@ -130,6 +130,7 @@ struct PluginCatalogPage: View {
             }.modifier(SkinRow())
         }
         .listStyle(.plain)
+        .refreshable { await load(refresh: true) }
         .modifier(PaginationViewport())
         .modifier(SkinSurface(list: true))
         .navigationTitle(title)
@@ -200,7 +201,8 @@ struct PluginCatalogPage: View {
         }
     }
     private func change(_ operation: () async throws -> Void) async { guard !changing else { return }; changing = true; defer { changing = false }; do { try await operation() } catch { self.error = error.localizedDescription } }
-    private func load(append: Bool = false) async {
+    private func load(append: Bool = false, refresh: Bool = false) async {
+        if refresh && changing { return }
         if append { guard more, !loading else { return } }
         appendFailed = append
         loadRevision += 1
@@ -209,8 +211,15 @@ struct PluginCatalogPage: View {
         defer { if revision == loadRevision { loading = false } }
         do {
             let page: PluginBrowse, hasMore: Bool, count: Int
+            if refresh && !request.isHome { await source.invalidateCatalog() }
             switch request {
-            case .home: page = try await source.home(); hasMore = false; count = 0
+            case .home:
+                if refresh {
+                    let snapshot = try await source.refreshDiscovery()
+                    guard revision == loadRevision, !Task.isCancelled else { return }
+                    page = snapshot.home; navigationPreviews = snapshot.previews
+                } else { page = try await source.home() }
+                hasMore = false; count = 0
             case .browse(let value): (page, hasMore, count) = try await source.browsePage(value, offset: append ? offset : 0)
             case .collection(let method, _): (page, hasMore, count) = try await source.collection(method, offset: append ? offset : 0)
             case .entity(let item): (page, hasMore, count) = try await source.entity(item, offset: append ? offset : 0)

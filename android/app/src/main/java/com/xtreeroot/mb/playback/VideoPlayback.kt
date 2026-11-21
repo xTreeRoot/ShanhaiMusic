@@ -13,7 +13,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.video.PlaceholderSurface
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
-import com.xtreeroot.mb.music.AudioQuality
+import com.xtreeroot.mb.music.VideoQualityOption
 import com.xtreeroot.mb.music.MediaResource
 import com.xtreeroot.mb.music.Track
 import com.xtreeroot.mb.music.VideoSource
@@ -32,13 +32,14 @@ import kotlinx.coroutines.yield
 import okhttp3.OkHttpClient
 
 internal data class VideoFrameState(val trackId: String, val player: Player? = null, val loading: Boolean = true,
-                                    val error: String? = null, val aspectRatio: Float? = null)
+                                    val error: String? = null, val aspectRatio: Float? = null,
+                                    val quality: String? = null, val qualities: List<VideoQualityOption> = emptyList())
 
 @OptIn(UnstableApi::class)
 internal class VideoPlayback(private val context: Context, private val http: OkHttpClient, private val audio: ExoPlayer,
                              private val scope: CoroutineScope, private val sourceFor: (Track) -> VideoSource?,
-                             private val quality: () -> AudioQuality) : Player.Listener {
-    private class Stage(val track: Track, val source: VideoSource, val quality: AudioQuality) {
+                             private val quality: () -> String) : Player.Listener {
+    private class Stage(val track: Track, val source: VideoSource, var quality: String) {
         var resource: MediaResource? = null
         var engine: ExoPlayer? = null
         var surface: PlaceholderSurface? = null
@@ -61,6 +62,19 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
         private set
 
     init { audio.addListener(this) }
+
+    /** 用户画质变化只重新准备静音视频，保留当前音频、进度、播放意图和画面拥有者。 */
+    fun qualityChanged() {
+        listOfNotNull(active, warm).forEach { stage ->
+            if (stage.quality != quality()) {
+                stage.quality = quality()
+                stage.resource = null
+                stage.recovery = MediaRecoveryBudget()
+                if (stage === active) hold()
+                load(stage, audio.currentPosition)
+            }
+        }
+    }
 
     /** 仅预载当前正在播放的资源，ExoPlayer 的独立加载/解码线程负责流式缓冲。 */
     fun preload(track: Track?) {
@@ -195,7 +209,8 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
     private fun fail(stage: Stage, message: String) {
         retire(stage)
         if (active === stage) {
-            mutable.value = VideoFrameState(stage.track.id, loading = false, error = message)
+            mutable.value = VideoFrameState(stage.track.id, loading = false, error = message,
+                quality = stage.resource?.videoQuality, qualities = stage.resource?.videoQualities.orEmpty())
             releaseHold()
         } else if (warm === stage) preloadState.value = VideoFrameState(stage.track.id, loading = false, error = message)
     }
@@ -291,7 +306,8 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
     private fun publish(stage: Stage, frame: VideoFrameState) {
         val size = frame.player?.videoSize
         val ratio = size?.takeIf { it.width > 0 && it.height > 0 }?.let { it.width * it.pixelWidthHeightRatio / it.height }
-        val measured = frame.copy(aspectRatio = ratio?.takeIf { it.isFinite() && it > 0f })
+        val measured = frame.copy(aspectRatio = ratio?.takeIf { it.isFinite() && it > 0f },
+            quality = stage.resource?.videoQuality, qualities = stage.resource?.videoQualities.orEmpty())
         if (stage === active) mutable.value = measured
         else if (stage === warm) preloadState.value = measured
     }

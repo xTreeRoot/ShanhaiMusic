@@ -36,6 +36,9 @@ public extension VideoEngine {
     public private(set) var isBuffering = false
     public private(set) var errorMessage: String?
     public private(set) var persistenceMessage: String?
+    public private(set) var qualityID = "auto"
+    public private(set) var actualQualityID: String?
+    public private(set) var qualities: [VideoQualityOption] = []
     public private(set) var track: Track?
     private var measuredAspectRatio: Double?
     public var aspectRatio: Double { measuredAspectRatio ?? track.flatMap { track in
@@ -154,6 +157,16 @@ public extension VideoEngine {
     }
     public func retry() { refreshUsed = false; release(); load() }
 
+    /// 单条资源的回退不覆盖偏好，换片后仍按用户选择请求，保持音频时钟和播放意图。
+    public func setQuality(_ id: String) {
+        guard VideoQualityOption.valid(id), qualityID != id else { return }
+        qualityID = id
+        let warming = !isVisible && !isFloating && (isReady || isLoading)
+        refreshUsed = false
+        release()
+        if isVisible || isFloating || warming { load(warming: warming) }
+    }
+
     public func sync(positionMilliseconds: Int64, playing: Bool) {
         position = positionMilliseconds
         self.playing = playing
@@ -199,8 +212,11 @@ public extension VideoEngine {
                 guard current == generation, !Task.isCancelled else { return }
                 isSupported = supported
                 guard supported else { isLoading = false; task = nil; return }
-                let resource = try await source.video(track: track)
+                let resource = try await source.video(track: track, qualityID: qualityID)
                 try Task.checkCancellation()
+                guard current == generation else { return }
+                qualities = resource.videoQualities
+                actualQualityID = resource.videoQuality
                 try await engine.load(resource: resource, at: position)
                 guard current == generation, !Task.isCancelled else { return }
                 engine.sync(positionMilliseconds: position, playing: playing)

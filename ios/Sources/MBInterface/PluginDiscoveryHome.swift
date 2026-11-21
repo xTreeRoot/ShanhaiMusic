@@ -11,6 +11,8 @@ struct PluginDiscoveryHome: View {
     let retry: () -> Void
     let select: ([Track], Int) -> Void
     let menu: (Track) -> AnyView
+    var previews: [String: PluginNavigationPreview] = [:]
+    var refresh: () async -> Void = {}
     @ScaledMetric(relativeTo: .subheadline) private var cardHeight = 246.0
 
     var body: some View {
@@ -67,19 +69,16 @@ struct PluginDiscoveryHome: View {
                         }
                     }
                 }
-                ForEach(Array((source.manifest.navigation ?? []).enumerated()), id: \.offset) { _, item in
-                    if item.builtin != "home", item.builtin != "search", item.page != "home", item.page != "search",
-                       let destination = item.page ?? item.builtin,
-                       !(content?.sections.contains { $0.morePage == destination || (item.title?.isEmpty == false && $0.title == item.title) } ?? false) {
-                        PluginNavigationShelf(source: source, item: item, select: select, menu: menu)
-                    }
+                ForEach(Array(source.discoveryNavigation(content).enumerated()), id: \.offset) { _, item in
+                    PluginNavigationShelf(source: source, item: item, select: select, menu: menu, refreshed: previews[item.previewKey])
                 }
                 if loading && content == nil { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 80) }
                 if !loading && content?.sections.isEmpty != false && error == nil {
                     ContentUnavailableView("暂无内容", systemImage: "music.note")
                 }
             }.padding(.top, 12).padding(.bottom, 24)
-        }
+                .background(ScrollRefreshControl(action: refresh))
+        }.accessibilityIdentifier("plugin-discovery-scroll")
     }
 
     private func artworkTrack(id: String, title: String, url: URL?, headers: [String: String]) -> Track {

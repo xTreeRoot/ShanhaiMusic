@@ -18,7 +18,7 @@
 
 | 插件导出 / 宿主接口 | 契约 | 宿主行为 |
 | --- | --- | --- |
-| `video({id, quality})` / `music.VideoSource` | 返回 `{url, headers?, type?}`，`id` 与音频一致 | 只有支持视频的插件才显示播放入口，音频和视频共用时间轴 |
+| `video({id, quality})` / `music.VideoSource` | 返回 `{url, headers?, type?, videoQuality?, videoQualities?:[{id,label}]}`，`id` 与音频一致；移动端 `quality` 为 `auto` 或插件返回的画质标识 | 只有支持视频的插件才显示播放入口，音频和视频共用时间轴；画质偏好独立于音乐音质并持久保存，后续视频沿用；资源回退须报告实际画质，不覆盖用户偏好。旧宿主可忽略新增字段 |
 | `cancelSignIn()` / `music.SignInCanceler` | 停止当前登录请求、轮询、计时器，挂起调用须结束 | 关闭登录弹窗后取消，忽略迟到响应 |
 | `lyrics({id})` | `{lrc, translation}` 或 `{lines:[{start,end,text,words?}]}`，时间为毫秒 | 字幕和歌词按共用播放时间轴显示 |
 | `Section.trackLayout: "videos"` | 可选视频卡片网格，保留标准 `tracks` | 统一卡片、封面、时长、作者和队列行为 |

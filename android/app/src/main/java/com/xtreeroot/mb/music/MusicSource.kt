@@ -36,7 +36,8 @@ data class DiscoverySection(
 )
 
 data class MediaResource(val url: String, val headers: Map<String, String>, val fileExtension: String = "m4a",
-                         val backupUrls: List<String> = emptyList())
+                         val backupUrls: List<String> = emptyList(), val videoQuality: String? = null,
+                         val videoQualities: List<VideoQualityOption> = emptyList())
 
 enum class AudioQuality { Standard, High, Lossless }
 
@@ -80,6 +81,7 @@ internal interface StationPlaybackSource : MusicSource {
 }
 
 interface VideoSource : MusicSource {
+    suspend fun video(trackId: String, qualityID: String): MediaResource = video(trackId)
     suspend fun supportsVideo(): Boolean = true
     suspend fun video(trackId: String): MediaResource
     suspend fun video(trackId: String, quality: AudioQuality): MediaResource = video(trackId)

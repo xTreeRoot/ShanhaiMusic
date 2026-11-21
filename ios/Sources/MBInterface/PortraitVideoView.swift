@@ -20,6 +20,7 @@ struct PortraitVideoView: View {
             HStack {
                 Button { if let browse { browse() } else { video.browse() } } label: { Label("返回浏览", systemImage: "chevron.left").frame(minHeight: 44) }
                 Spacer()
+                VideoQualityMenu(video: video)
                 Button(action: openMusic) { Label("听歌模式", systemImage: "headphones").frame(minHeight: 44) }
             }.padding(.horizontal, 16)
             GeometryReader { geometry in

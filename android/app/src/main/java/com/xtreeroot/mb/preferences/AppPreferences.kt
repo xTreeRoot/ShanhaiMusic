@@ -19,6 +19,7 @@ internal data class AppPreferences(
     val backgroundStyle: BackgroundSkinStyle = BackgroundSkinStyle(),
     val volume: Float = 0.8f,
     val quality: AudioQuality = AudioQuality.High,
+    val videoQuality: String = "auto",
     val normalization: AudioNormalization = AudioNormalization.Standard,
     val playbackMode: PlaybackMode = PlaybackMode.Music,
     val lyricsStage: Boolean = false,
@@ -36,7 +37,7 @@ internal data class AppPreferences(
 ) {
     fun toJson(): JSONObject = JSONObject().put("appearance", appearance.name).put("language", language.name)
         .put("inAppVideoWindow", inAppVideoWindow).put("systemVideoWindow", systemVideoWindow)
-        .put("backgroundStyle", backgroundStyle.toJson())
+        .put("backgroundStyle", backgroundStyle.toJson()).put("videoQuality", videoQuality)
         .put("backgroundOpacity", backgroundOpacity?.toDouble()).put("volume", volume.toDouble()).put("quality", quality.name).put("normalization", normalization.name)
         .put("playbackMode", playbackMode.name).put("automaticUpdateChecks", automaticUpdateChecks)
         .put("lyricsStage", lyricsStage).put("nowPlayingLyrics", nowPlayingLyrics).put("hotComments", hotComments)
@@ -55,6 +56,7 @@ internal data class AppPreferences(
             backgroundStyle = BackgroundSkinStyle.parse(json.optJSONObject("backgroundStyle")),
             volume = json.optDouble("volume", 0.8).takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)?.toFloat() ?: 0.8f,
             quality = json.choice("quality", AudioQuality.High),
+            videoQuality = json.optString("videoQuality", "auto").takeIf(com.xtreeroot.mb.music.VideoQualityOption::valid) ?: "auto",
             normalization = json.choice("normalization", AudioNormalization.Standard),
             playbackMode = json.choice("playbackMode", PlaybackMode.Music),
             selectedSourceId = (json.opt("selectedSourceId") as? String)?.takeIf(String::isNotBlank),

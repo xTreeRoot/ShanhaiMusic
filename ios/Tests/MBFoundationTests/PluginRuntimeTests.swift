@@ -472,6 +472,40 @@ private actor PluginRedirectFixture {
     }
 }
 
+@Test func discoveryRefreshBypassesCacheAndWaitsForIndependentNavigationPreviews() async throws {
+    try await withPlugin("""
+    let homes = 0, browses = 0, likes = 0;
+    export function home() { return {sections:[{title:'Home '+(++homes)}]}; }
+    export function browse() { return {sections:[{tracks:[{id:'nav',name:'Navigation '+(++browses)}]}]}; }
+    export function liked() { return {tracks:[{id:'liked',name:'Liked '+(++likes)}]}; }
+    """) { runtime, _, _ in
+        let manifest = try JSONDecoder().decode(PluginManifest.self, from: Data(#"{"id":"fixture","name":"Fixture","version":"1.0.0","navigation":[{"builtin":"home"},{"page":"category","title":"Category"},{"builtin":"liked","title":"Liked"}]}"#.utf8))
+        let source = PluginSource(manifest: manifest, runtime: runtime)
+        _ = try await source.home(); _ = try await source.browse("category"); _ = try await source.collection("liked")
+        #expect(try await source.home().sections.first?.title == "Home 1")
+        let snapshot = try await source.refreshDiscovery()
+        #expect(snapshot.home.sections.first?.title == "Home 2")
+        #expect(snapshot.previews["page:category"]?.content?.sections.first?.tracks.first?.title == "Navigation 2")
+        #expect(snapshot.previews["collection:liked"]?.content?.sections.first?.tracks.first?.title == "Liked 2")
+        #expect(snapshot.previews.values.allSatisfy { $0.error == nil })
+        #expect(try await source.browse("category").sections.first?.tracks.first?.title == "Navigation 2")
+    }
+}
+
+@Test func pluginVideoQualityPreservesRealChoicesAndPassesPreferenceInsteadOfAudioQuality() async throws {
+    try await withPlugin("""
+    export function video({quality}) { return {url:'https://api.example.test/video.mp4',type:'mp4',videoQuality:quality==='1080p'?'720p':quality,
+        videoQualities:[{id:'1080p',label:'1080p60'},{id:'720p',label:'720p'},{id:'720p',label:'Duplicate'},{id:'bad key',label:'invalid'}]}; }
+    """) { runtime, _, manifest in
+        let source = PluginSource(manifest: manifest, runtime: runtime)
+        let track = Track(sourceID: manifest.id, sourceTrackID: "one", title: "One", artist: "")
+        let media = try await source.video(track: track, qualityID: "1080p")
+        #expect(media.videoQuality == "720p")
+        #expect(media.videoQualities.map(\.id) == ["1080p", "720p"])
+        #expect(try await source.video(track: track, qualityID: "720p").videoQuality == "720p")
+    }
+}
+
 @Test func accountNetworkFailureDoesNotBlockPublicHomeOrCacheUnknownAccountData() async throws {
     try await withPlugin("""
     export function account() { throw Error('temporary account failure'); }

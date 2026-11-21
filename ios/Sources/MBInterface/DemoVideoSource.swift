@@ -13,6 +13,10 @@ struct DemoVideoSource: VideoSource, PlaybackSource {
     }
     func search(query: String, page: Int) async throws -> TrackPage { try await DemoSource().search(query: query, page: page) }
     func video(trackID: String) async throws -> MediaResource { MediaResource(url: file, headers: [:], fileExtension: "mp4") }
+    func video(track: Track, qualityID: String) async throws -> MediaResource {
+        MediaResource(url: file, headers: [:], fileExtension: "mp4", videoQuality: qualityID == "auto" ? "1080p" : qualityID,
+            videoQualities: [VideoQualityOption(id: "1080p", label: "1080p")!, VideoQualityOption(id: "720p", label: "720p")!])
+    }
     func captions(trackID: String) async throws -> CaptionTimeline { DemoCatalog.timeline }
     func audio(trackID: String) async throws -> MediaResource {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("video-ui-\(UUID()).wav")

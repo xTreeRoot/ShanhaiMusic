@@ -7,6 +7,7 @@ struct PluginNavigationShelf: View {
     let item: PluginManifest.Navigation
     let select: ([Track], Int) -> Void
     let menu: (Track) -> AnyView
+    var refreshed: PluginNavigationPreview? = nil
     @State private var content: PluginBrowse?
     @State private var error: String?
     @ScaledMetric(relativeTo: .subheadline) private var cardHeight = 246.0
@@ -45,10 +46,16 @@ struct PluginNavigationShelf: View {
                         }
                     }
                 }
-            } else if let error {
+            }
+            if let error {
                 MusicErrorRow(message: error) { Task { await load() } }.padding(.horizontal, 20)
-            } else { ProgressView().frame(maxWidth: .infinity) }
-        }.task { await load() }
+            } else if content == nil { ProgressView().frame(maxWidth: .infinity) }
+        }.task(id: refreshed?.revision) {
+            if let refreshed {
+                if let loaded = refreshed.content { content = loaded }
+                error = refreshed.error
+            } else { await load() }
+        }
     }
     private func artwork(_ link: PluginBrowse.Link) -> Track {
         var track = Track(sourceID: source.manifest.id, sourceTrackID: link.page, title: link.title, artist: "", artworkURL: link.imageURL)

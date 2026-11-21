@@ -40,6 +40,20 @@ class PluginRuntimeTest {
     private val app = InstrumentationRegistry.getInstrumentation().targetContext
     private val manifest = PluginManifest.parse(JSONObject("""{"id":"fixture","permissions":{"network":["api.example.test"]}}"""))
 
+    @Test fun videoQualityForwardsIndependentPreferenceAndReadsActualFallbackAndRealChoices() = fixture(
+        """
+        export function video({quality}) { return {url:'https://api.example.test/video.mp4',type:'mp4',videoQuality:quality==='1080p'?'720p':quality,
+            videoQualities:[{id:'1080p',label:'1080p60'},{id:'720p',label:'720p'},{id:'720p',label:'duplicate'},{id:'bad key',label:'invalid'}]}; }
+        """.trimIndent(),
+    ) { runtime, _, _ ->
+        val source = PluginSource(manifest, runtime)
+        val result = source.video("one", "1080p")
+        assertEquals("720p", result.videoQuality)
+        assertEquals(listOf("1080p", "720p"), result.videoQualities.map { it.id })
+        assertEquals("1080p60", result.videoQualities.first().label)
+        assertEquals("720p", source.video("one", "720p").videoQuality)
+    }
+
     @Test fun browsePagesForwardOffsetsAndPreservePortraitMetadata() = fixture(
         """
         export function browse({offset = 0}) { return {sections:[{tracks:[{id:String(offset),name:'Portrait',video:{width:1080,height:1920,short:true}}]}],more:offset===0}; }

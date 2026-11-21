@@ -363,7 +363,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         val refresh: () -> Unit = {
             val currentCategory = category
             when {
-                visibleCatalog is CatalogDestination.Content -> visibleCatalog.pager.invalidate()
+                visibleCatalog is CatalogDestination.Content && pluginSource != null -> scope.launch { visibleCatalog.refresh(pluginSource) }
                 currentCategory != null -> browser.refreshCategory(currentCategory)
                 else -> browser.refresh()
             }

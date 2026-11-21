@@ -34,6 +34,8 @@ struct SettingsView: View {
                         Picker("音质", selection: $preferences.values.quality) {
                             ForEach(AudioQuality.allCases) { quality in Text(LocalizedStringKey(quality.title)).tag(quality) }
                         }
+                        HStack { Text("视频画质"); Spacer(); Text(preferences.values.videoQuality == "auto" ? "自动（最高可用）" : preferences.values.videoQuality).foregroundStyle(.secondary) }
+                        if preferences.values.videoQuality != "auto" { Button("重置视频画质为自动") { preferences.values.videoQuality = "auto" } }
                         Picker("响度标准化", selection: $preferences.values.normalization) {
                             ForEach(AudioNormalization.allCases) { mode in Text(LocalizedStringKey(mode.title)).tag(mode) }
                         }

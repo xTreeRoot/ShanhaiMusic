@@ -209,12 +209,13 @@ public struct MBRootView: View {
                 if !demo { systemPlayback.setLyricsEnabled(preferences.values.nowPlayingLyrics) }
                 AppLocalization.use(preferences.values.language)
                 await router.setQuality(preferences.values.quality)
+                video.setQuality(preferences.values.videoQuality)
                 await account.restore()
                 if let previewLibrary {
                     await previewLibrary.prepare()
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--plugin-demo") {
-                        do { await plugins.prepare(try previewLibrary.pluginFixture(includeTrackProblems: demoTrackProblems)) }
+                        do { await plugins.prepare(try previewLibrary.pluginFixture(includeTrackProblems: demoTrackProblems, refreshFixture: ProcessInfo.processInfo.arguments.contains("--refresh-fixture"))) }
                         catch { plugins.reportError(error) }
                     }
                     #endif
@@ -275,6 +276,7 @@ public struct MBRootView: View {
                 AppLocalization.use(preferences.values.language)
                 if !demo { preferences.save(); playback.setVolume(preferences.values.volume); playback.setNormalization(preferences.values.normalization); systemPlayback.setLyricsEnabled(preferences.values.nowPlayingLyrics) }
             }
+            .onChange(of: preferences.values.videoQuality) { _, quality in video.setQuality(quality) }
             .onChange(of: preferences.values.quality) { _, quality in
                 playback.invalidatePreparedAudio()
                 Task { await router.setQuality(quality); playback.invalidatePreparedAudio() }
@@ -368,6 +370,7 @@ public struct MBRootView: View {
             .modifier(PluginLinkPresentation(service: plugins.ui))
             .environment(\.offlineLibrary, localLibrary)
             .environment(\.stationPlayback, playback)
+            .environment(\.videoQualityPreference, $preferences.values.videoQuality)
             .environment(\.lyricSparks, preferences.values.stageSparks)
             .environment(\.lyricVisualStyle, preferences.values.lyricStyle)
             .environment(\.locale, Locale(identifier: preferences.values.language.languageCode))

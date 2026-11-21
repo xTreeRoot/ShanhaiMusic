@@ -86,6 +86,10 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, SignInMet
         let result = try await runtime.invoke("video", arguments: .object(["id": .string(track.sourceTrackID), "quality": .string(quality.rawValue)]))
         return try await resource(result)
     }
+    public func video(track: Track, qualityID: String) async throws -> MediaResource {
+        guard VideoQualityOption.valid(qualityID) else { throw PluginFailure.invalid("Invalid video quality") }
+        return try await resource(runtime.invoke("video", arguments: .object(["id": .string(track.sourceTrackID), "quality": .string(qualityID)])))
+    }
     public func audio(trackID: String) async throws -> MediaResource {
         let result = try await runtime.invoke("stream", arguments: .object(["id": .string(trackID), "quality": .string("")]))
         return try await resource(result)
@@ -214,7 +218,14 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, SignInMet
         if case .object(let own) = value["headers"] {
             for (name, value) in own { if let text = value.string { headers = headers.filter { $0.key.lowercased() != name.lowercased() }; headers[name] = text } }
         }
-        return MediaResource(url: url, headers: headers, fileExtension: value["type"].string ?? "m4a")
+        var seen: Set<String> = []
+        let qualities = value["videoQualities"].array.prefix(32).compactMap { item -> VideoQualityOption? in
+            guard let id = item["id"].string, let label = item["label"].string,
+                  let option = VideoQualityOption(id: id, label: label), seen.insert(id).inserted else { return nil }
+            return option
+        }
+        let actual = value["videoQuality"].string.flatMap { VideoQualityOption.valid($0) ? $0 : nil }
+        return MediaResource(url: url, headers: headers, fileExtension: value["type"].string ?? "m4a", videoQuality: actual, videoQualities: qualities)
     }
     func browseResult(_ value: PluginJSON) async throws -> PluginBrowse {
         var sections: [PluginBrowse.Section] = []

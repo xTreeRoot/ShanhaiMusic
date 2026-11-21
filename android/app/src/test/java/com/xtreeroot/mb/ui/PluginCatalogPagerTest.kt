@@ -14,6 +14,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginCatalogPagerTest {
+    @Test fun refreshDuringPendingRequestRejectsItsLateResultAndKeepsNewestContent() = runBlocking {
+        val pager = PluginCatalogPager()
+        pager.load { page("Original", 3) }
+        val entered = CompletableDeferred<Unit>()
+        val old = CompletableDeferred<PluginCatalogPage>()
+        val loading = launch { pager.load(append = true) { entered.complete(Unit); old.await() } }
+        entered.await()
+        var invalidated = false
+        pager.refresh({ invalidated = true }) { offset ->
+            assertTrue(invalidated)
+            assertEquals(0, offset)
+            assertTrue(pager.state.value.busy)
+            page("Refreshed", null)
+        }
+        old.complete(page("Stale", 6)); loading.join()
+        assertEquals("Refreshed", pager.state.value.page?.sections?.single()?.title)
+        assertFalse(pager.state.value.busy)
+    }
+
+    @Test fun invalidationDuringBusyLoadIsNotLostAndCancelledOldWorkCannotRestoreStaleState() = runBlocking {
+        val pager = PluginCatalogPager()
+        val entered = CompletableDeferred<Unit>()
+        val loading = launch { pager.load { entered.complete(Unit); awaitCancellation() } }
+        entered.await()
+        pager.invalidate()
+        pager.load { page("Latest", null) }
+        loading.cancelAndJoin()
+        assertEquals("Latest", pager.state.value.page?.sections?.single()?.title)
+        assertFalse(pager.state.value.needsReload)
+    }
     @Test fun refreshRetainsLoadedPagesUntilTheReplacementSucceedsAndRestartsAtZero() = runBlocking {
         val pager = PluginCatalogPager()
         pager.load { page("First", 3) }

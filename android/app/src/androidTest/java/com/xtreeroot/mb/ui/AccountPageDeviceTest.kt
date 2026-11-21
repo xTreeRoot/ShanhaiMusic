@@ -49,6 +49,65 @@ class AccountPageDeviceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app = instrumentation.targetContext.applicationContext as MBApplication
 
+    @Test fun pullRefreshRequestsNewHomeAndNavigationContentInsteadOfReusingCache() = runBlocking {
+        val id = "refresh-ui-${UUID.randomUUID()}"
+        val data = ByteArrayOutputStream().apply { ZipOutputStream(this).use { zip ->
+            for ((name, text) in mapOf("plugin.json" to """{"id":"$id","name":"Refresh Fixture","navigation":[{"page":"extra","title":"Extra"}]}""",
+                "index.js" to """let homes=0, extras=0; export function home(){return {sections:[{title:'Home '+(++homes),tracks:[{id:'home',name:'Home item'}]}]};} export function browse(){return {sections:[{tracks:[{id:'extra',name:'Navigation '+(++extras)}]}]};}""")) {
+                zip.putNextEntry(ZipEntry(name)); zip.write(text.encodeToByteArray()); zip.closeEntry()
+            }
+        } }.toByteArray()
+        val plugin = app.plugins.install(app.plugins.prepareZip { data.inputStream() })
+        try {
+            app.plugins.setEnabled(plugin, true); app.refreshPlugins()
+            val source = app.playbackSource(id) as PluginSource
+            val navigator = PluginCatalogNavigator()
+            withPage(source, dark = false, content = {
+                PluginCatalogBrowser(source, navigator.home, navigator, { _, _ -> }, { _, _, _ -> })
+            }) {
+                awaitNode("Home 1"); awaitNode("Navigation 1")
+                val metrics = app.resources.displayMetrics
+                val down = android.os.SystemClock.uptimeMillis()
+                for (step in 0..24) {
+                    val action = when (step) { 0 -> android.view.MotionEvent.ACTION_DOWN; 24 -> android.view.MotionEvent.ACTION_UP; else -> android.view.MotionEvent.ACTION_MOVE }
+                    val event = android.view.MotionEvent.obtain(down, android.os.SystemClock.uptimeMillis(), action,
+                        metrics.widthPixels * .85f, metrics.heightPixels * (.13f + .66f * step / 24f), 0)
+                    event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                    try { org.junit.Assert.assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+                    android.os.SystemClock.sleep(20)
+                }
+                awaitNode("Home 2"); awaitNode("Navigation 2")
+                assertNull(node("Home 1")); assertNull(node("Navigation 1"))
+                capture("android-pull-refresh-replaced-home-and-shelf")
+            }
+        } finally { app.plugins.remove(plugin); app.refreshPlugins(); plugin.dataDirectory.deleteRecursively() }
+    }
+
+    @Test fun videoQualityMenuPersistsSelectionForLaterVideosWithoutChangingAudioQuality() = runBlocking {
+        val old = app.settings.values.value
+        val source = object : AccountSource {
+            override val id = "quality-ui"
+            override suspend fun search(query: String, page: Int) = TrackPage(emptyList(), false)
+            override suspend fun account(): SourceAccount? = null
+            override suspend fun signIn(prompt: suspend (SignInPrompt) -> Unit): SourceAccount = error("unused")
+            override suspend fun signOut() {}
+        }
+        try {
+            app.settings.update { it.copy(videoQuality = "auto") }
+            withPage(source, dark = true, content = {
+                VideoQualityMenu(com.xtreeroot.mb.playback.VideoFrameState("fixture", loading = false, quality = "1080p", qualities = listOf(
+                    com.xtreeroot.mb.music.VideoQualityOption("1080p", "1080p60"), com.xtreeroot.mb.music.VideoQualityOption("720p", "720p"))))
+            }) {
+                tap("Video Quality"); tap("720p")
+                assertEquals("720p", app.settings.values.value.videoQuality)
+                assertEquals("720p", com.xtreeroot.mb.preferences.AppPreferences.parse(app.settings.values.value.toJson()).videoQuality)
+                assertEquals(old.quality, app.settings.values.value.quality)
+                tap("Video Quality"); awaitNode("720p")
+                capture("android-video-quality-remembered")
+            }
+        } finally { app.settings.update { old } }
+    }
+
     @Test fun pluginAccountDestinationsKeepTheirProfileAndCollectionRequests() = runBlocking {
         val id = "account-page-${UUID.randomUUID()}"
         val plugin = app.plugins.install(app.plugins.prepareZip { pluginZip(id).inputStream() })

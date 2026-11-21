@@ -109,16 +109,18 @@ enum DemoCatalog {
         media = MediaLibrary(directory: directory.appendingPathComponent("media"))
         store = LocalLibraryStore(directory: directory)
     }
-    func pluginFixture(includeTrackProblems: Bool = false) throws -> URL {
+    func pluginFixture(includeTrackProblems: Bool = false, refreshFixture: Bool = false) throws -> URL {
         let folder = directory.appendingPathComponent("plugin")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","minAppVersion":"0.1.0","settings":[{"key":"server","label":"服务地址","type":"text"},{"key":"enabled","label":"启用示例","type":"boolean"}],"permissions":{"network":["media.example.test"]},"navigation":[{"title":"示例曲目","page":"duplicate"},{"title":"示例分页","page":"more"}]}"#
+        var manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","minAppVersion":"0.1.0","settings":[{"key":"server","label":"服务地址","type":"text"},{"key":"enabled","label":"启用示例","type":"boolean"}],"permissions":{"network":["media.example.test"]},"navigation":[{"title":"示例曲目","page":"duplicate"},{"title":"示例分页","page":"more"}]}"#
+        if refreshFixture { manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","navigation":[{"title":"独立栏目","page":"extra"}]}"# }
         try manifest.write(to: folder.appendingPathComponent("plugin.json"), atomically: true, encoding: .utf8)
-        let script = (includeTrackProblems ? "const extraTracks = [{id:'vip',name:'会员示例曲目',unavailableReason:'vip'}, {id:'missing',name:'无音源示例曲目'}];\n" : "const extraTracks = [];\n") + #"""
-        let listName='示例歌单', listTracks=[];
+        let refreshScript = refreshFixture ? "const refreshFixture = true;" : "const refreshFixture = false;"
+        let script = refreshScript + (includeTrackProblems ? "const extraTracks = [{id:'vip',name:'会员示例曲目',unavailableReason:'vip'}, {id:'missing',name:'无音源示例曲目'}];\n" : "const extraTracks = [];\n") + #"""
+        let listName='示例歌单', listTracks=[], homeCalls=0, extraCalls=0;
         const track = {id:'sample',name:'插件示例歌曲',artists:[{id:'artist',name:'示例作者'}],album:{},duration:180000};
-        export function home(){return {title:'示例插件首页',sections:[{title:'示例曲目',tracks:[track,...extraTracks],links:[{title:'更多示例',page:'more'}],albums:[{id:'al',name:'示例专辑'}],artists:[{id:'ar',name:'示例作者'}],playlists:[{id:'pl',name:listName,mine:true}],shows:[{id:'sh',name:'示例播客'}],stations:[{id:'st',name:'示例电台'}]}]};}
-        export function browse({page}){return {title:page==='duplicate'?'相同导航完整内容':'示例分页',sections:[{title:'分页曲目',tracks:[track]}]};}
+        export function home(){if(refreshFixture)return {sections:[{title:'刷新首页',tracks:[{...track,name:'首页第'+(++homeCalls)+'次'}]}]}; return {title:'示例插件首页',sections:[{title:'示例曲目',tracks:[track,...extraTracks],links:[{title:'更多示例',page:'more'}],albums:[{id:'al',name:'示例专辑'}],artists:[{id:'ar',name:'示例作者'}],playlists:[{id:'pl',name:listName,mine:true}],shows:[{id:'sh',name:'示例播客'}],stations:[{id:'st',name:'示例电台'}]}]};}
+        export function browse({page}){if(refreshFixture)return {sections:[{tracks:[{...track,name:'栏目第'+(++extraCalls)+'次'}]}]}; return {title:page==='duplicate'?'相同导航完整内容':'示例分页',sections:[{title:'分页曲目',tracks:[track]}]};}
         export function search({query,kind}){return {tracks:kind==='tracks'?[{...track,name:query+' · 插件结果'}]:[],albums:kind==='albums'?[{id:'al',name:'示例专辑'}]:[],artists:kind==='artists'?[{id:'ar',name:'示例作者'}]:[],playlists:kind==='playlists'?[{id:'pl',name:listName,mine:true}]:[],shows:kind==='shows'?[{id:'sh',name:'示例播客'}]:[],more:false};}
         export function searchVideos({query,offset}){return offset===0?{tracks:[{...track,id:'sample-video',name:query+' · 视频结果'},{}],more:true}:offset===2?{tracks:[{...track,id:'sample-video-next',name:query+' · 更多视频'}],more:false}:{tracks:[],more:false};}
         export function album(){return {album:{id:'al',name:'示例专辑',description:'专辑详情 · 演示数据'},tracks:[track]};}

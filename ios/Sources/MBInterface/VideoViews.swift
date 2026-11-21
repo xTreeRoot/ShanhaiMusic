@@ -61,7 +61,7 @@ struct VideoPageView: View {
                 .background(alignment: .top) { LinearGradient(colors: [.black.opacity(0.7), .clear], startPoint: .top, endPoint: .bottom).allowsHitTesting(false) } }
             }
             .overlay(alignment: .bottom) {
-                if chrome.visible { VideoTransport(playback: playback, fullscreen: { fullScreen = true }, editing: chrome.editing)
+                if chrome.visible { VideoTransport(playback: playback, video: video, fullscreen: { fullScreen = true }, editing: chrome.editing)
                     .accessibilityIdentifier("video-transport")
                     .background(LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)) }
             }
@@ -208,7 +208,7 @@ private struct VideoFullscreenView: View {
                     }
                     .padding().background(.black.opacity(0.6))
                     Spacer()
-                    VideoTransport(playback: playback, editing: chrome.editing).accessibilityIdentifier("video-transport").background(.black.opacity(0.6))
+                    VideoTransport(playback: playback, video: video, editing: chrome.editing).accessibilityIdentifier("video-transport").background(.black.opacity(0.6))
                 }.foregroundStyle(.white)
             }
         }
@@ -226,6 +226,7 @@ private struct VideoFullscreenView: View {
 private struct VideoTransport: View {
     @Environment(\.skinAccent) private var skinAccent
     let playback: PlaybackModel
+    let video: VideoModel
     var fullscreen: (() -> Void)? = nil
     var editing: (Bool) -> Void = { _ in }
     @State private var preview = 0.0
@@ -249,6 +250,7 @@ private struct VideoTransport: View {
                 Text(TimeLabel.string(milliseconds: playback.positionMilliseconds))
                 Text("/\(TimeLabel.string(milliseconds: playback.durationMilliseconds))")
             }.font(.caption.monospacedDigit()).fixedSize()
+            VideoQualityMenu(video: video)
             if let fullscreen {
                 Button(action: fullscreen) {
                     Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 44, height: 44).contentShape(Rectangle())

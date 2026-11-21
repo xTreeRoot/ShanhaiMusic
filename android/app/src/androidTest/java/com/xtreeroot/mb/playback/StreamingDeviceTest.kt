@@ -254,6 +254,59 @@ class StreamingDeviceTest {
         }
     }
 
+    @Test fun changingVideoQualityReloadsAtCurrentPositionAndNextVideoUsesSamePreference() = runBlocking {
+        val mp4 = instrumentation.context.assets.open("video-preload.mp4").use { it.readBytes() }
+        val wav = wave(30)
+        val requests = CopyOnWriteArrayList<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            media(chain.request(), if (chain.request().url.encodedPath == "/video") mp4 else wav)
+        }.build()
+        val track = Track("fixture", "quality-one", "Quality fixture", "", durationMs = 30_000)
+        val next = track.copy(sourceTrackId = "quality-next")
+        val source = object : VideoSource {
+            override val id = track.sourceId
+            override suspend fun search(query: String, page: Int) = TrackPage(emptyList(), false)
+            override suspend fun video(trackId: String): MediaResource = error("Must forward video quality")
+            override suspend fun video(trackId: String, qualityID: String): MediaResource {
+                requests.add(qualityID)
+                return MediaResource("https://fixture.invalid/video", emptyMap(), videoQuality = qualityID,
+                    videoQualities = listOf(com.xtreeroot.mb.music.VideoQualityOption("1080p", "1080p"),
+                        com.xtreeroot.mb.music.VideoQualityOption("720p", "720p")))
+            }
+        }
+        var quality = "1080p"
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val audio = withContext(Dispatchers.Main) { player(client).apply {
+            setMediaItem(track.mediaItem().buildUpon().setUri("https://fixture.invalid/audio").build(), 5_000); prepare()
+        } }
+        val coordinator = withContext(Dispatchers.Main) { VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { quality }) }
+        val texture = SurfaceTexture(false); val output = Surface(texture)
+        suspend fun ready() {
+            eventually { coordinator.frames.value?.player != null }
+            withContext(Dispatchers.Main) { coordinator.frames.value?.player?.setVideoSurface(output) }
+            eventually { coordinator.frames.value?.loading == false }
+        }
+        try {
+            eventually { audio.playbackState == Player.STATE_READY }
+            withContext(Dispatchers.Main) { coordinator.show(track) }; ready()
+            withContext(Dispatchers.Main) { quality = "720p"; coordinator.qualityChanged() }
+            ready()
+            withContext(Dispatchers.Main) {
+                assertEquals("720p", coordinator.frames.value?.quality)
+                assertTrue(kotlin.math.abs(audio.currentPosition - 5_000) < 300)
+                assertFalse(audio.playWhenReady)
+                assertEquals(listOf("1080p", "720p"), requests.toList())
+                audio.setMediaItem(next.mediaItem().buildUpon().setUri("https://fixture.invalid/audio").build()); audio.prepare()
+                coordinator.show(next)
+            }
+            ready()
+            assertEquals(listOf("1080p", "720p", "720p"), requests.toList())
+        } finally {
+            withContext(Dispatchers.Main) { coordinator.close(); scope.cancel(); audio.release() }
+            output.release(); texture.release()
+        }
+    }
+
     @Test fun musicPreloadsVideoWithoutPausingAndSwitchesUsingTheSameBufferedPlayer() = runBlocking {
         val mp4 = instrumentation.context.assets.open("video-preload.mp4").use { it.readBytes() }
         val wav = wave(30)
@@ -277,7 +330,7 @@ class StreamingDeviceTest {
             setMediaItem(track.mediaItem().buildUpon().setUri("https://fixture.invalid/audio").build()); prepare(); play()
         } }
         val coordinator = withContext(Dispatchers.Main) {
-            VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { AudioQuality.Standard })
+            VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { "auto" })
         }
         val texture = SurfaceTexture(false)
         val output = Surface(texture)
@@ -342,7 +395,7 @@ class StreamingDeviceTest {
             setMediaItem(track.mediaItem().buildUpon().setUri("https://fixture.invalid/audio").build()); prepare(); play()
         } }
         val coordinator = withContext(Dispatchers.Main) {
-            VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { AudioQuality.Standard })
+            VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { "auto" })
         }
         val texture = SurfaceTexture(false)
         val output = Surface(texture)
@@ -415,7 +468,7 @@ class StreamingDeviceTest {
         } }
         var currentSource: VideoSource = source
         val coordinator = withContext(Dispatchers.Main) {
-            VideoPlayback(instrumentation.targetContext, client, audio, scope, { currentSource }, { AudioQuality.Standard })
+            VideoPlayback(instrumentation.targetContext, client, audio, scope, { currentSource }, { "auto" })
         }
         try {
             eventually { audio.isPlaying }
@@ -493,7 +546,7 @@ class StreamingDeviceTest {
             }
         }
         val coordinator = withContext(Dispatchers.Main) {
-            VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { AudioQuality.Standard })
+            VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { "auto" })
         }
         val textures = SurfaceTexture(false)
         val output = Surface(textures)
@@ -564,7 +617,7 @@ class StreamingDeviceTest {
             }
         }
         val coordinator = withContext(Dispatchers.Main) {
-            VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { AudioQuality.Standard })
+            VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { "auto" })
         }
         try {
             eventually { audio.isPlaying }
@@ -611,7 +664,7 @@ class StreamingDeviceTest {
             }
         }
         val coordinator = withContext(Dispatchers.Main) {
-            VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { AudioQuality.Standard })
+            VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { "auto" })
         }
         try {
             eventually { audio.playbackState == Player.STATE_READY }
@@ -696,7 +749,7 @@ class StreamingDeviceTest {
                     audio.shuffleModeEnabled = shuffle
                     radio.set(PlaybackStation(tail.sourceId, "daily", "Daily"), prefetch = true)
                     audio.prepare()
-                    val coordinator = VideoPlayback(instrumentation.targetContext, client, audio, scope, { null }, { AudioQuality.Standard })
+                    val coordinator = VideoPlayback(instrumentation.targetContext, client, audio, scope, { null }, { "auto" })
                     video = coordinator
                     CaptionSessionPlayer(audio, coordinator, radio) {}
                 }
@@ -766,7 +819,7 @@ class StreamingDeviceTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         val audio = withContext(Dispatchers.Main) { player(client, stationMedia(client)) }
         val video = withContext(Dispatchers.Main) {
-            VideoPlayback(instrumentation.targetContext, client, audio, scope, { null }, { AudioQuality.Standard })
+            VideoPlayback(instrumentation.targetContext, client, audio, scope, { null }, { "auto" })
         }
         try {
             val session = withContext(Dispatchers.Main) {
@@ -813,7 +866,7 @@ class StreamingDeviceTest {
             }
         }
         val video = withContext(Dispatchers.Main) {
-            VideoPlayback(instrumentation.targetContext, client, audio, scope, { null }, { AudioQuality.Standard })
+            VideoPlayback(instrumentation.targetContext, client, audio, scope, { null }, { "auto" })
         }
         try {
             eventually { status.failure == StationFailure.Empty }
