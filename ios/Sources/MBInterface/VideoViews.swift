@@ -8,6 +8,7 @@ struct VideoPageView: View {
     let interactionSource: (any InteractionSource)?
     let accountRevision: Int
     let openMusic: () -> Void
+    var browse: (() -> Void)? = nil
     var saveResource: (Track) -> Void = { _ in }
     var menu: (Track) -> AnyView = { _ in AnyView(EmptyView()) }
     @State private var fullScreen = false
@@ -16,7 +17,7 @@ struct VideoPageView: View {
     var body: some View {
         Group {
         if video.aspectRatio < 1, let track = playback.queue.current {
-            PortraitVideoView(track: track, video: video, playback: playback, interactionSource: interactionSource, openMusic: openMusic, saveResource: saveResource, menu: menu)
+            PortraitVideoView(track: track, video: video, playback: playback, interactionSource: interactionSource, openMusic: openMusic, browse: browse, saveResource: saveResource, menu: menu)
         } else {
         GeometryReader { geometry in
             let sideBySide = geometry.size.width >= 800 && geometry.size.width > geometry.size.height
@@ -33,6 +34,7 @@ struct VideoPageView: View {
         }.background(MBTheme.background, ignoresSafeAreaEdges: .bottom)
         .background(Color.black.ignoresSafeArea(edges: .top))
         #if os(iOS)
+        .ignoresSafeArea(.container, edges: .top)
         .statusBarHidden(video.isVisible)
         .fullScreenCover(isPresented: $fullScreen) { VideoFullscreenView(video: video, playback: playback) }
         #else
@@ -41,12 +43,12 @@ struct VideoPageView: View {
     }
 
     private var picture: some View {
-        VideoScreen(video: video, pictureVisible: !fullScreen)
+        VideoScreen(video: video, pictureVisible: video.isVisible && !fullScreen)
             .modifier(VideoTapControls(chrome: chrome, playback: playback))
             .aspectRatio(video.aspectRatio, contentMode: .fit)
             .overlay(alignment: .top) {
                 if chrome.visible { HStack {
-                    Button { video.browse() } label: {
+                    Button { if let browse { browse() } else { video.browse() } } label: {
                         Image(systemName: "chevron.left").frame(width: 44, height: 44).contentShape(Rectangle())
                     }.accessibilityLabel("返回浏览")
                     Spacer()
@@ -97,26 +99,7 @@ private struct VideoDetailsView: View {
                 }
             }.padding(.horizontal, 8)
             Divider()
-            switch selectedTab {
-            case .info: ScrollView { information.padding(16) }
-            case .comments:
-                if let interaction, interaction.capabilities.comments { TrackCommentsList(model: interaction) }
-                else if interaction != nil && !loadedInteractions { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
-                else {
-                    ContentUnavailableView("此音源不支持评论", systemImage: "bubble.left.and.bubble.right")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            case .captions:
-                CaptionView(timeline: playback.timeline, positionMilliseconds: playback.positionMilliseconds, message: playback.captionMessage, seek: { playback.seek(to: $0) })
-                    .padding(16)
-            case .queue:
-                ScrollView {
-                    VideoQueueView(playback: playback)
-                    #if os(iOS)
-                    SystemVolumeView().frame(maxWidth: 240).frame(height: 28).accessibilityLabel("系统音量").padding(.top, 12)
-                    #endif
-                }.contentMargins(16)
-            }
+            detailPages
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .task(id: interactionSource != nil) {
                 loadedInteractions = false
@@ -128,6 +111,34 @@ private struct VideoDetailsView: View {
                 loadedInteractions = true
                 await interaction.loadLike()
             }
+    }
+
+    @ViewBuilder private var detailPages: some View {
+        #if os(iOS)
+        TabView(selection: $selectedTab) {
+            ForEach(VideoDetailTab.allCases, id: \.self) { tab in detail(tab).tag(tab) }
+        }.tabViewStyle(.page(indexDisplayMode: .never))
+        #else
+        detail(selectedTab)
+        #endif
+    }
+    @ViewBuilder private func detail(_ tab: VideoDetailTab) -> some View {
+        switch tab {
+        case .info: ScrollView { information.padding(16) }
+        case .comments:
+            if let interaction, interaction.capabilities.comments { TrackCommentsList(model: interaction) }
+            else if interaction != nil && !loadedInteractions { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else { ContentUnavailableView("此音源不支持评论", systemImage: "bubble.left.and.bubble.right") }
+        case .captions:
+            CaptionView(timeline: playback.timeline, positionMilliseconds: playback.positionMilliseconds, message: playback.captionMessage, seek: { playback.seek(to: $0) }).padding(16)
+        case .queue:
+            ScrollView {
+                VideoQueueView(playback: playback)
+                #if os(iOS)
+                SystemVolumeView().frame(maxWidth: 240).frame(height: 28).accessibilityLabel("系统音量").padding(.top, 12)
+                #endif
+            }.contentMargins(16)
+        }
     }
 
     private var information: some View {
@@ -286,21 +297,35 @@ private final class PlayerSurface: UIView {
     override class var layerClass: AnyClass { AVPlayerLayer.self }
     var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
     var displayObservation: NSKeyValueObservation?
+    weak var pictureInPicture: VideoPictureInPicture?
 }
 private struct NativeVideoSurface: UIViewRepresentable {
     let player: AVPlayer
+    @Environment(\.videoPictureInPicture) private var pictureInPicture
     func makeUIView(context: Context) -> PlayerSurface {
         let view = PlayerSurface()
         view.playerLayer.videoGravity = .resizeAspect
         view.isAccessibilityElement = true
+        view.accessibilityIdentifier = "native-video-surface"
         view.displayObservation = view.playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { @Sendable [weak view] layer, _ in
             let ready = layer.isReadyForDisplay
             Task { @MainActor in view?.accessibilityValue = AppLocalization.text(ready ? "视频画面已显示" : "等待视频画面") }
         }
         return view
     }
-    func updateUIView(_ view: PlayerSurface, context: Context) { view.playerLayer.player = player }
-    static func dismantleUIView(_ view: PlayerSurface, coordinator: ()) { view.displayObservation = nil; view.playerLayer.player = nil }
+    func updateUIView(_ view: PlayerSurface, context: Context) {
+        if view.playerLayer.player !== player { view.playerLayer.player = player }
+        if view.pictureInPicture !== pictureInPicture {
+            view.pictureInPicture?.detach(view.playerLayer)
+            view.pictureInPicture = pictureInPicture
+        }
+        pictureInPicture?.attach(view.playerLayer)
+    }
+    static func dismantleUIView(_ view: PlayerSurface, coordinator: ()) {
+        view.displayObservation = nil
+        view.pictureInPicture?.detach(view.playerLayer)
+        if view.pictureInPicture?.running != true { view.playerLayer.player = nil }
+    }
 }
 #else
 private struct NativeVideoSurface: NSViewRepresentable {

@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -66,13 +67,16 @@ internal fun AccountDestinations(destinations: List<AccountDestination>) {
 }
 
 @Composable
-internal fun AccountTools(openSettings: () -> Unit, openPlugins: () -> Unit) {
+internal fun AccountTools(openSettings: () -> Unit, openPlugins: () -> Unit, openService: () -> Unit = {}) {
     MBGroupedSection {
         MBFormRow(mb("设置", "Settings"), leading = { Icon(Icons.Default.Settings, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary) },
             disclosure = true, onClick = openSettings)
         MBFormDivider()
         MBFormRow(mb("插件", "Plugins"), leading = { Icon(Icons.AutoMirrored.Filled.List, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary) },
             disclosure = true, onClick = openPlugins)
+        MBFormDivider()
+        MBFormRow(mb("山海服务", "Shanhai Service"), leading = { Icon(Icons.Default.Refresh, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary) },
+            disclosure = true, onClick = openService)
     }
 }
 

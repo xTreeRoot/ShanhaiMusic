@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
@@ -73,18 +74,13 @@ internal fun mb(zh: String, en: String): String = if (LocalMBEnglish.current) en
 @Composable
 internal fun SettingsView(values: AppPreferences, update: ((AppPreferences) -> AppPreferences) -> Unit,
                           saved: SavedLibraryModel, browser: BrowseModel, backgroundState: AppearanceBackgroundState,
-                          background: AppearanceBackgroundModel, surface: Color, profileSync: NodeProfileSyncState,
-                          canPublishProfile: Boolean, publishProfile: () -> Unit, openPlugins: () -> Unit, close: () -> Unit) {
+                          background: AppearanceBackgroundModel, surface: Color, openPlugins: () -> Unit, close: () -> Unit) {
     var appUpdate by rememberSaveable { mutableStateOf(false) }
     var skin by rememberSaveable { mutableStateOf(false) }
     var network by rememberSaveable { mutableStateOf(false) }
-    var node by rememberSaveable { mutableStateOf(false) }
     var clearHistory by rememberSaveable { mutableStateOf(false) }
     val history by browser.history.collectAsStateWithLifecycle()
     val offline by saved.offline.collectAsStateWithLifecycle()
-    val pickBackground = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) background.select(uri)
-    }
     BackHandler(network || skin) { network = false; skin = false }
     Scaffold(containerColor = surface, contentColor = MaterialTheme.colorScheme.onBackground, topBar = {
         TopAppBar(largeTitle = !network && !skin, title = {
@@ -98,10 +94,26 @@ internal fun SettingsView(values: AppPreferences, update: ((AppPreferences) -> A
     }) { padding ->
         if (network) NetworkSettings(values.proxy, { policy -> update { it.copy(proxy = policy) } }, Modifier.padding(padding))
         else if (skin) LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
-            item { MBGroupedSection { AppearanceBackgroundSetting(backgroundState, { pickBackground.launch(arrayOf("image/*")) }, background::clear) } }
+            item { MBGroupedSection { BackgroundImageFlow(backgroundState, background) } }
         }
         else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
-            item { MBGroupedSection { MBFormRow(mb("检查版本", "App Updates"), disclosure = true, onClick = { appUpdate = true }) } }
+            item { MBGroupedSection(mb("视频小窗", "Video Windows")) {
+                MBFormRow(mb("应用内视频小窗", "In-App Video Window"), trailing = {
+                    Switch(values.inAppVideoWindow, { enabled -> update { it.copy(inAppVideoWindow = enabled) } })
+                })
+                MBFormDivider()
+                MBFormRow(mb("离开应用时画中画", "Picture in Picture Outside App"), trailing = {
+                    Switch(values.systemVideoWindow, { enabled -> update { it.copy(systemVideoWindow = enabled) } })
+                })
+            } }
+            item { MBGroupedSection {
+                MBFormRow(mb("检查版本", "App Updates"), disclosure = true, onClick = { appUpdate = true })
+                MBFormDivider()
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(mb("启动时检查版本", "Check Updates on Launch"), Modifier.weight(1f))
+                    androidx.compose.material3.Switch(values.automaticUpdateChecks, { enabled -> update { it.copy(automaticUpdateChecks = enabled) } })
+                }
+            } }
             item {
                 MBGroupedSection(mb("显示", "Display")) {
                     Choice(mb("语言", "Language"), values.language, listOf(AppLanguage.System to mb("跟随系统", "System"),
@@ -118,7 +130,6 @@ internal fun SettingsView(values: AppPreferences, update: ((AppPreferences) -> A
                     MBFormRow(mb("插件", "Plugins"), disclosure = true, onClick = openPlugins)
                 }
             }
-            item { MBGroupedSection(mb("山海服务", "Shanhai Server")) { MBFormRow(mb("接入节点", "Connect to Node"), disclosure = true, onClick = { node = true }) } }
             item {
                 MBGroupedSection(mb("播放", "Playback")) {
                     Choice(mb("音质", "Audio Quality"), values.quality, listOf(AudioQuality.Standard to mb("标准", "Standard"),
@@ -181,8 +192,6 @@ internal fun SettingsView(values: AppPreferences, update: ((AppPreferences) -> A
         }
     }
     if (appUpdate) AppUpdateDialog { appUpdate = false }
-    if (node) NodeSettingsDialog(LocalContext.current.applicationContext as MBApplication, profileSync,
-        canPublishProfile, publishProfile) { node = false }
     if (clearHistory) AlertDialog(onDismissRequest = { clearHistory = false }, title = { Text(mb("清空搜索记录？", "Clear search history?")) },
         confirmButton = { TextButton(onClick = { browser.clearHistory(); clearHistory = false }) { Text(mb("清空", "Clear")) } },
         dismissButton = { TextButton(onClick = { clearHistory = false }) { Text(mb("取消", "Cancel")) } })

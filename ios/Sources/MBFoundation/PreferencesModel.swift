@@ -10,6 +10,9 @@ public enum AppAppearance: String, Codable, CaseIterable, Identifiable, Sendable
 public struct AppPreferences: Codable, Equatable, Sendable {
     public var selectedSourceID: String? = nil
     public var appearance = AppAppearance.system
+    public var inAppVideoWindow = true
+    public var systemVideoWindow = true
+    public var backgroundOpacity: Double? = nil
     public var volume = 0.8
     public var cacheMegabytes = 2_048
     public var searchHistory: [String] = []
@@ -24,11 +27,16 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var hotComments = false
     public var stageSparks = false
     public var lyricsStage = false
+    public var automaticUpdateChecks = true
     public var nowPlayingLyrics = true
     public init() {}
-    private enum CodingKeys: String, CodingKey { case selectedSourceID, appearance, volume, cacheMegabytes, searchHistory, playerStyle, lyricStyle, normalization, language, quality, stageSparks, lyricsStage, nowPlayingLyrics, smoke, fog, growFromCover, hotComments }
+    private enum CodingKeys: String, CodingKey { case inAppVideoWindow, systemVideoWindow, backgroundOpacity, automaticUpdateChecks, selectedSourceID, appearance, volume, cacheMegabytes, searchHistory, playerStyle, lyricStyle, normalization, language, quality, stageSparks, lyricsStage, nowPlayingLyrics, smoke, fog, growFromCover, hotComments }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        inAppVideoWindow = try values.decodeIfPresent(Bool.self, forKey: .inAppVideoWindow) ?? true
+        systemVideoWindow = try values.decodeIfPresent(Bool.self, forKey: .systemVideoWindow) ?? true
+        backgroundOpacity = try values.decodeIfPresent(Double.self, forKey: .backgroundOpacity).map { min(1, max(0, $0)) }
+        automaticUpdateChecks = try values.decodeIfPresent(Bool.self, forKey: .automaticUpdateChecks) ?? true
         selectedSourceID = try values.decodeIfPresent(String.self, forKey: .selectedSourceID)
         appearance = try values.decodeIfPresent(AppAppearance.self, forKey: .appearance) ?? .system
         volume = min(1, max(0, try values.decodeIfPresent(Double.self, forKey: .volume) ?? 0.8))

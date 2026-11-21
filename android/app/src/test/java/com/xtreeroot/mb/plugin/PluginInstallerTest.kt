@@ -16,6 +16,20 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class PluginInstallerTest {
+    @Test fun remoteRenameKeepsTheExistingDefaultOrderAndLocalName() = fixture { root ->
+        val installer = PluginInstaller(root)
+        fun named(id: String, name: String) = files(id).map { (path, content) -> path to
+            if (path == "plugin.json") JSONObject(content).put("name", name).toString() else content }
+        val first = installer.install(installer.prepareArchive { zip(it, named("one", "Alpha")) })
+        installer.install(installer.prepareArchive { zip(it, named("two", "Middle")) })
+        installer.rename(first, "本地名称")
+        installer.install(installer.prepareArchive(expected = first) { zip(it, named("one", "Zulu")) })
+        val restored = PluginInstaller(root).installed()
+        assertEquals(listOf("one", "two"), restored.map { it.id })
+        assertEquals("本地名称", restored.first().displayName)
+        assertEquals("Zulu", restored.first().manifest.name)
+    }
+
     @Test fun localNamesAndOrderSurviveCodeUpdateWithoutChangingRuntimeRevision() = fixture { root ->
         val installer = PluginInstaller(root)
         val first = installer.install(installer.prepareArchive("fixture/one") { zip(it, files("one")) })

@@ -27,7 +27,7 @@ public struct AppRelease: Sendable, Equatable {
         return 0
     }
 
-    static func latest(in data: Data) throws -> Self {
+    package static func latest(in data: Data) throws -> Self {
         struct Asset: Decodable { let name: String; let browser_download_url: String; let size: Int; let digest: String? }
         struct Release: Decodable { let tag_name: String; let html_url: String; let body: String?; let draft: Bool; let prerelease: Bool; let assets: [Asset] }
         let releases = try JSONDecoder().decode([Release].self, from: data)

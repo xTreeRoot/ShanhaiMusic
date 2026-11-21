@@ -268,7 +268,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
 
 @Composable
 internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalogNavigator, model: AccountModel, state: AccountState,
-                                   openSettings: () -> Unit = {}, openPlugins: () -> Unit = {}) {
+                                   openSettings: () -> Unit = {}, openPlugins: () -> Unit = {}, openService: () -> Unit = {}) {
     val account = state.account
     var signOut by remember(source) { mutableStateOf(false) }
     var collections by remember(source) { mutableStateOf(emptyList<PluginCollection>()) }
@@ -316,7 +316,7 @@ internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalo
             }
             AccountDestinations(destinations)
         }
-        item { AccountTools(openSettings, openPlugins) }
+        item { AccountTools(openSettings, openPlugins, openService) }
         if (account != null && state.canSignOut) item { AccountSignOutRow(state.loading) { signOut = true } }
         if (!refreshing && (loading || state.loading && !state.signingIn)) item { Loading() }
         state.error?.takeUnless { state.signingIn }?.let { message -> item { Retry(message, model::refresh) } }

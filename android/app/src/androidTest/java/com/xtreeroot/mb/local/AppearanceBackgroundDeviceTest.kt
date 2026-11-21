@@ -33,7 +33,15 @@ class AppearanceBackgroundDeviceTest {
             restored.recycle()
             val second = File(directory, "second.png").apply { png(80, Color.GREEN) }
             store.restoreIfMissing(second)
+            val candidate = checkNotNull(android.graphics.BitmapFactory.decodeFile(second.path))
+            // 只解码/裁剪候选图时原背景不动，save 才提交。
+            assertEquals(Color.GREEN, candidate.getPixel(0, 0))
             assertArrayEquals(original.readBytes(), store.snapshot { file, _ -> file.readBytes() })
+            store.save(candidate)
+            assertEquals(Color.GREEN, checkNotNull(store.load()).getPixel(0, 0))
+            assertTrue(runCatching { store.prepareRemote("file:///invalid.png") }.isFailure)
+            assertEquals(Color.GREEN, checkNotNull(store.load()).getPixel(0, 0))
+            candidate.recycle()
             store.clear()
             assertNull(store.snapshot { file, _ -> file.readBytes() })
         } finally { directory.deleteRecursively() }

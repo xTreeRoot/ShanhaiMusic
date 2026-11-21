@@ -74,6 +74,12 @@ public enum AppUpdates {
             if generation == operation { self.error = error.localizedDescription }
         }
     }
+    /// 主动检查遵守用户的永久关闭偏好，手动 check() 不受此开关影响。
+    public func checkAutomatically(enabled: Bool) async -> Bool {
+        guard enabled, !busy else { return false }
+        await check()
+        return !Task.isCancelled && error == nil && release != nil
+    }
     public func download() async {
         guard !busy, let release else { return }
         let operation = UUID(); generation = operation

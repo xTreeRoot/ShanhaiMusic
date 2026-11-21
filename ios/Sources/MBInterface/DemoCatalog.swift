@@ -1,8 +1,9 @@
 import MBFoundation
+import CoreGraphics
 import Foundation
 
 /// 仅供 Preview 和显式 --demo 启动；原创示例无媒体地址，不冒充平台结果。
-public struct DemoSource: DiscoverySource, AccountSource, LibrarySource, InteractionSource {
+public struct DemoSource: DiscoverySource, AccountSource, SignInMethodSource, LibrarySource, InteractionSource {
     private let accountState = DemoAccountState()
     public let displayName = "本地示例"
     public init() {}
@@ -30,6 +31,14 @@ public struct DemoSource: DiscoverySource, AccountSource, LibrarySource, Interac
         await prompt(SignInPrompt(qrURL: URL(string: "https://example.test/mb-demo-login")!, message: "界面演示二维码，无需扫码"))
         try await Task.sleep(for: .seconds(120)); throw CancellationError()
     }
+    public var signInMethods: [SignInMethod] {
+        ProcessInfo.processInfo.arguments.contains("--demo-sign-in-methods") ? [SignInMethod(id: "first", label: "第一种扫码"), SignInMethod(id: "second", label: "第二种扫码")] : []
+    }
+    public func signIn(method: String, prompt: @escaping @Sendable (SignInPrompt) async -> Void) async throws -> SourceAccount {
+        guard let option = signInMethods.first(where: { $0.id == method }) else { throw DemoFailure.network }
+        await prompt(SignInPrompt(qrURL: URL(string: "https://example.test/mb-demo-login/" + method)!, message: "已选择" + option.label))
+        try await Task.sleep(for: .seconds(120)); throw CancellationError()
+    }
     public func signOut() async throws { await accountState.signOut() }
     public func library(_ route: LibraryRoute, cursor: String?) async throws -> LibraryPage {
         if ProcessInfo.processInfo.arguments.contains("--demo-pagination"), route == .liked {
@@ -41,6 +50,7 @@ public struct DemoSource: DiscoverySource, AccountSource, LibrarySource, Interac
         default: return LibraryPage(title: route.title, tracks: DemoCatalog.tracks)
         }
     }
+    public func interactionSummary(trackID: String) async throws -> TrackInteractionSummary { TrackInteractionSummary(likes: 128, comments: 2) }
     public func isLiked(trackID: String) async throws -> Bool { await accountState.liked(trackID) }
     public func like(trackID: String, enabled: Bool) async throws { await accountState.like(trackID, enabled) }
     public func comments(trackID: String, page: Int) async throws -> CommentPage {
@@ -176,4 +186,25 @@ import SwiftUI
 private enum DemoFailure: LocalizedError {
     case network
     var errorDescription: String? { "网络连接失败，请重试（界面演示）" }
+}
+
+extension DemoCatalog {
+    /// 独立演示背景，便于验证移动、裁剪和确认，不读取用户相册。
+    static var backgroundImage: CGImage? {
+        guard let context = CGContext(data: nil, width: 600, height: 400, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        context.setFillColor(CGColor(red: 0.85, green: 0.3, blue: 0.15, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 300, height: 400))
+        context.setFillColor(CGColor(red: 0.1, green: 0.5, blue: 0.9, alpha: 1)); context.fill(CGRect(x: 300, y: 0, width: 300, height: 400))
+        return context.makeImage()
+    }
+}
+
+extension DemoCatalog {
+    @MainActor static func startupUpdateModel() -> AppUpdateModel {
+        let data = Data("""
+        [{"tag_name":"mb-ios-v0.1.0-build999","html_url":"https://github.com/xTreeRoot/ShanhaiMusic/releases/tag/mb-ios-v0.1.0-build999","body":"演示更新：保留资料库和插件数据。","draft":false,"prerelease":false,"assets":[{"name":"MB-iOS-v0.1.0-build999-unsigned.ipa","size":3,"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","browser_download_url":"https://github.com/xTreeRoot/ShanhaiMusic/releases/download/mb-ios-v0.1.0-build999/MB-iOS-v0.1.0-build999-unsigned.ipa"}]}]
+        """.utf8)
+        return AppUpdateModel(version: "0.1.0", build: 30, fetch: { try AppRelease.latest(in: data) },
+                              receive: { _, _ in throw AppUpdateFailure.archive })
+    }
 }

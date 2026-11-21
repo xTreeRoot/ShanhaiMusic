@@ -27,6 +27,8 @@ struct NowPlayingView: View {
     @State private var scrubbing = false
     @State private var scrubbingSelection: Int?
     @State private var showingComments = false
+    @State private var showingTrackActions = false
+    @State private var queuedCreator = false
     @State private var creatorDestination: CreatorDestination?
     private struct CreatorDestination: Identifiable { let id: String; let source: any LibrarySource }
 
@@ -61,7 +63,14 @@ struct NowPlayingView: View {
         .tint(MBTheme.accent)
         .sheet(isPresented: $showingQueue) { QueueView(playback: playback) }
         .sheet(isPresented: $showingComments) {
-            if let interactionSource, let track = playback.queue.current { CommentsView(source: interactionSource, track: track).id("\(track.id):\(accountRevision)") }
+            if let interactionSource, let track = playback.queue.current { CommentsView(source: interactionSource, track: track).id("\(track.id):\(accountRevision):\(interactionSource != nil)") }
+        }
+        .sheet(isPresented: $showingTrackActions, onDismiss: {
+            if queuedCreator, let track = playback.queue.current { queuedCreator = false; creatorAction(track)?() }
+        }) {
+            if let track = playback.queue.current {
+                PlayerTrackActionsSheet(track: track, downloads: downloads, preferences: preferences, openCreator: creatorAction(track).map { _ in { queuedCreator = true } })
+            }
         }
         .sheet(item: $creatorDestination) { destination in
             NavigationStack {
@@ -113,7 +122,9 @@ struct NowPlayingView: View {
                     } else if showingCaptions {
                         CaptionView(timeline: demo ? DemoCatalog.timeline : playback.timeline,
                                     positionMilliseconds: demo ? Int64(previewMilliseconds) : playback.positionMilliseconds,
-                                    message: playback.captionMessage, viewportHeight: region.size.height, seek: { playback.seek(to: $0) })
+                                    message: playback.captionMessage, viewportHeight: region.size.height, seek: {
+                                        if demo { previewMilliseconds = Double($0) } else { playback.seek(to: $0) }
+                                    }).id(track.id)
                     } else {
                         Button(action: watchVideo) {
                             Group {
@@ -125,8 +136,13 @@ struct NowPlayingView: View {
                         }.buttonStyle(.plain).accessibilityLabel("切换到实时视频")
                             .accessibilityIdentifier("player-artwork-" + (preferences?.values.playerStyle.rawValue ?? "cover"))
                             .disabled(track.localFileID != nil)
+                            .highPriorityGesture(trackSwipe(width: region.size.width))
                     }
                 }.frame(width: region.size.width, height: region.size.height)
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(trackSwipe(width: region.size.width), including: showingCaptions ? .all : .subviews)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("music-player-swipe-stage")
             }.frame(minHeight: 130)
             VStack(spacing: 10) {
                 metadata(track: track)
@@ -137,6 +153,15 @@ struct NowPlayingView: View {
                 controls
                 playerActions(track: track)
             }.frame(maxWidth: 540).frame(maxWidth: .infinity).accessibilityElement(children: .contain).accessibilityIdentifier("player-controls")
+        }
+    }
+
+    private func trackSwipe(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 28).onEnded { value in
+            guard value.startLocation.x >= 24,
+                  abs(value.translation.width) >= max(64, width * 0.18),
+                  abs(value.translation.width) > abs(value.translation.height) * 1.4 else { return }
+            if value.translation.width < 0 { playback.next() } else { playback.previous() }
         }
     }
 
@@ -163,31 +188,17 @@ struct NowPlayingView: View {
             Button("横屏播放", systemImage: "arrow.up.left.and.arrow.down.right") { MobileOrientation.player(landscape: true) }.labelStyle(.iconOnly).frame(width: 44, height: 44)
             #endif
             styleMenu
-            if let downloads {
-                Menu {
-                    TrackContextMenu(track: track, playback: playback, downloads: downloads, openCreator: librarySource.map { source in
-                        { id in creatorDestination = CreatorDestination(id: id, source: source) }
-                    })
-                } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("更多操作")
-            }
+
         }
     }
+    private func creatorAction(_ track: Track) -> (() -> Void)? {
+        guard let source = librarySource, let id = track.artistID, !id.isEmpty else { return nil }
+        return { creatorDestination = CreatorDestination(id: id, source: source) }
+    }
     private func metadata(track: Track, compact: Bool = false) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(track.title).font(compact ? .headline : .title2.bold()).lineLimit(2)
-                Text(track.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-            }.frame(maxWidth: .infinity, alignment: .leading)
-            if let downloads {
-                if let library, library.contains(track) {
-                    Button { Task { await library.toggleFavorite(track) } } label: {
-                        Image(systemName: library.snapshot.favorites.contains(track.id) ? "heart.fill" : "heart").font(.title2).frame(width: 44, height: 44)
-                    }.accessibilityLabel(library.snapshot.favorites.contains(track.id) ? "取消喜欢" : "喜欢")
-                } else {
-                    Button("下载音频", systemImage: "arrow.down.circle") { downloads.download(track) }.labelStyle(.iconOnly).font(.title2).frame(width: 44, height: 44).disabled(downloads.downloading[track.id] != nil || demo)
-                }
-            }
-        }
+        PlayerTrackMetadata(track: track, compact: compact, source: interactionSource,
+                            openCreator: creatorAction(track), openComments: { showingComments = true },
+                            more: { showingTrackActions = true }).id("\(track.id):\(accountRevision):\(interactionSource != nil)")
     }
     private func playerActions(track: Track) -> some View {
         HStack {
@@ -195,10 +206,6 @@ struct NowPlayingView: View {
                 actionLabel("歌词", icon: "quote.bubble", active: showingCaptions)
             }.accessibilityLabel("字幕").accessibilityValue(Text(showingCaptions ? "开启" : "关闭"))
             Spacer(minLength: 0)
-            if interactionSource != nil, track.localFileID == nil {
-                Button { showingComments = true } label: { actionLabel("评论点赞", icon: "bubble.left.and.bubble.right") }.accessibilityLabel("评论与点赞")
-                Spacer(minLength: 0)
-            }
             #if os(iOS)
             VStack(spacing: 3) {
                 AudioRoutePicker().frame(width: 44, height: 28).accessibilityLabel("音频输出").accessibilityIdentifier("player-audio-output")
@@ -241,17 +248,19 @@ struct NowPlayingView: View {
                         let side = max(60, min(area.size.width, area.size.height))
                         ArtworkView(track: track, size: side).frame(maxWidth: .infinity, maxHeight: .infinity)
                     }.frame(maxWidth: 280)
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(trackSwipe(width: 280))
                 }
                 WidePlayerStage(playback: playback, demo: demo, section: wideSection, interactionSource: interactionSource,
                                 accountRevision: accountRevision, position: demo ? Int64(previewMilliseconds) : playback.positionMilliseconds)
             }.frame(maxHeight: .infinity)
             HStack(spacing: 20) {
-                metadata(track: track, compact: true).frame(maxWidth: 240)
+                metadata(track: track, compact: true).frame(maxWidth: 380)
                 VStack(spacing: 0) {
                     if let message = playback.errorMessage, !demo { Text(message).font(.caption).foregroundStyle(.red).lineLimit(1) }
                     progress
                 }.frame(maxWidth: .infinity)
-                controls.frame(width: 300)
+                controls.frame(width: 260)
             }.accessibilityElement(children: .contain).accessibilityIdentifier("player-controls")
         }
     }

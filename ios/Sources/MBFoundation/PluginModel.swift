@@ -50,6 +50,13 @@ public enum PluginPreparation: Equatable {
             revision += 1
         } catch { errorMessage = error.localizedDescription }
     }
+    public func pluginPreferences() async throws -> PluginPreferences { try await installer.pluginPreferences() }
+    public func mergePluginPreferences(_ remote: PluginPreferences) async throws -> PluginPreferences {
+        let previous = try await installer.pluginPreferences()
+        let merged = try await installer.mergePluginPreferences(remote)
+        if previous != merged { await restore() }
+        return merged
+    }
     public func prepare(_ url: URL) async {
         await prepare {
             let access = url.startAccessingSecurityScopedResource()
@@ -63,8 +70,8 @@ public enum PluginPreparation: Equatable {
     public func rename(_ plugin: InstalledPlugin, to name: String) async {
         guard !busy else { return }
         do {
-            var next = presentation; try next.rename(plugin.id, to: name)
-            try await installer.savePresentation(next); presentation = next
+            try await installer.rename(plugin.id, to: name)
+            await restore()
         } catch { reportError(error) }
     }
     public func move(from offsets: IndexSet, to destination: Int) async {
@@ -74,8 +81,8 @@ public enum PluginPreparation: Equatable {
         for index in offsets.sorted(by: >) { ids.remove(at: index) }
         ids.insert(contentsOf: moved, at: destination - offsets.filter { $0 < destination }.count)
         do {
-            var next = presentation; next.order = ids
-            try await installer.savePresentation(next); presentation = next; installed = next.sorted(installed)
+            try await installer.saveOrder(ids)
+            await restore()
         } catch { reportError(error) }
     }
     public func prepareGitHub(_ repo: String) async {

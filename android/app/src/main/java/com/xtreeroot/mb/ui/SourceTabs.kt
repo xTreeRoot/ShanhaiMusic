@@ -19,6 +19,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
@@ -43,14 +48,16 @@ internal fun MusicTabs(tabs: Map<String, String>, selected: String, select: (Str
         horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         items(entries, key = { it.key }) { entry ->
             val current = selected == entry.key
+            var textWidth by remember(entry.value) { mutableIntStateOf(0) }
+            val indicatorWidth = with(LocalDensity.current) { textWidth.toDp() }
             Box(Modifier.height(48.dp).widthIn(min = 48.dp, max = 144.dp)
                 .selectable(current, role = Role.Tab, onClick = { select(entry.key) }).padding(horizontal = 8.dp),
                 contentAlignment = Alignment.Center) {
                 Text(entry.value, style = MaterialTheme.typography.titleSmall,
                     color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = if (current) FontWeight.Bold else FontWeight.Medium,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (current) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp).width(20.dp).height(3.dp)
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, onTextLayout = { textWidth = it.size.width })
+                if (current) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp).width(indicatorWidth).height(3.dp)
                     .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)))
             }
         }

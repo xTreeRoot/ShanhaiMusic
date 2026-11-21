@@ -255,7 +255,7 @@ private struct PluginSettingsView: View {
                 Button("更新插件") { Task { await model.update(plugin) } }.disabled(model.busy)
                 if let issue = model.updateIssues[plugin.id] { Text(issue).font(.caption).foregroundStyle(.secondary) }
             }
-            Section("网络权限") { ForEach(plugin.manifest.permissions?.network ?? [], id: \.self) { Text($0).font(.caption.monospaced()) } }
+            Section { DisclosureGroup("网络权限") { ForEach(plugin.manifest.permissions?.network ?? [], id: \.self) { Text($0).font(.caption.monospaced()) } }.accessibilityIdentifier("plugin-network-permissions") }
             Button("保存") {
                 editing = false; saving = true; saved = false
                 Task { await model.saveSettings(values, for: plugin); saving = false; saved = model.errorMessage == nil }

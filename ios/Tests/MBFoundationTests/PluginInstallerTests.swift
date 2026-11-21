@@ -144,3 +144,22 @@ private actor RouterFixture: PlaybackSource, VideoSource {
         #expect(PluginInstaller.normalizedRepository(input) == nil)
     }
 }
+
+@Test func remotePluginRenameKeepsTheExistingDefaultDisplayOrder() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let input = root.appendingPathComponent("input")
+    let installer = PluginInstaller(directory: root.appendingPathComponent("store"))
+    func named(_ id: String, _ name: String) throws {
+        try writePlugin(to: input, version: "1.0.0")
+        try Data("{\"id\":\"\(id)\",\"name\":\"\(name)\"}".utf8).write(to: input.appendingPathComponent("plugin.json"))
+    }
+    try named("one", "Alpha"); _ = try await installer.install(installer.prepare(input))
+    try named("two", "Middle"); _ = try await installer.install(installer.prepare(input))
+    var display = PluginPresentation(); try display.rename("one", to: "本地名称")
+    try await installer.savePresentation(display)
+    try named("one", "Zulu"); _ = try await installer.install(installer.prepare(input))
+    let restored = try await installer.presentation()
+    #expect(restored.sorted(try await installer.installed()).map(\.id) == ["one", "two"])
+    #expect(restored.name(id: "one", fallback: "Zulu") == "本地名称")
+}

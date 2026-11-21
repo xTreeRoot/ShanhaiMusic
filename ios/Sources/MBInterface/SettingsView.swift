@@ -6,17 +6,15 @@ struct SettingsView: View {
     let network: NetworkSettingsModel
     let plugins: PluginModel
     let skin: BackgroundSkin
-    @Bindable var platformData: PlatformDataModel
-    let account: SourceAccount?
-    let platform: String
     @Environment(\.dismiss) private var dismiss
     @State private var clearingHistory = false
+    @Environment(\.colorScheme) private var scheme
     @State private var appUpdates = AppUpdateModel()
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    NavigationLink("检查版本") { AppUpdateView(model: appUpdates) }.accessibilityIdentifier("settings-app-updates")
+                    NavigationLink("检查版本") { AppUpdateView(model: appUpdates, automaticChecks: $preferences.values.automaticUpdateChecks) }.accessibilityIdentifier("settings-app-updates")
                 }
                 Section("显示") {
                     Picker("语言", selection: $preferences.values.language) {
@@ -25,25 +23,12 @@ struct SettingsView: View {
                     Picker("外观", selection: $preferences.values.appearance) {
                         ForEach(AppAppearance.allCases) { mode in Text(LocalizedStringKey(mode.title)).tag(mode) }
                     }
-                    NavigationLink("背景皮肤") { BackgroundSkinSettings(skin: skin) }
+                    NavigationLink("背景皮肤") { BackgroundSkinSettings(skin: skin, opacity: preferences.values.backgroundOpacity ?? (scheme == .dark ? 0.35 : 0.22)) }
                         .accessibilityIdentifier("background-skin-settings")
                 }
                 Section {
                     NavigationLink("插件") { PluginsView(model: plugins) }.accessibilityIdentifier("settings-plugins")
                 } header: { Text("音源") }
-                Section("MB Server") {
-                    TextField("HTTPS 节点地址", text: $platformData.address).autocorrectionDisabled()
-                    SecureField("节点密码", text: $platformData.password)
-                    Button(platformData.linked ? "重新接入" : "接入节点") { Task { await platformData.join() } }
-                        .disabled(platformData.busy || platformData.password.isEmpty || platformData.address.isEmpty)
-                    if platformData.linked {
-                        Text(platformData.authorized ? "已绑定" : "授权已过期").foregroundStyle(.secondary)
-                        Button("同步当前平台资料") { platformData.sync(account, platform: platform, publish: true) }
-                            .disabled(platformData.busy || !platformData.authorized || account == nil)
-                        Button("解除此设备绑定", role: .destructive) { Task { await platformData.unlink() } }.disabled(platformData.busy)
-                    }
-                    if let message = platformData.message { Text(message).foregroundStyle(.secondary) }
-                }
                 Section("播放") {
                     Picker("音质", selection: $preferences.values.quality) {
                         ForEach(AudioQuality.allCases) { quality in Text(LocalizedStringKey(quality.title)).tag(quality) }
@@ -67,6 +52,10 @@ struct SettingsView: View {
                         ForEach([256, 512, 1_024, 2_048, 4_096, 8_192], id: \.self) { size in Text("\(size) MB").tag(size) }
                     }
                     Text("播放缓存按最近使用清理，已下载和导入的音频单独保留。").font(.caption).foregroundStyle(.secondary)
+                }
+                Section("视频小窗") {
+                    Toggle("应用内视频小窗", isOn: $preferences.values.inAppVideoWindow)
+                    Toggle("离开应用时画中画", isOn: $preferences.values.systemVideoWindow)
                 }
                 Section("播放界面") {
                     Toggle("默认打开歌词", isOn: $preferences.values.lyricsStage)

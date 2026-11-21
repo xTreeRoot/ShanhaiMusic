@@ -2,6 +2,266 @@ import XCTest
 import UIKit
 
 final class MBiOSUITests: XCTestCase {
+    @MainActor func testMusicMetadataAuthorLikesAndActionSheetShareQualityWithSettings() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-account", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        selectTab("搜索", app: app)
+        let field = app.textFields["搜索视频、音乐、UP 主"]
+        field.tap(); field.typeText("player fixture\n")
+        let song = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "选择 ")).firstMatch
+        XCTAssertTrue(song.waitForExistence(timeout: 5)); song.tap()
+        let like = app.buttons["player-platform-like"]
+        XCTAssertTrue(like.waitForExistence(timeout: 5))
+        let loaded = NSPredicate(format: "value == %@", "128")
+        expectation(for: loaded, evaluatedWith: like); waitForExpectations(timeout: 5)
+        like.tap(); XCTAssertEqual(like.value as? String, "129")
+        like.tap(); XCTAssertEqual(like.value as? String, "128")
+        XCTAssertEqual(app.buttons["player-track-comments"].value as? String, "2")
+        app.buttons["player-creator"].tap()
+        XCTAssertTrue(app.navigationBars["UP 主投稿"].waitForExistence(timeout: 5)); app.buttons["完成"].tap()
+        capture("音乐播放器-作者与互动总数", app: app)
+        app.buttons["player-track-more"].tap()
+        XCTAssertTrue(app.buttons["player-collect"].waitForExistence(timeout: 5))
+        app.buttons["player-quality"].tap(); app.buttons["player-quality-lossless"].tap()
+        XCTAssertTrue(app.buttons["player-quality-lossless"].isSelected)
+        capture("音乐播放器-底部操作与全局音质", app: app)
+        app.buttons["关闭"].tap(); app.buttons["收起"].tap()
+        selectTab("我的", app: app)
+        app.navigationBars.buttons["open-settings"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["音质, 无损"].waitForExistence(timeout: 5) || app.staticTexts["无损"].exists)
+    }
+
+    @MainActor func testNodeFormClearsAddressAndRejectsHTTPWithoutChangingBinding() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        selectTab("我的", app: app)
+        let service = app.buttons["open-shanhai-service"]
+        if !service.isHittable { app.swipeUp() }
+        XCTAssertTrue(service.waitForExistence(timeout: 5)); service.tap()
+        let address = app.textFields["node-address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 5))
+        address.tap(); address.typeText("https://synthetic.example")
+        app.buttons["清空节点地址"].tap()
+        XCTAssertEqual(address.value as? String, "域名或 HTTPS 地址")
+        address.tap(); address.typeText("http://synthetic.example")
+        let password = app.secureTextFields["node-password"]
+        password.tap(); password.typeText("synthetic fixture")
+        app.buttons["显示密码"].tap()
+        XCTAssertEqual(app.textFields["node-password"].value as? String, "synthetic fixture")
+        app.buttons["隐藏密码"].tap()
+        app.buttons["node-connect"].tap()
+        XCTAssertTrue(app.staticTexts["node-result"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["node-result"].label.contains("HTTPS"))
+        XCTAssertTrue(app.buttons["node-connect"].isEnabled)
+        capture("山海服务-节点表单与地址校验", app: app)
+        app.buttons["完成"].tap()
+        XCTAssertTrue(service.waitForExistence(timeout: 5))
+    }
+
+    @MainActor func testBackgroundCropPreviewAndConfirmationApplyOnlyAtTheEnd() {
+        let app = backgroundEditorApp()
+        app.sliders["背景缩放"].adjust(toNormalizedSliderPosition: 0.4)
+        app.descendants(matching: .any)["background-crop-canvas"].firstMatch.swipeLeft()
+        app.buttons["preview-background-image"].tap()
+        let slider = app.sliders["background-transparency"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["choose-background-skin"].exists)
+        XCTAssertTrue(app.buttons["切换播放模式"].exists)
+        slider.adjust(toNormalizedSliderPosition: 0.35)
+        let selectedTransparency = slider.value as? String
+        XCTAssertNotNil(selectedTransparency)
+        capture("背景-发现页实时预览", app: app)
+        app.buttons["apply-background-image"].tap()
+        XCTAssertTrue(slider.waitForNonExistence(timeout: 5))
+        selectTab("设置", app: app); app.buttons["background-skin-settings"].tap()
+        if app.buttons["preview-background-image"].waitForExistence(timeout: 2) { app.buttons["cancel-background-edit"].tap() }
+        XCTAssertTrue(app.buttons["clear-background-skin"].waitForExistence(timeout: 5))
+        app.buttons["preview-current-background"].tap()
+        XCTAssertTrue(slider.waitForExistence(timeout: 5))
+        XCTAssertEqual(slider.value as? String, selectedTransparency)
+        capture("背景-确认后使用", app: app)
+        app.buttons["cancel-background-edit"].tap()
+    }
+
+    @MainActor func testCancellingBackgroundPreviewAndInvalidURLPreserveCurrentSkin() {
+        let app = backgroundEditorApp()
+        app.buttons["preview-background-image"].tap()
+        let slider = app.sliders["background-transparency"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 5))
+        slider.adjust(toNormalizedSliderPosition: 0.1)
+        app.buttons["cancel-background-edit"].tap()
+        XCTAssertTrue(slider.waitForNonExistence(timeout: 5))
+        selectTab("设置", app: app); app.buttons["background-skin-settings"].tap()
+        if app.buttons["preview-background-image"].waitForExistence(timeout: 2) { app.buttons["cancel-background-edit"].tap() }
+        XCTAssertTrue(app.buttons["choose-background-skin"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["clear-background-skin"].exists)
+        app.buttons["choose-background-skin"].tap(); app.buttons["网络图片地址"].tap()
+        let field = app.alerts.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("file:///invalid.png")
+        app.alerts.buttons["下一步"].tap()
+        XCTAssertTrue(app.staticTexts["无法更新背景图片"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["apply-background-image"].exists)
+    }
+
+    @MainActor private func backgroundEditorApp() -> XCUIApplication {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-background-editor", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait; app.launch(); selectTab("设置", app: app)
+        app.buttons["background-skin-settings"].tap()
+        XCTAssertTrue(app.buttons["preview-background-image"].waitForExistence(timeout: 5))
+        return app
+    }
+
+    @MainActor func testLandscapeQueueAndCommentsBlendWithPlayerAndRemainInteractive() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-account", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        selectTab("搜索", app: app)
+        let field = app.textFields["搜索视频、音乐、UP 主"]
+        field.tap(); field.typeText("player background fixture\n")
+        let song = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "选择 ")).firstMatch
+        XCTAssertTrue(song.waitForExistence(timeout: 5)); song.tap()
+        XCTAssertTrue(app.buttons["下一首"].waitForExistence(timeout: 5))
+        if UIDevice.current.userInterfaceIdiom == .phone { app.buttons["横屏播放"].tap() }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let queue = app.buttons["wide-player-queue"]
+        XCTAssertTrue(queue.waitForExistence(timeout: 8)); queue.tap()
+        XCTAssertTrue(app.buttons["编辑队列"].waitForExistence(timeout: 5))
+        capture("横屏播放器-透明待播清单", app: app)
+        app.buttons["编辑队列"].tap()
+        XCTAssertTrue(app.buttons["完成编辑"].waitForExistence(timeout: 5))
+        app.buttons["完成编辑"].tap()
+        let next = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "队列选择 ")).element(boundBy: 1)
+        XCTAssertTrue(next.waitForExistence(timeout: 5)); next.tap()
+        app.buttons["wide-player-comments"].tap()
+        let comment = app.staticTexts["慢下来，听见晚风里的片刻。"]
+        XCTAssertTrue(comment.waitForExistence(timeout: 5))
+        capture("横屏播放器-透明评论", app: app)
+        XCTAssertTrue(app.buttons["下一首"].isHittable)
+        XCUIDevice.shared.orientation = .portrait
+    }
+
+    @MainActor func testStartupUpdateOptOutStopsForegroundPromptsAndKeepsManualEntry() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-startup-update", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["发现新版本"].waitForExistence(timeout: 10))
+        let optOut = app.buttons["不再打扰"], update = app.buttons["更新"]
+        XCTAssertLessThan(abs(optOut.frame.midY - update.frame.midY), 2)
+        XCTAssertLessThan(optOut.frame.maxX, update.frame.minX)
+        capture("更新-启动发现新版本", app: app)
+        app.buttons["关闭"].tap()
+        XCUIDevice.shared.press(.home); app.activate()
+        XCTAssertTrue(app.navigationBars["发现新版本"].waitForExistence(timeout: 10))
+        app.buttons["不再打扰"].tap()
+        XCUIDevice.shared.press(.home); app.activate()
+        XCTAssertFalse(app.navigationBars["发现新版本"].exists)
+        selectTab("设置", app: app); app.buttons["settings-app-updates"].tap()
+        XCTAssertTrue(app.buttons["check-app-version"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.switches["启动时检查版本"].value as? String, "0")
+    }
+
+    @MainActor func testPlayerStageSwipesChangeTracksWithoutOpeningVideo() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        selectTab("搜索", app: app)
+        let field = app.textFields["搜索视频、音乐、UP 主"]
+        field.tap(); field.typeText("swipe fixture\n")
+        let song = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "选择 ")).firstMatch
+        XCTAssertTrue(song.waitForExistence(timeout: 5)); song.tap()
+        let stage = app.descendants(matching: .any)["music-player-swipe-stage"].firstMatch
+        XCTAssertTrue(stage.waitForExistence(timeout: 5))
+        let controls = app.otherElements["player-controls"]
+        XCTAssertTrue(controls.staticTexts["晚风里的片刻"].exists)
+        stage.swipeLeft()
+        XCTAssertTrue(controls.staticTexts["城市慢下来"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["收起"].exists)
+        XCTAssertFalse(app.buttons["全屏播放"].exists)
+        stage.swipeRight()
+        XCTAssertTrue(controls.staticTexts["晚风里的片刻"].waitForExistence(timeout: 5))
+        capture("播放器-左右滑动切歌", app: app)
+    }
+
+    @MainActor func testLyricSelectionRequiresTheSeparatePlayConfirmation() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        selectTab("搜索", app: app)
+        let field = app.textFields["搜索视频、音乐、UP 主"]
+        field.tap(); field.typeText("lyric fixture\n")
+        let song = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "选择 ")).firstMatch
+        XCTAssertTrue(song.waitForExistence(timeout: 5)); song.tap()
+        app.buttons["字幕"].tap()
+        let line = app.buttons["选择歌词 把今天的喧闹放远"]
+        XCTAssertTrue(line.waitForExistence(timeout: 5))
+        let progress = app.sliders["字幕时间轴预览"]
+        let original = progress.value as? String
+        line.tap(); line.tap()
+        let confirm = app.buttons["lyric-confirm-1"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        XCTAssertEqual(progress.value as? String, original, "重复点歌词不会跳转")
+        capture("歌词-选中后单独确认", app: app)
+        confirm.tap()
+        let moved = expectation(for: NSPredicate { _, _ in progress.value as? String != original }, evaluatedWith: app)
+        wait(for: [moved], timeout: 5)
+        XCTAssertFalse(confirm.exists)
+        line.tap(); XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        app.descendants(matching: .any)["music-player-swipe-stage"].firstMatch.swipeLeft()
+        XCTAssertTrue(app.otherElements["player-controls"].staticTexts["城市慢下来"].waitForExistence(timeout: 5))
+        XCTAssertFalse(confirm.exists, "换歌后清除未确认的歌词选择")
+    }
+
+    @MainActor func testLoginButtonOffersMethodsBeforePreparingQRCode() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-sign-in-methods", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        let accountTab = UIDevice.current.userInterfaceIdiom == .pad ? app.buttons["我的"].firstMatch : app.tabBars.buttons["我的"].firstMatch
+        XCTAssertTrue(accountTab.waitForExistence(timeout: 10)); accountTab.tap()
+        let login = app.buttons["登录本地示例"]
+        XCTAssertTrue(login.waitForExistence(timeout: 5)); login.tap()
+        XCTAssertTrue(app.buttons["sign-in-method-second"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.images["登录二维码"].exists)
+        capture("登录-直接选择扫码方式", app: app)
+        app.buttons["sign-in-method-second"].tap()
+        XCTAssertTrue(app.staticTexts["已选择第二种扫码"].waitForExistence(timeout: 5))
+        app.buttons["取消"].tap(); login.tap()
+        XCTAssertTrue(app.buttons["sign-in-method-first"].waitForExistence(timeout: 5))
+        app.buttons["sign-in-method-first"].tap()
+        XCTAssertTrue(app.staticTexts["已选择第一种扫码"].waitForExistence(timeout: 5))
+        capture("登录-按选项生成二维码", app: app)
+        app.buttons["取消"].tap()
+    }
+
+    @MainActor func testPluginNetworkPermissionsStartCollapsedAndCanExpand() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--plugin-demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch(); selectTab("设置", app: app); app.buttons["settings-plugins"].tap()
+        XCTAssertTrue(app.navigationBars["安装插件"].waitForExistence(timeout: 5)); app.buttons["安装"].tap()
+        let plugin = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "示例插件")).firstMatch
+        XCTAssertTrue(plugin.waitForExistence(timeout: 5)); plugin.tap()
+        let permissions = app.descendants(matching: .any)["plugin-network-permissions"].firstMatch
+        for _ in 0..<4 { if permissions.exists && permissions.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(permissions.exists && permissions.isHittable)
+        XCTAssertFalse(app.staticTexts["media.example.test"].exists)
+        capture("插件-网络权限默认收起", app: app)
+        permissions.tap()
+        XCTAssertTrue(app.staticTexts["media.example.test"].waitForExistence(timeout: 5))
+        permissions.tap(); XCTAssertFalse(app.staticTexts["media.example.test"].exists)
+    }
+
     @MainActor func testSelectingMusicAutomaticallyOpensPlayer() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -195,7 +455,7 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertTrue(app.buttons["打开播放页，城市慢下来"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["全屏播放"].exists, "听歌模式中的队列切歌应保留当前界面")
         app.buttons["打开播放页，城市慢下来"].tap()
-        for label in ["上一首", "下一首", "字幕", "队列", "评论与点赞"] {
+        for label in ["上一首", "下一首", "字幕", "队列", "player-track-comments"] {
             XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5))
             XCTAssertTrue(app.buttons[label].isHittable, "\(label) 应无需滚动即可点击")
         }
@@ -203,8 +463,7 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertTrue(dock.exists)
         XCTAssertTrue(app.windows.firstMatch.frame.contains(dock.frame))
         capture("播放器-固定控制与评论入口-演示数据", app: app)
-        app.buttons["更多操作"].tap()
-        app.buttons["查看 UP 主投稿"].tap()
+        app.buttons["player-creator"].tap()
         XCTAssertTrue(app.navigationBars["UP 主投稿"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["播放 雨落在窗沿"].waitForExistence(timeout: 5))
         capture("播放器-查看作者其他内容-演示数据", app: app)
@@ -213,19 +472,19 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["雨落在窗沿"].waitForExistence(timeout: 5))
         app.buttons["上一首"].tap()
         XCTAssertTrue(app.staticTexts["城市慢下来"].waitForExistence(timeout: 5))
-        app.buttons["评论与点赞"].tap()
+        app.buttons["player-track-comments"].tap()
         XCTAssertTrue(app.staticTexts["慢下来，听见晚风里的片刻。"].waitForExistence(timeout: 5))
         capture("播放器-评论阅读-演示数据", app: app)
         app.buttons["完成"].tap()
         app.buttons["字幕"].tap()
-        XCTAssertTrue(app.buttons["跳转到 让晚风经过耳边"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["选择歌词 让晚风经过耳边"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["下一首"].isHittable)
         XCTAssertTrue(app.buttons["队列"].isHittable)
         capture("播放器-歌词与固定控制-演示数据", app: app)
         app.buttons["队列"].tap()
         app.buttons["队列选择 晚风里的片刻"].tap()
         XCTAssertTrue(app.staticTexts["晚风里的片刻"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["评论与点赞"].isHittable)
+        XCTAssertTrue(app.buttons["player-track-comments"].isHittable)
         app.buttons["收起"].tap()
         XCTAssertTrue(app.buttons["打开播放页，晚风里的片刻"].waitForExistence(timeout: 5))
     }
@@ -345,7 +604,7 @@ final class MBiOSUITests: XCTestCase {
             app.navigationBars.buttons.element(boundBy: 0).tap()
         }
         app.buttons["打开播放页，晚风里的片刻"].tap()
-        let comments = app.buttons["评论与点赞"]
+        let comments = app.buttons["player-track-comments"]
         if !comments.isHittable { app.swipeUp() }
         XCTAssertTrue(comments.waitForExistence(timeout: 5)); comments.tap()
         XCTAssertTrue(app.staticTexts["慢下来，听见晚风里的片刻。"].waitForExistence(timeout: 5))
@@ -607,7 +866,7 @@ final class MBiOSUITests: XCTestCase {
         }
         app.buttons["播放界面样式"].tap(); app.buttons["播放器样式"].tap(); app.buttons["磁带"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["player-artwork-cassette"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["跳转到 让晚风经过耳边"].exists)
+        XCTAssertFalse(app.buttons["选择歌词 让晚风经过耳边"].exists)
         app.buttons["切换到实时视频"].tap()
         XCTAssertTrue(app.staticTexts["此音源不支持视频播放"].waitForExistence(timeout: 5))
         app.buttons["video-open-music"].tap()
@@ -928,7 +1187,7 @@ final class MBiOSUITests: XCTestCase {
         capture("设置-播放效果已开启-演示数据", app: app)
         app.buttons["dismiss-settings"].tap()
         app.buttons["打开播放页，晚风里的片刻"].tap()
-        XCTAssertTrue(app.buttons["跳转到 让晚风经过耳边"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["选择歌词 让晚风经过耳边"].waitForExistence(timeout: 5))
         capture("播放-默认歌词舞台-演示数据", app: app)
     }
 
@@ -1004,7 +1263,7 @@ final class MBiOSUITests: XCTestCase {
         }
         capture("外观与字体-播放器-演示数据", app: app)
         app.buttons["字幕"].tap()
-        XCTAssertTrue(app.buttons["跳转到 让晚风经过耳边"].exists)
+        XCTAssertTrue(app.buttons["选择歌词 让晚风经过耳边"].exists)
         capture("外观与字体-歌词-演示数据", app: app)
         for _ in 0..<4 { if !app.buttons["收起"].isHittable { app.swipeDown() } }
         app.buttons["收起"].tap()
@@ -1031,7 +1290,7 @@ final class MBiOSUITests: XCTestCase {
         if app.buttons["dismiss-settings"].exists { app.buttons["dismiss-settings"].press(forDuration: 0.15) }
         if app.buttons["dismiss-plugins"].exists { app.buttons["dismiss-plugins"].press(forDuration: 0.15) }
         let tab = UIDevice.current.userInterfaceIdiom == .pad ? app.buttons[title].firstMatch : app.tabBars.buttons[title].firstMatch
-        XCTAssertTrue(tab.waitForExistence(timeout: 10)); tab.press(forDuration: 0.15)
+        XCTAssertTrue(tab.waitForExistence(timeout: 10)); tab.tap()
     }
 
     @MainActor private func dismissDocumentPicker(_ app: XCUIApplication) throws {
@@ -1074,7 +1333,7 @@ final class MBiOSUITests: XCTestCase {
         app.buttons["队列选择 城市慢下来"].tap()
         XCTAssertTrue(app.staticTexts["城市慢下来"].waitForExistence(timeout: 5))
         app.buttons["字幕"].tap()
-        XCTAssertTrue(app.buttons["跳转到 让晚风经过耳边"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["选择歌词 让晚风经过耳边"].waitForExistence(timeout: 5))
         app.buttons["收起"].tap()
         chooseMode("视频模式", app: app)
         XCTAssertTrue(first.isHittable, "有暂停曲目时切模式不应跳转")
@@ -1234,7 +1493,7 @@ extension MBiOSUITests {
         for section in ["lyrics", "rhythm", "queue", "selection", "comments"] {
             let tab = app.buttons["wide-player-" + section]
             XCTAssertTrue(tab.isHittable); tab.tap()
-            if section == "lyrics" { XCTAssertTrue(app.buttons["跳转到 让晚风经过耳边"].waitForExistence(timeout: 5)) }
+            if section == "lyrics" { XCTAssertTrue(app.buttons["选择歌词 让晚风经过耳边"].waitForExistence(timeout: 5)) }
             if section == "queue" { XCTAssertTrue(app.buttons["队列选择 城市慢下来"].waitForExistence(timeout: 5)) }
             if section == "selection" {
                 XCTAssertTrue(app.buttons["选歌 城市慢下来"].waitForExistence(timeout: 5))
@@ -1259,6 +1518,79 @@ extension MBiOSUITests {
 }
 
 extension MBiOSUITests {
+    @MainActor func testReadyVideoReachesTopAndReturningToFloatingWindowStaysResponsive() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launchEnvironment["MB_VIDEO_UI_FIXTURE"] = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Tests/MBFoundationTests/Fixtures/video-ui.mp4").path
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        if UIDevice.current.userInterfaceIdiom != .pad {
+            XCTAssertTrue(app.buttons["查看更多为你推荐"].waitForExistence(timeout: 10))
+            app.buttons["查看更多为你推荐"].tap()
+        }
+        chooseMode("视频模式", app: app)
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 晚风里的片刻")).firstMatch.tap()
+        let surface = app.otherElements["native-video-surface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 12), "必须加载真实视频画面，空态不能覆盖播放器交接问题")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "视频画面已显示"), object: surface)], timeout: 12), .completed)
+        app.buttons["播放"].tap()
+        XCTAssertTrue(app.buttons["暂停"].waitForExistence(timeout: 8))
+        capture("真实视频-返回前", app: app)
+        for round in 0..<3 {
+            app.buttons["返回浏览"].tap()
+            XCTAssertTrue(app.buttons["展开视频"].waitForExistence(timeout: 6), "第 \(round + 1) 次返回应直接响应")
+            XCTAssertTrue(surface.waitForExistence(timeout: 6))
+            if round == 0 { capture("真实视频-返回后小窗", app: app) }
+            app.buttons["展开视频"].tap()
+            XCTAssertTrue(app.buttons["简介"].waitForExistence(timeout: 6))
+            let top = surface.frame.minY
+            XCTAssertLessThanOrEqual(top, app.frame.minY + 1, "视频内容应延伸到屏幕顶部，不留下原安全区黑边")
+        }
+        app.buttons["返回浏览"].tap()
+        app.buttons["关闭视频小窗"].tap()
+        XCTAssertTrue(surface.waitForNonExistence(timeout: 5))
+        app.buttons["搜索"].firstMatch.tap()
+        XCTAssertTrue(app.scrollViews["search-landing"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor func testVideoDetailsSwipeAndFloatingWindowReturnExpandAndClose() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        if UIDevice.current.userInterfaceIdiom != .pad {
+            XCTAssertTrue(app.buttons["查看更多为你推荐"].waitForExistence(timeout: 10))
+            app.buttons["查看更多为你推荐"].tap()
+        }
+        chooseMode("视频模式", app: app)
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 晚风里的片刻")).firstMatch.tap()
+        let info = app.buttons["简介"], comments = app.buttons["评论"], captions = app.buttons["字幕"], queue = app.buttons["队列"]
+        XCTAssertTrue(info.waitForExistence(timeout: 5))
+        let top = info.frame.maxY + 70
+        func swipe(left: Bool) {
+            let start = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: app.frame.width * (left ? 0.8 : 0.2), dy: top))
+            let end = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: app.frame.width * (left ? 0.2 : 0.8), dy: top))
+            start.press(forDuration: 0.1, thenDragTo: end)
+        }
+        swipe(left: true)
+        XCTAssertTrue(comments.isSelected)
+        swipe(left: true); XCTAssertTrue(captions.isSelected)
+        swipe(left: true); XCTAssertTrue(queue.isSelected)
+        swipe(left: false); XCTAssertTrue(captions.isSelected)
+        info.tap(); XCTAssertTrue(info.isSelected)
+        capture("视频-详情左右滑动", app: app)
+        app.buttons["返回浏览"].tap()
+        XCTAssertTrue(app.buttons["展开视频"].waitForExistence(timeout: 5))
+        capture("视频-应用内悬浮小窗", app: app)
+        app.buttons["展开视频"].tap()
+        XCTAssertTrue(info.waitForExistence(timeout: 5))
+        app.buttons["返回浏览"].tap()
+        XCTAssertTrue(app.buttons["关闭视频小窗"].waitForExistence(timeout: 5))
+        app.buttons["关闭视频小窗"].tap()
+        XCTAssertTrue(app.buttons["展开视频"].waitForNonExistence(timeout: 5))
+    }
+
     @MainActor func testVideoHidesStatusBarAndRestoresItAfterBrowsing() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -1362,13 +1694,13 @@ extension MBiOSUITests {
         app.buttons["查看更多为你推荐"].tap()
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 晚风里的片刻")).firstMatch.tap()
         app.buttons["打开播放页，晚风里的片刻"].tap()
-        let captions = ["歌词", "评论点赞", "待播清单"].map { app.staticTexts[$0] }
+        let captions = ["歌词", "待播清单"].map { app.staticTexts[$0] }
         XCTAssertTrue(captions[0].waitForExistence(timeout: 5))
         let baseline = captions[0].frame.midY
         for caption in captions { XCTAssertEqual(caption.frame.midY, baseline, accuracy: 1) }
         let route = app.descendants(matching: .any)["player-audio-output"].firstMatch
         XCTAssertTrue(route.exists)
-        // 三个普通图标与系统输出按钮都占同一 28pt 图标槽，标题底线相同。
+        // 底部歌词、输出和队列保留一致图标槽；评论已移到歌曲信息右侧。
         XCTAssertEqual(route.frame.midY, app.buttons["字幕"].frame.minY + 14, accuracy: 4)
         capture("播放-音频输出与操作图标对齐", app: app)
     }

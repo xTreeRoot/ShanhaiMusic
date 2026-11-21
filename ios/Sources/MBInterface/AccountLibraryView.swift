@@ -13,6 +13,7 @@ struct AccountLibraryView: View {
     let select: ([Track], Int) -> Void
     let openSettings: () -> Void
     let openPlugins: () -> Void
+    let openService: () -> Void
     @State private var showingSignIn = false
     @State private var path: [LibraryRoute] = []
 
@@ -49,6 +50,8 @@ struct AccountLibraryView: View {
                 Section {
                     Button("设置", systemImage: "gearshape") { openSettings() }
                     Button("插件", systemImage: "puzzlepiece.extension") { openPlugins() }
+                    Button("山海服务", systemImage: "externaldrive.connected.to.line.below") { openService() }
+                        .accessibilityIdentifier("open-shanhai-service")
                 }
                 if account.account != nil { Section { Button("退出登录", role: .destructive) { Task { await account.signOut() } } } }
             }
@@ -80,7 +83,13 @@ private struct SignInView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
-                if let prompt = model.prompt {
+                if model.choosingSignInMethod {
+                    ForEach(model.signInMethods) { method in
+                        Button(method.label) { model.chooseSignInMethod(method.id) }
+                            .buttonStyle(.borderedProminent).frame(minHeight: 44)
+                            .accessibilityIdentifier("sign-in-method-" + method.id)
+                    }
+                } else if let prompt = model.prompt {
                     if let url = prompt.qrURL, let image = qrImage(url.absoluteString) {
                         image.interpolation(.none).resizable().scaledToFit().frame(maxWidth: 270).padding(16).background(.white)
                             .accessibilityLabel("登录二维码")

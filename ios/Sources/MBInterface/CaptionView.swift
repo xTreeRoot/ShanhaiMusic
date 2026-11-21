@@ -21,6 +21,7 @@ struct CaptionView: View {
     var viewportHeight: CGFloat = 260
     @ScaledMetric(relativeTo: .title2) private var wordSize: CGFloat = 25
     var seek: ((Int64) -> Void)? = nil
+    @State private var selectedIndex: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.lyricVisualStyle) private var style
     @Environment(\.lyricSparks) private var sparks
@@ -33,7 +34,8 @@ struct CaptionView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         ForEach(Array(timeline.lines.enumerated()), id: \.offset) { index, line in
-                            Button { seek?(line.startMilliseconds) } label: {
+                            HStack(spacing: 8) {
+                                Button { selectedIndex = index } label: {
                                 VStack(alignment: .leading, spacing: 10) {
                                     LyricWordLayout(style: style) {
                                         ForEach(Array(line.timedWords.enumerated()), id: \.offset) { wordIndex, word in
@@ -48,10 +50,28 @@ struct CaptionView: View {
                                 .scaleEffect(index == activeIndex ? 1 : 0.94, anchor: .leading)
                                 .opacity(index == activeIndex ? 1 : 0.6)
                                 .animation(reduceMotion ? nil : .spring(duration: 0.45), value: activeIndex)
-                            }.buttonStyle(.plain).disabled(seek == nil)
-                            .id(index)
-                            .accessibilityLabel("跳转到 \(line.text)")
-                            .accessibilityAddTraits(index == activeIndex ? .isSelected : [])
+                                }.buttonStyle(.plain).disabled(seek == nil)
+                                    .accessibilityLabel("选择歌词 \(line.text)")
+                                    .accessibilityAddTraits(index == selectedIndex || index == activeIndex ? .isSelected : [])
+                                Group {
+                                    if selectedIndex == index, let seek {
+                                        Button {
+                                            selectedIndex = nil
+                                            seek(line.startMilliseconds)
+                                        } label: {
+                                            VStack(spacing: 5) {
+                                                Image(systemName: "play.fill").font(.title3)
+                                                Text(Self.time(line.startMilliseconds)).font(.caption2.monospacedDigit())
+                                            }.frame(width: 56).frame(minHeight: 48)
+                                        }.buttonStyle(.plain)
+                                            .accessibilityLabel("从这一句播放 \(line.text)")
+                                            .accessibilityIdentifier("lyric-confirm-\(index)")
+                                    } else { Color.clear.frame(width: 56).accessibilityHidden(true) }
+                                }.frame(width: 56)
+                            }.padding(.horizontal, 8).padding(.vertical, 6)
+                                .background(selectedIndex == index ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 14))
+                                .id(index)
+
                         }
                     }.padding(.vertical, 32).padding(.horizontal, 8).frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -60,11 +80,16 @@ struct CaptionView: View {
                 .accessibilityIdentifier("lyric-style-" + style.rawValue)
                 .onAppear { if let activeIndex { proxy.scrollTo(activeIndex, anchor: .center) } }
                 .onChange(of: activeIndex) { _, index in
-                    guard let index else { return }
+                    guard selectedIndex == nil, let index else { return }
                     withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo(index, anchor: .center) }
                 }
+                .onChange(of: timeline.lines) { _, _ in selectedIndex = nil }
             }
         }
+    }
+    private static func time(_ milliseconds: Int64) -> String {
+        let seconds = max(0, milliseconds / 1_000)
+        return String(format: "%02lld:%02lld", seconds / 60, seconds % 60)
     }
     private var activeIndex: Int? { timeline.activeIndex(at: positionMilliseconds) }
     private func wordView(_ word: CaptionWord, index: Int, active: Bool) -> some View {

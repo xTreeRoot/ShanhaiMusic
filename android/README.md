@@ -21,6 +21,12 @@ Debug APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。以上命令不�
 
 可选游客实网测试：只在干净的测试用户中把校验过的插件 ZIP 放入调试 App 的 `cache/guest-playback.zip`，运行 `adb -s <测试设备序列号> shell am instrument --user <测试用户ID> -w -e class com.xtreeroot.mb.playback.GuestPlaybackDeviceTest -e guestPlugin <netease|ximalaya|soda> com.xtreeroot.mb.test/androidx.test.runner.AndroidJUnitRunner`。预期插件版本见测试中的 `releases`。该测试不登录，验证实际起播和拖动；游客权限、曲目可用性与平台网络都会影响结果，不纳入默认回归。
 
+## 覆盖安装与数据保护
+
+真实手机禁止使用 ADB 增量安装（`--incremental`）；不稳定的无线连接会触发系统数据加载失败并卸载包。优先将完整 APK 传至手机，核对 SHA-256 后调用系统本地安装器覆盖。确需 ADB 安装时必须显式 `adb -s <设备> install --no-incremental -r <APK>`，先核对包名、原签名和版本号。不得通过卸载、清除数据或自动化测试解决安装问题。
+
+覆盖前保留独立数据备份并核对；具备已授权调试读取能力时，备份范围必须包含 `files`、`shared_prefs` 和 `databases`。只有文件备份时，不得宣称已恢复 SQLite 内全部资料。真机覆盖后核对首次安装时间保持不变，并由用户核对资料库、下载、插件名称与排序。所有会重置数据的 Instrumentation 测试只能运行于专用模拟器。
+
 ## 卸载后保留资料库
 
 导入和下载的歌曲都能从本地资料库播放；缓存不算入库。播放页的 **本地喜欢** 独立于平台点赞。移除或停用音源插件不影响已下载音频。

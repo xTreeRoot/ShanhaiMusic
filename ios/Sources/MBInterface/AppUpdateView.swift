@@ -3,11 +3,13 @@ import SwiftUI
 
 struct AppUpdateView: View {
     @Bindable var model: AppUpdateModel
+    var automaticChecks: Binding<Bool>? = nil
     @State private var operation: Task<Void, Never>?
 
     var body: some View {
         Form {
             Section {
+                if let automaticChecks { Toggle("启动时检查版本", isOn: automaticChecks) }
                 LabeledContent("当前版本", value: "\(model.currentVersion) (\(model.currentBuild))")
                 Button("检查版本") { operation = Task { await model.check() } }
                     .disabled(model.busy).accessibilityIdentifier("check-app-version")

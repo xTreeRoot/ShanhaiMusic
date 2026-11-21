@@ -19,3 +19,12 @@ public struct PluginPresentation: Codable, Equatable, Sendable {
         names[id] = name.isEmpty ? nil : name
     }
 }
+
+/// 调整已安装插件时保留暂未安装插件的位置，恢复插件后仍可回到原顺序。
+func preservingMissingPluginOrder(_ previous: [String], visible: [String]) -> [String] {
+    let present = Set(visible)
+    var remaining = ArraySlice(visible)
+    var result = previous.map { present.contains($0) ? remaining.removeFirst() : $0 }
+    result.append(contentsOf: remaining)
+    return result
+}

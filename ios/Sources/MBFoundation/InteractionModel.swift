@@ -13,6 +13,18 @@ public final class InteractionModel {
     public private(set) var isPosting = false
     public private(set) var isChangingLike = false
     public private(set) var liked = false
+    public private(set) var summary = TrackInteractionSummary()
+
+    public func loadSummary() async {
+        let current = generation
+        capabilities = await source.capabilities()
+        do {
+            let value = try await source.interactionSummary(trackID: track.sourceTrackID)
+            try Task.checkCancellation()
+            if generation == current { summary = value }
+        } catch { /* 计数失败不阻塞播放或用户操作。 */ }
+        await loadLike()
+    }
     public private(set) var errorMessage: String?
     public private(set) var likeError: String?
     @ObservationIgnored private let source: any InteractionSource
@@ -38,7 +50,10 @@ public final class InteractionModel {
         defer { if current == generation { isChangingLike = false } }
         do {
             try await source.like(trackID: track.sourceTrackID, enabled: enabled)
-            if current == generation && !Task.isCancelled { liked = enabled }
+            if current == generation && !Task.isCancelled {
+                liked = enabled
+                summary = TrackInteractionSummary(likes: summary.likes.map { max(0, $0 + (enabled ? 1 : -1)) }, comments: summary.comments)
+            }
         } catch { if current == generation && !Task.isCancelled { likeError = error.localizedDescription } }
     }
     public func refresh() async { capabilities = await source.capabilities(); commentLikes = await source.supportsCommentLikes(); guard capabilities.comments, !isPosting else { return }; await loadComments(reset: true) }

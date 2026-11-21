@@ -29,6 +29,8 @@ public extension VideoEngine {
     public private(set) var mode: PlaybackMode = .music
     public private(set) var presentationMode: PlaybackMode = .music
     public private(set) var isVisible = false
+    public private(set) var isFloating = false
+    public private(set) var systemControlled = false
     public private(set) var isLoading = false
     public private(set) var isReady = false
     public private(set) var isBuffering = false
@@ -79,7 +81,7 @@ public extension VideoEngine {
         self.mode = mode
         if mode == .music {
             presentationMode = .music
-            isVisible = false
+            isVisible = false; isFloating = false
             release()
         }
         let previous = saveTask
@@ -103,8 +105,8 @@ public extension VideoEngine {
         release()
         self.track = track
         position = 0
-        if track == nil || track?.localFileID != nil { isVisible = false; presentationMode = .music }
-        if isVisible { load() }
+        if track == nil || track?.localFileID != nil { isVisible = false; isFloating = false; presentationMode = .music }
+        if isVisible || isFloating { load() }
     }
 
     public func handleSelection(_ track: Track?, intent: PlaybackSelectionIntent, positionMilliseconds: Int64, playing: Bool) {
@@ -116,8 +118,9 @@ public extension VideoEngine {
             position = positionMilliseconds
             self.playing = playing
             presentationMode = track?.localFileID == nil ? mode : .music
+            isFloating = false
             isVisible = presentationMode == .video && track != nil
-            if isVisible { load() }
+            if isVisible || isFloating { load() }
         } else {
             updateTrack(track)
             sync(positionMilliseconds: positionMilliseconds, playing: playing)
@@ -126,7 +129,7 @@ public extension VideoEngine {
 
     public func open() {
         guard presentationMode == .video, track != nil else { return }
-        isVisible = true
+        isFloating = false; isVisible = true
         if !isReady && task == nil { load() }
     }
 
@@ -144,7 +147,11 @@ public extension VideoEngine {
         open()
     }
 
-    public func browse() { isVisible = false; release() }
+    public func browse() { isVisible = false; isFloating = false; release() }
+    public func minimize() {
+        guard isVisible, presentationMode == .video, track != nil else { return }
+        isFloating = true; isVisible = false
+    }
     public func retry() { refreshUsed = false; release(); load() }
 
     public func sync(positionMilliseconds: Int64, playing: Bool) {
@@ -153,9 +160,16 @@ public extension VideoEngine {
         guard isReady else { return }
         refreshEngineStatus()
         guard isReady else { return }
-        engine.sync(positionMilliseconds: position, playing: playing)
+        if !systemControlled { engine.sync(positionMilliseconds: position, playing: playing) }
         isBuffering = engine.isBuffering
         measuredAspectRatio = engine.aspectRatio
+    }
+
+    /// 系统画中画使用视频时钟；应用和锁屏上的显式操作仍可同步到当前视频。
+    public func setSystemControlled(_ value: Bool) { systemControlled = value }
+    public func applySystemPlayback(positionMilliseconds: Int64, playing: Bool) {
+        guard isReady else { return }
+        engine.sync(positionMilliseconds: positionMilliseconds, playing: playing)
     }
 
     private func refreshEngineStatus() {
@@ -174,7 +188,7 @@ public extension VideoEngine {
     public func waitUntilLoaded() async { await task?.value }
 
     private func load(warming: Bool = false) {
-        guard isVisible || warming, let track, let source else { return }
+        guard isVisible || isFloating || warming, let track, let source else { return }
         generation += 1
         let current = generation
         isLoading = true
@@ -247,6 +261,7 @@ public extension VideoEngine {
     }
 
     public func load(resource: MediaResource, at milliseconds: Int64) async throws {
+        if resource.url.isFileURL { try await load(url: resource.url, at: milliseconds); return }
         remote?.cancel()
         let loader = try RemoteMediaAsset(resource: resource)
         remote = loader

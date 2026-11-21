@@ -27,6 +27,7 @@ func (a *app) view(c *ui.Context) {
 	// playlists elsewhere.
 	active := c.WindowActive()
 	if active && a.wasBehind {
+		a.syncPluginPreferences()
 		a.freshen()
 	}
 	a.wasBehind = !active
@@ -247,6 +248,8 @@ func (a *app) sidebar(c *ui.Context) {
 			}
 		})
 
+		a.accountTool(c, iconPlug, T("Plugins"), a.openSourceSettings)
+		a.accountTool(c, iconRefresh, T("Shanhai Service"), a.openEdgeSettings)
 		a.accountRow(c)
 	})
 }

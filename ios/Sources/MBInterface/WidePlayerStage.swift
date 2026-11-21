@@ -24,7 +24,7 @@ struct WidePlayerStage: View {
             switch section {
             case .lyrics:
                 CaptionView(timeline: timeline, positionMilliseconds: position, message: playback.captionMessage,
-                            viewportHeight: area.size.height, seek: { playback.seek(to: $0) })
+                            viewportHeight: area.size.height, seek: { playback.seek(to: $0) }).id(playback.queue.current?.id)
             case .rhythm:
                 RhythmLyrics(timeline: timeline, position: position, playing: playback.state == .playing,
                              message: playback.captionMessage, seek: { playback.seek(to: $0) })
@@ -39,7 +39,7 @@ struct WidePlayerStage: View {
                         ForEach(Array(playback.queue.tracks.enumerated()), id: \.offset) { index, track in
                             Button { playback.jump(to: index, intent: .transport, autoplay: !demo) } label: {
                                 TrackRow(track: track, selected: index == playback.queue.index)
-                            }.buttonStyle(.plain).accessibilityLabel("队列选择 \(track.title)")
+                            }.buttonStyle(.plain).listRowBackground(Color.clear).accessibilityLabel("队列选择 \(track.title)")
                         }.onDelete { playback.removeQueue($0) }.onMove { playback.moveQueue($0, to: $1) }
                     }.listStyle(.plain).scrollContentBackground(.hidden)
                         #if os(iOS)
@@ -70,7 +70,12 @@ struct WidePlayerStage: View {
                     PlayerComments(source: interactionSource, track: track).id("\(track.id):\(accountRevision)")
                 } else { ContentUnavailableView("当前音源不支持评论", systemImage: "bubble.left.and.bubble.right") }
             }
-        }
+        }.simultaneousGesture(DragGesture(minimumDistance: 28).onEnded { value in
+            guard section == .lyrics || section == .rhythm,
+                  value.startLocation.x >= 24, abs(value.translation.width) >= 64,
+                  abs(value.translation.width) > abs(value.translation.height) * 1.4 else { return }
+            if value.translation.width < 0 { playback.next() } else { playback.previous() }
+        })
     }
     private var timeline: CaptionTimeline { demo ? DemoCatalog.timeline : playback.timeline }
 }
@@ -87,7 +92,7 @@ private struct PlayerComments: View {
                 Spacer()
                 TrackLikeButton(model: model).font(.subheadline).frame(maxWidth: 200)
             }.padding(.horizontal, 16)
-            TrackCommentsList(model: model).scrollContentBackground(.hidden)
+            TrackCommentsList(model: model, blendsWithPlayer: true)
         }.task { await model.refresh(); await model.loadLike() }
     }
 }

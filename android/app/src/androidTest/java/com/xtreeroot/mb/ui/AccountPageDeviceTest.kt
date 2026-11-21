@@ -61,7 +61,7 @@ class AccountPageDeviceTest {
             withPage(source, dark = true, content = { model ->
                 val state by model.account.collectAsStateWithLifecycle()
                 PluginPersonalContent(source, navigator, model, state,
-                    openSettings = { tools.trySend("settings") }, openPlugins = { tools.trySend("plugins") })
+                    openSettings = { tools.trySend("settings") }, openPlugins = { tools.trySend("plugins") }, openService = { tools.trySend("service") })
             }) {
                 awaitNode("Fixture Listener")
                 awaitNode("Source Playlists")
@@ -74,6 +74,8 @@ class AccountPageDeviceTest {
                 assertEquals("settings", withTimeout(5_000) { tools.receive() })
                 tap("Plugins")
                 assertEquals("plugins", withTimeout(5_000) { tools.receive() })
+                tap("Shanhai Service")
+                assertEquals("service", withTimeout(5_000) { tools.receive() })
             }
         } finally {
             app.plugins.remove(plugin)

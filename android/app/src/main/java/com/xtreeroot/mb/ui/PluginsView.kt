@@ -282,9 +282,7 @@ private fun PluginSettingsView(plugin: InstalledPlugin, model: PluginManagerMode
                 TextButton(onClick = { remove(plugin) }, enabled = !state.busy) { Text(mb("删除", "Delete")) }
             }
         }
-        item { Text(mb("网络权限", "Network permissions"), style = MaterialTheme.typography.titleSmall) }
-        if (plugin.manifest.network.isEmpty()) item { Text(mb("无", "None")) }
-        items(plugin.manifest.network) { host -> Text(host, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+        item { PluginNetworkPermissions(plugin.id, plugin.manifest.network) }
         items(plugin.manifest.settings, key = PluginSetting::key) { setting ->
             val value = values.value[setting.key].orEmpty()
             when (setting.type) {
@@ -331,6 +329,24 @@ private fun PluginSelectSetting(setting: PluginSetting, value: String, changed: 
         androidx.compose.material3.DropdownMenu(expanded, { expanded = false }) {
             setting.options.forEach { option -> androidx.compose.material3.DropdownMenuItem(
                 text = { Text(option.label) }, onClick = { changed(option.value); expanded = false }) }
+        }
+    }
+}
+
+/** 网络权限按需展开，不挤占每个插件设置的首屏。 */
+@Composable
+internal fun PluginNetworkPermissions(identity: String, hosts: List<String>) {
+    var expanded by remember(identity) { mutableStateOf(false) }
+    Column {
+        TextButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(mb("网络权限", "Network permissions"))
+                Text(if (expanded) mb("收起", "Collapse") else mb("展开", "Expand"))
+            }
+        }
+        if (expanded) {
+            if (hosts.isEmpty()) Text(mb("无", "None"))
+            hosts.forEach { Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }

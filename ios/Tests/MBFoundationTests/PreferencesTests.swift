@@ -164,3 +164,21 @@ private actor StreamingSource: PlaybackSource {
     #expect(engine.local != nil)
     #expect(await source.downloads == 1)
 }
+
+@Test @MainActor func automaticUpdateOptOutSurvivesRestartWithoutLosingExistingPreferences() async throws {
+    let old = try JSONDecoder().decode(AppPreferences.self, from: Data("{\"volume\":0.27,\"searchHistory\":[\"saved\"]}".utf8))
+    #expect(old.automaticUpdateChecks)
+    var disabled = old; disabled.automaticUpdateChecks = false
+    let restored = try JSONDecoder().decode(AppPreferences.self, from: JSONEncoder().encode(disabled))
+    #expect(!restored.automaticUpdateChecks && restored.volume == 0.27 && restored.searchHistory == ["saved"])
+}
+
+@Test func backgroundOpacityMigratesClampsAndPersistsAlongsideExistingSettings() throws {
+    let old = try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"volume":0.27}"#.utf8))
+    #expect(old.backgroundOpacity == nil)
+    var changed = old; changed.backgroundOpacity = 0.65
+    let restored = try JSONDecoder().decode(AppPreferences.self, from: JSONEncoder().encode(changed))
+    #expect(restored.backgroundOpacity == 0.65 && restored.volume == 0.27)
+    #expect(try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"backgroundOpacity":2}"#.utf8)).backgroundOpacity == 1)
+    #expect(try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"backgroundOpacity":-1}"#.utf8)).backgroundOpacity == 0)
+}

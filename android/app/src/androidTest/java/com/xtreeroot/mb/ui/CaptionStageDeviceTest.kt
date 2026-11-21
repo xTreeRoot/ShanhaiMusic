@@ -3,6 +3,9 @@ package com.xtreeroot.mb.ui
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
@@ -35,7 +38,7 @@ import org.junit.Test
 class CaptionStageDeviceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
-    @Test fun followsWrappedAndEdgeLinesAndCanSeekByTapping() = runBlocking {
+    @Test fun followsWrappedAndEdgeLinesAndRequiresSeekConfirmation() = runBlocking {
         val lines = listOf(
             CaptionLine(1_000, 2_000, "First light"),
             CaptionLine(2_000, 3_000, "Between the city and the sea, every little window catches the light",
@@ -82,7 +85,34 @@ class CaptionStageDeviceTest {
                 generateSequence(node) { it.parent }.firstOrNull { it.isClickable }
                     ?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
             })
-            assertEquals(first.startMs, withContext(Dispatchers.Main) { sought.longValue })
+            assertTrue(awaitNode("Play from lyric ${first.text}") { true })
+            assertEquals(-1L, withContext(Dispatchers.Main) { sought.longValue })
+            assertTrue(awaitNode(first.text) { row ->
+                generateSequence(row) { it.parent }.firstOrNull { it.isClickable }
+                    ?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+            })
+            assertEquals(-1L, withContext(Dispatchers.Main) { sought.longValue })
+            if (InstrumentationRegistry.getArguments().getString("lyricFollowScreenshot") == "true") {
+                val frame = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                try { File(app.cacheDir, "android-lyrics-confirmation.png").outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+                finally { frame.recycle() }
+            }
+            instrumentation.waitForIdleSync()
+            instrumentation.uiAutomation.waitForIdle(100, 5_000)
+            assertTrue("Cannot confirm selected lyric", awaitNode("Play from lyric ${first.text}") { node ->
+                generateSequence(node) { it.parent }.firstOrNull { it.isClickable }
+                    ?.let { confirm ->
+                        val rect = Rect().also(confirm::getBoundsInScreen)
+                        val down = SystemClock.uptimeMillis()
+                        for (kind in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+                            val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), kind, rect.exactCenterX(), rect.exactCenterY(), 0)
+                            event.source = InputDevice.SOURCE_TOUCHSCREEN
+                            try { instrumentation.uiAutomation.injectInputEvent(event, true) } finally { event.recycle() }
+                        }
+                        true
+                    } == true
+            })
+            assertTrue(withTimeoutOrNull(5_000) { while (sought.longValue != first.startMs) delay(25); true } == true)
             awaitCentered(first)
             withContext(Dispatchers.Main) { motion.value = true; position.longValue = 13_300 }
             awaitCentered(lines.last())

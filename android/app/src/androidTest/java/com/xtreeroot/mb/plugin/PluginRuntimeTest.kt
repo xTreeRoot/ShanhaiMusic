@@ -298,6 +298,48 @@ class PluginRuntimeTest {
         },
     ) { runtime, _, _ -> assertEquals(7000, runtime.invoke("parse")) }
 
+    @Test fun declaredLoginMethodReachesPluginArgumentsAndUnknownChoiceNeverExecutes() = fixture(
+        """
+        let calls = 0;
+        export function signIn({method}) { calls++; return {id:method,name:method}; }
+        export function count() { return calls; }
+        """.trimIndent(), plugin = PluginManifest.parse(JSONObject("""{"id":"choice","signInMethods":[{"id":"first","label":"First"},{"id":"second","label":"Second"}]}""")),
+    ) { runtime, _, _ ->
+        val manifest = PluginManifest.parse(JSONObject("""{"id":"choice","signInMethods":[{"id":"first","label":"First"},{"id":"second","label":"Second"}]}"""))
+        val source = PluginSource(manifest, runtime)
+        assertEquals("second", source.signIn("second") {}.id)
+        rejected { source.signIn("invalid") {} }
+        assertEquals(1, runtime.invoke("count"))
+    }
+
+    @Test fun loginComputationBudgetCoversStartAndResponsesWithoutLeakingToOrdinaryCalls() = fixture(
+        """
+        function work() { let sum = 0; for (let n = 1; n <= 3000000; n++) sum = (sum + n) % 65521; return sum; }
+        export async function signIn() { const first = work(); await fetch('https://api.example.test/qr'); return first + work(); }
+        export function ordinary() { return work(); }
+        export function ok() { return 42; }
+        """.trimIndent(), transport = PluginTransport { request, _ ->
+            PluginFetchResponse(200, request.url, emptyMap(), emptyList(), "small response".encodeToByteArray())
+        },
+    ) { runtime, _, _ ->
+        val sum = ((3_000_000L * 3_000_001L / 2) % 65521).toInt()
+        assertEquals(sum * 2, runtime.signIn {})
+        rejected { runtime.invoke("ordinary") }
+        assertEquals(42, runtime.invoke("ok"))
+    }
+
+    @Test fun loginInfiniteLoopStillHasABoundedBudgetAndNextCallRecovers() = fixture(
+        """
+        export async function signIn() { await fetch('https://api.example.test/qr'); while (true) {} }
+        export function ok() { return 42; }
+        """.trimIndent(), transport = PluginTransport { request, _ ->
+            PluginFetchResponse(200, request.url, emptyMap(), emptyList(), byteArrayOf())
+        },
+    ) { runtime, _, _ ->
+        rejected { runtime.signIn {} }
+        assertEquals(42, runtime.invoke("ok"))
+    }
+
     @Test fun infiniteLoopAndSymlinkImportAreRejectedWithoutPoisoningNextInvocation() = fixture(
         """
         export function bad() { while (true) {} }

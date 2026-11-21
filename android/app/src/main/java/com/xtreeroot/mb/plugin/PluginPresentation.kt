@@ -21,3 +21,10 @@ internal data class PluginPresentation(val names: Map<String, String> = emptyMap
         }
     }
 }
+
+/** 移动已安装项时保留暂未安装项的占位顺序。 */
+internal fun preservingMissingPluginOrder(previous: List<String>, visible: List<String>): List<String> {
+    val present = visible.toSet()
+    val remaining = visible.iterator()
+    return previous.map { if (it in present) remaining.next() else it } + remaining.asSequence().toList()
+}

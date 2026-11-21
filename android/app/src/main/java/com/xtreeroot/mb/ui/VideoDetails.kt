@@ -34,6 +34,13 @@ import com.xtreeroot.mb.ui.components.MBScrollableTabRow as PrimaryScrollableTab
 import com.xtreeroot.mb.ui.components.MBTabRow as PrimaryTabRow
 import androidx.compose.material3.Text
 import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.key
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,13 +78,13 @@ import java.util.Locale
 @Composable
 internal fun VideoDetailsScreen(model: PlaybackModel, state: PlaybackState, preferences: AppPreferences, accountId: String?,
                                 fullScreen: Boolean, setFullScreen: (Boolean) -> Unit, browse: () -> Unit,
-                                chooseMode: (PlaybackMode) -> Unit) {
+                                chooseMode: (PlaybackMode) -> Unit, sharedFrame: VideoFrameState? = null, ownsVideoFrame: Boolean = true) {
     val track = state.current ?: return
     val app = LocalContext.current.applicationContext as MBApplication
     val source = app.playbackSource(track.sourceId) as? InteractionSource
     val commentPages = remember(source, track.id, accountId) { source?.let { CommentPages(it, track.sourceTrackId) } }
     var selected by rememberSaveable(track.id) { mutableStateOf(VideoDetailTab.Info) }
-    val frame = rememberVideoFrame(track)
+    val frame = if (ownsVideoFrame) rememberVideoFrame(track) else sharedFrame
     val ratio = frame?.aspectRatio ?: if (track.videoWidth > 0 && track.videoHeight > 0) track.videoWidth.toFloat() / track.videoHeight else 16f / 9f
     if (ratio < 1f) {
         PortraitVideoPage(track, frame, state, model, accountId != null, browse, fullScreen, setFullScreen, chooseMode)
@@ -87,15 +94,15 @@ internal fun VideoDetailsScreen(model: PlaybackModel, state: PlaybackState, pref
     if (fullScreen) VideoStage(frame, state, model::toggle, { model.seekCurrent(state, it) }, model::retryVideo,
         fullScreen = true, setFullScreen)
     val picture: @Composable (Modifier) -> Unit = { modifier ->
-        WatchPicture(track, state, model, browse, frame, fullScreen, setFullScreen, modifier)
+        WatchPicture(track, state, model, browse, { chooseMode(PlaybackMode.Music) }, frame, fullScreen, setFullScreen, modifier)
     }
     val information: @Composable (Modifier) -> Unit = { modifier ->
-        VideoInformation(track, state, model, preferences, accountId != null, source, commentPages, selected, { selected = it },
-            showSystemVolume = !fullScreen, modifier = modifier)
+        key(track.id) {
+            VideoInformation(track, state, model, preferences, accountId != null, source, commentPages, selected, { selected = it },
+                showSystemVolume = !fullScreen, modifier = modifier)
+        }
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        VideoPlaybackModePicker(state.presentation.mode, chooseMode,
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp))
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
             if (maxWidth >= 600.dp && maxWidth > maxHeight) {
                 val pictureWidth = minOf(maxWidth * 0.57f, maxHeight * (16f / 9f))
@@ -115,30 +122,7 @@ internal fun VideoDetailsScreen(model: PlaybackModel, state: PlaybackState, pref
 }
 
 @Composable
-private fun VideoPlaybackModePicker(mode: PlaybackMode, choose: (PlaybackMode) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.selectableGroup().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-        PlaybackMode.entries.forEach { option ->
-            val selected = option == mode
-            val label = when (option) {
-                PlaybackMode.Music -> mb("听歌模式", "Music Mode")
-                PlaybackMode.Video -> mb("视频模式", "Video Mode")
-            }
-            Box(Modifier.weight(1f).clip(RoundedCornerShape(9.dp))
-                .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                .selectable(selected, role = Role.RadioButton, onClick = { if (!selected) choose(option) })
-                .semantics { contentDescription = label }
-                .padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
-                Text(label, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelLarge, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
-}
-
-@Composable
-private fun WatchPicture(track: Track, state: PlaybackState, model: PlaybackModel, browse: () -> Unit,
+private fun WatchPicture(track: Track, state: PlaybackState, model: PlaybackModel, browse: () -> Unit, openMusic: () -> Unit,
                          frame: VideoFrameState?, fullScreen: Boolean, setFullScreen: (Boolean) -> Unit,
                          modifier: Modifier) {
     Box(modifier.aspectRatio(frame?.aspectRatio ?: 16f / 9f).background(Color.Black), contentAlignment = Alignment.Center) {
@@ -151,6 +135,10 @@ private fun WatchPicture(track: Track, state: PlaybackState, model: PlaybackMode
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, mb("返回浏览", "Back to Browse"), tint = Color.White)
                 }
                 Box(Modifier.weight(1f))
+                TextButton(onClick = openMusic) {
+                    Icon(androidx.compose.ui.res.painterResource(com.xtreeroot.mb.R.drawable.ic_music_note), null, tint = Color.White)
+                    Text(mb("听歌模式", "Music Mode"), color = Color.White)
+                }
             }
         }
     }
@@ -164,10 +152,15 @@ private fun VideoInformation(track: Track, state: PlaybackState, model: Playback
         ?.takeIf { it.capabilities?.comments == true }?.page?.total ?: 0
     val numberLocale = if (LocalMBEnglish.current) Locale.US else Locale.SIMPLIFIED_CHINESE
     val count = remember(total, numberLocale) { NumberFormat.getIntegerInstance(numberLocale).format(total) }
+    val pager = rememberPagerState(initialPage = selected.ordinal, pageCount = { VideoDetailTab.entries.size })
+    val latestSelect by rememberUpdatedState(select)
+    val pagerScope = rememberCoroutineScope()
+    // 点击与手势都先更新同一个 Pager；停稳后再保存选中项，避免双向 Effect 互相取消动画。
+    LaunchedEffect(pager) { snapshotFlow { pager.settledPage }.collect { latestSelect(VideoDetailTab.entries[it]) } }
     Column(modifier.fillMaxWidth()) {
         val tabs: @Composable () -> Unit = {
             VideoDetailTab.entries.forEach { tab ->
-                Tab(selected == tab, { select(tab) }, text = {
+                Tab(pager.currentPage == tab.ordinal, { pagerScope.launch { pager.animateScrollToPage(tab.ordinal) } }, text = {
                     val label = tab.label()
                     Text(if (tab == VideoDetailTab.Comments && total > 0) "$label · $count" else label,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -177,10 +170,11 @@ private fun VideoInformation(track: Track, state: PlaybackState, model: Playback
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val minimumWidth = if (commentPages != null) 520.dp else 360.dp
             if (maxWidth < minimumWidth || LocalDensity.current.fontScale >= 1.4f) {
-                PrimaryScrollableTabRow(selected.ordinal, edgePadding = 8.dp, tabs = tabs)
-            } else PrimaryTabRow(selected.ordinal, tabs = tabs)
+                PrimaryScrollableTabRow(pager.currentPage, edgePadding = 8.dp, tabs = tabs)
+            } else PrimaryTabRow(pager.currentPage, tabs = tabs)
         }
-        when (selected) {
+        HorizontalPager(pager, Modifier.fillMaxWidth().weight(1f)) { page ->
+        when (VideoDetailTab.entries[page]) {
             VideoDetailTab.Info -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
                 item {
                     Column(Modifier.padding(vertical = 12.dp)) {
@@ -211,6 +205,7 @@ private fun VideoInformation(track: Track, state: PlaybackState, model: Playback
                 videoQueue(state, model::select)
                 if (showSystemVolume) item { SystemMediaVolume() }
             }
+        }
         }
     }
 }

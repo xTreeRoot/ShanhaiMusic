@@ -20,6 +20,7 @@ import (
 	"mygo-music/internal/network"
 	"mygo-music/internal/player"
 	"mygo-music/internal/plugin"
+	"mygo-music/internal/pluginprefs"
 )
 
 type pageKind int
@@ -80,9 +81,12 @@ type app struct {
 
 	wasBehind bool // the window wasn't at the front as last built
 
-	captions  captionState    // the episode playing's captions, and the model they take
-	installer pluginInstaller // installing and updating plugins
-	edge      edgePanel
+	captions                            captionState    // the episode playing's captions, and the model they take
+	installer                           pluginInstaller // installing and updating plugins
+	pluginPrefs                         *pluginprefs.Store
+	pluginPrefsBusy, pluginPrefsSyncing bool
+	pluginPrefsDocument                 pluginprefs.Document
+	edge                                edgePanel
 	// links are the app's links opened before its window was made, macOS
 	// handing over the one it was started with first.
 	links []string
@@ -218,6 +222,9 @@ func (a *app) redraw() {
 	if a.settingsWin != nil {
 		a.settingsWin.Invalidate()
 	}
+	if a.edge.window != nil {
+		a.edge.window.Invalidate()
+	}
 }
 
 // shotHook, when set, drives the app to check its design.
@@ -263,6 +270,7 @@ func (a *app) makeSources() {
 		}
 	}
 	a.enabledChanged()
+	a.startPluginPreferences()
 	a.library = a.libs[0]
 	if lib := a.libOf(a.settings.Source); lib != nil {
 		a.library = lib
@@ -300,6 +308,15 @@ func (a *app) enabledChanged() {
 // it's the one showing, the first one on takes over; its songs still queued say
 // they're gone. The last one on can't go.
 func (a *app) setPluginEnabled(lib *library, on bool) {
+	if a.pluginPrefs != nil {
+		if !on && len(a.libs) == 1 && a.libs[0] == lib {
+			return
+		}
+		a.editPluginPreferences(func(doc pluginprefs.Document, writer string) (pluginprefs.Document, error) {
+			return doc.WithEnabled(lib.id, on, writer)
+		})
+		return
+	}
 	disabled := slices.DeleteFunc(slices.Clone(a.settings.DisabledPlugins), func(id string) bool { return id == lib.id })
 	if !on {
 		a.invalidateEdge(lib)

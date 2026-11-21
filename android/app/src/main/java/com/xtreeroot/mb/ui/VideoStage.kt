@@ -71,13 +71,13 @@ import com.xtreeroot.mb.playback.PlaybackState
 import kotlinx.coroutines.delay
 
 @Composable
-internal fun rememberVideoFrame(track: Track): VideoFrameState? {
+internal fun rememberVideoFrame(track: Track, systemWindow: Boolean = false): VideoFrameState? {
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
-    if (!lifecycle.isAtLeast(Lifecycle.State.STARTED)) return null
+    if (!systemWindow && !lifecycle.isAtLeast(Lifecycle.State.STARTED)) return null
     val application = LocalContext.current.applicationContext as MBApplication
-    val coordinator by application.videoPlayback.collectAsStateWithLifecycle()
+    val coordinator by application.videoPlayback.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.CREATED)
     val video = coordinator ?: return null
-    val current by video.frames.collectAsStateWithLifecycle()
+    val current by video.frames.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.CREATED)
     DisposableEffect(video, track.id) {
         val ticket = video.show(track)
         onDispose { ticket?.close() }
@@ -170,8 +170,8 @@ private fun VideoFrame(engine: Player?, loading: Boolean, playback: PlaybackStat
                         Column(Modifier.weight(1f).padding(bottom = 6.dp)) {
                             PlayerProgress(playback, smoke = false, seek = { seek(it); revision += 1 }, interactions = interactions)
                         }
-                        if (enterFullscreen != null) TextButton(onClick = enterFullscreen) {
-                            Text(mb("全屏", "Fullscreen"), color = Color.White)
+                        if (enterFullscreen != null) IconButton(onClick = enterFullscreen) {
+                            Icon(androidx.compose.ui.res.painterResource(com.xtreeroot.mb.R.drawable.ic_fullscreen), mb("全屏播放", "Fullscreen"), tint = Color.White)
                         }
                     }
                 }

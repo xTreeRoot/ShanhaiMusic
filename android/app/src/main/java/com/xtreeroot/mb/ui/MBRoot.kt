@@ -43,6 +43,7 @@ import com.xtreeroot.mb.ui.components.MBTopAppBar as TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -118,6 +119,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                     background: AppearanceBackgroundModel = viewModel(), nodeProfile: NodeProfileSyncModel = viewModel()) {
     val context = LocalContext.current
     val app = context.applicationContext as MBApplication
+    PluginPreferencesSynchronization()
     val settings = app.settings
     val preferences by settings.values.collectAsStateWithLifecycle()
     val backgroundState by background.state.collectAsStateWithLifecycle()
@@ -159,8 +161,12 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         var category by rememberSaveable { mutableStateOf<DiscoveryCategory?>(null) }
         var showPlayer by rememberSaveable { mutableStateOf(false) }
         var showVideo by rememberSaveable { mutableStateOf(false) }
+        var floatingVideo by rememberSaveable { mutableStateOf(false) }
+        val activity = context as? com.xtreeroot.mb.MainActivity
+        val systemVideo = activity?.pictureInPicture?.value == true
         var miniCover by remember { mutableStateOf<Rect?>(null) }
         var showQueue by rememberSaveable { mutableStateOf(false) }
+        var showService by rememberSaveable { mutableStateOf(false) }
         var showSettings by rememberSaveable { mutableStateOf(false) }
         var showPlugins by rememberSaveable { mutableStateOf(false) }
         val pluginState by plugins.state.collectAsStateWithLifecycle()
@@ -205,8 +211,28 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         var playerCreators by rememberSaveable(sourceId, stateSaver = creatorStackSaver) { mutableStateOf(emptyList()) }
         val browsingPlayback = showPlayer || showVideo
         val creatorRoute = (if (browsingPlayback) playerCreators else browseCreators).lastOrNull()
-        val creatorPage by library.creatorPages.state.collectAsStateWithLifecycle()
-        val playback by player.playback.collectAsStateWithLifecycle()
+        val playback by player.playback.collectAsStateWithLifecycle(minActiveState = androidx.lifecycle.Lifecycle.State.CREATED)
+        val creatorSource = (if (browsingPlayback) playback.current?.sourceId?.let(app::playbackSource) else activeSource) as? LibrarySource
+        val creatorPages = remember(creatorSource) {
+            LibraryPages(scope, { creatorSource?.invalidateLibraryCache() }) { route, cursor ->
+                creatorSource?.library(route, cursor) ?: throw IllegalStateException("此来源不支持作者主页")
+            }
+        }
+        LaunchedEffect(creatorPages, creatorRoute) { creatorPages.open(creatorRoute) }
+        DisposableEffect(creatorPages) { onDispose { creatorPages.open(null) } }
+        val creatorPage by creatorPages.state.collectAsStateWithLifecycle()
+
+        val videoTrack = playback.current
+        val videoFrame = if ((showVideo || floatingVideo || systemVideo) && videoTrack != null) rememberVideoFrame(videoTrack, preferences.systemVideoWindow) else null
+        val minimizeVideo: () -> Unit = {
+            showVideo = false
+            if (preferences.inAppVideoWindow) floatingVideo = true else { floatingVideo = false; player.closeVideo() }
+        }
+        LaunchedEffect(preferences.inAppVideoWindow) { if (!preferences.inAppVideoWindow) { floatingVideo = false; if (!showVideo) player.closeVideo() } }
+        SideEffect { activity?.configureVideoWindow(preferences.systemVideoWindow && (showVideo || floatingVideo) &&
+            playback.playWhenReady && playback.current != null && videoFrame?.player != null, playback.playWhenReady, videoFrame?.aspectRatio ?: 16f / 9f) }
+        val restoreWindow = activity?.restoreVideoWindow?.intValue
+        LaunchedEffect(restoreWindow) { if (restoreWindow != null && restoreWindow > 0) { floatingVideo = false; showVideo = true } }
         val markedTrack = playback.current?.let { track ->
             MarkedTrack(track.id, when {
                 playback.error != null -> TrackPlaybackMark.Failed
@@ -251,12 +277,13 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         val isWide = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() >= 720.dp }
         LaunchedEffect(browsingPlayback) { if (!browsingPlayback) playerCreators = emptyList() }
         LaunchedEffect(playback.connected, playback.current?.id, playback.presentation.mode, playback.connectionIssue) {
-            if ((playback.connected || playback.connectionIssue != null) && playback.current == null) { showPlayer = false; showVideo = false }
+            if ((playback.connected || playback.connectionIssue != null) && playback.current == null) { showPlayer = false; showVideo = false; floatingVideo = false }
             if (playback.connectionIssue != null) showQueue = false
-            if (playback.presentation.mode == PlaybackMode.Music) showVideo = false
+            if (playback.presentation.mode == PlaybackMode.Music) { showVideo = false; floatingVideo = false }
         }
         LaunchedEffect(playback.presentation.opening) {
             if (playback.presentation.opening != seenVideoOpening) {
+                floatingVideo = false
                 seenVideoOpening = playback.presentation.opening
                 showPlayer = playback.presentation.mode == PlaybackMode.Music
                 showVideo = playback.presentation.mode == PlaybackMode.Video
@@ -288,15 +315,23 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         }
         val back: () -> Unit = {
             when {
+                backgroundState.preview != null -> background.cancelPreview()
                 showPlugins -> showPlugins = false
                 showQueue -> showQueue = false
+                showService -> showService = false
                 showSettings -> showSettings = false
                 showPlayer -> showPlayer = false
-                showVideo -> { showVideo = false; player.closeVideo() }
+                showVideo -> minimizeVideo()
                 browseCreators.isNotEmpty() -> browseCreators = browseCreators.dropLast(1)
                 page != null -> catalog.back()
                 accountRoute != null -> routes = ArrayList(routes.dropLast(1))
                 else -> category = null
+            }
+        }
+        LaunchedEffect(backgroundState.preview != null) {
+            if (backgroundState.preview != null) {
+                showSettings = false; showPlugins = false; showPlayer = false; showVideo = false; showQueue = false
+                tab = Tab.Discover; category = null; browseCreators = emptyList(); catalog.reset()
             }
         }
         val switchTab: (Tab) -> Unit = { item ->
@@ -330,18 +365,24 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                 else -> browser.refresh()
             }
         }
-        BackHandler(showPlayer || showVideo || showQueue || showSettings || showPlugins || category != null || accountRoute != null ||
+        BackHandler(backgroundState.preview != null || showPlayer || showVideo || showQueue || showSettings || showService || showPlugins || category != null || accountRoute != null ||
             creatorRoute != null || page != null,
             onBack = back)
-        if (showPlugins) {
+        Box(Modifier.fillMaxSize()) {
+        if (systemVideo) {
+            FloatingVideoWindow(videoFrame, playback, true, player::toggle, {}, {})
+        } else if (showPlugins) {
             PluginsView(plugins, pluginState, removed = player::removeSource) { showPlugins = false }
+        } else if (showService) {
+            AppearanceBackdrop(backgroundState.preview ?: backgroundState.image, dark, if (backgroundState.preview != null) backgroundState.previewOpacity else preferences.backgroundOpacity) { surface ->
+                NodeSettingsView(app, nodeProfileState, nodeTarget != null, {
+                    val target = currentNodeTarget()
+                    nodeProfile.publish(target) { currentNodeTarget() == target }
+                }, surface) { showService = false }
+            }
         } else if (showSettings) {
-            AppearanceBackdrop(backgroundState.image, dark) { surface ->
+            AppearanceBackdrop(backgroundState.preview ?: backgroundState.image, dark, if (backgroundState.preview != null) backgroundState.previewOpacity else preferences.backgroundOpacity) { surface ->
                 SettingsView(preferences, settings::update, saved, browser, backgroundState, background, surface,
-                    nodeProfileState, nodeTarget != null, {
-                        val target = currentNodeTarget()
-                        nodeProfile.publish(target) { currentNodeTarget() == target }
-                    },
                     openPlugins = { showPlugins = true }) { showSettings = false }
             }
         } else if (showPlayer && playback.current != null) {
@@ -354,10 +395,10 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
             CompositionLocalProvider(LocalTrackActions provides openTrackActions, LocalMarkedTrack provides markedTrack) {
                 VideoDetailsScreen(player, playback, preferences, accountId = playbackAccount?.id, fullScreen = videoFullscreen,
                     setFullScreen = { videoFullscreen = it },
-                    browse = { showVideo = false; player.closeVideo() },
-                    chooseMode = choosePlaybackMode)
+                    browse = minimizeVideo,
+                    chooseMode = choosePlaybackMode, sharedFrame = videoFrame, ownsVideoFrame = false)
             }
-        } else AppearanceBackdrop(backgroundState.image, dark) { surface ->
+        } else AppearanceBackdrop(backgroundState.preview ?: backgroundState.image, dark, if (backgroundState.preview != null) backgroundState.previewOpacity else preferences.backgroundOpacity) { surface ->
             val atRoot = page == null && category == null && accountRoute == null && creatorRoute == null
             val discoverRoot = atRoot && tab == Tab.Discover
             Scaffold(
@@ -396,7 +437,9 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                     })
                 },
                 bottomBar = {
-                    if (!isWide || playback.current != null || playback.connectionIssue != null) MusicBottomDock {
+                    if (backgroundState.preview != null) BackgroundPreviewControls(backgroundState, background::setPreviewOpacity,
+                        background::cancelPreview, background::confirmPreview)
+                    else if (!isWide || playback.current != null || playback.connectionIssue != null) MusicBottomDock {
                         playback.connectionIssue?.let { PlaybackConnectionNotice(it, player::retry) }
                         if (playback.current != null) {
                             MiniPlayer(playback, open = { showPlayer = true }, toggle = player::toggle,
@@ -424,7 +467,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                             Box(Modifier.weight(1f).fillMaxWidth()) {
                                 CompositionLocalProvider(LocalTrackActions provides openTrackActions, LocalMarkedTrack provides markedTrack) {
                                     if (creatorRoute != null) key(creatorRoute) {
-                                        AccountLibraryView(library.creatorPages, {}, select)
+                                        AccountLibraryView(creatorPages, {}, select)
                                     } else tabState.SaveableStateProvider(tab) {
                                         when {
                                             page != null && pluginSource != null -> PluginCatalogBrowser(pluginSource,
@@ -441,8 +484,8 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                                                     }, sourceNames, target, { searchTarget = it }, saved)
                                                 Tab.Library -> LocalLibraryView(select, selectGroup, saved)
                                                 Tab.Account -> if (pluginSource != null) PluginPersonalContent(pluginSource, catalog, pluginAccount, pluginUser,
-                                                    openSettings = { showSettings = true }, openPlugins = { showPlugins = true })
-                                                else Column { AccountTools({ showSettings = true }, { showPlugins = true }); EmptyMessage(mb("请安装并启用插件", "Install and enable a plugin")) }
+                                                    openSettings = { showSettings = true }, openPlugins = { showPlugins = true }, openService = { showService = true })
+                                                else Column { AccountTools({ showSettings = true }, { showPlugins = true }, { showService = true }); EmptyMessage(mb("请安装并启用插件", "Install and enable a plugin")) }
                                             }
                                         }
                                     }
@@ -453,9 +496,14 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                 }
             }
         }
-        if (browsingPlayback && creatorRoute != null && !showSettings && !showPlugins) {
+        if (floatingVideo && !showVideo && !systemVideo && preferences.inAppVideoWindow) {
+            FloatingVideoWindow(videoFrame, playback, false, player::toggle,
+                { floatingVideo = false; showVideo = true }, { floatingVideo = false; player.closeVideo() })
+        }
+        }
+        if (browsingPlayback && creatorRoute != null && !showSettings && !showService && !showPlugins) {
             CompositionLocalProvider(LocalTrackActions provides openTrackActions, LocalMarkedTrack provides markedTrack) {
-                CreatorUploadsDialog(creatorPage.value.title ?: creatorRoute.title(), library.creatorPages,
+                CreatorUploadsDialog(creatorPage.value.title ?: creatorRoute.title(), creatorPages,
                     close = { playerCreators = emptyList() }, back = if (playerCreators.size > 1) ({
                         playerCreators = playerCreators.dropLast(1)
                     }) else null, play = { tracks, track ->
@@ -464,6 +512,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                     })
             }
         }
+        AutomaticAppUpdates(preferences.automaticUpdateChecks, canPresent = backgroundState.preview == null && !showPlayer && !showVideo && !showQueue && !showSettings && !showService && !showPlugins && !pluginUser.signingIn && !pluginUser.choosingSignInMethod && webSignIn == null && oauthSignIn == null && webLink == null && actionTrack == null)
         val webRequest = webSignIn
         val oauthRequest = oauthSignIn
         if (oauthRequest != null) key(oauthRequest.id) {

@@ -209,6 +209,8 @@ class VideoDetailsDeviceTest {
             await("First Video")
             tap("Comments · 123")
             await("First page request 1")
+            swipeVideoDetails("Comments · 123", true); await("Captions") { node -> generateSequence(node) { it.parent }.any { it.isSelected } }
+            swipeVideoDetails("Captions", false); await("Comments · 123") { node -> generateSequence(node) { it.parent }.any { it.isSelected } }
             tap("More comments")
             await("Second page of first video")
             tap("Info")
@@ -405,20 +407,24 @@ class VideoDetailsDeviceTest {
                 player.seekCurrent(player.playback.value, 6_000)
                 player.watchCurrentVideo()
             }
-            await("Video Mode", ::isSelectedPlaybackMode)
+            await("Music Mode")
             assertEquals(PlaybackMode.Music, app.settings.values.value.playbackMode)
             tap("Back to Browse")
+            await("Expand Video")
+            tap("Expand Video"); await("Back to Browse")
+            tap("Back to Browse"); await("Close Video Window")
+            tap("Close Video Window")
             await("Discover")
             tap("Music Mode")
             await("Video Mode")
             withTimeout(5_000) { while (app.settings.values.value.playbackMode != PlaybackMode.Video) delay(25) }
             withContext(Dispatchers.Main) { player.watchCurrentVideo() }
-            await("Video Mode", ::isSelectedPlaybackMode)
+            await("Music Mode")
             tap("Back to Browse")
             await("Discover")
             assertEquals(PlaybackMode.Video, app.settings.values.value.playbackMode)
             withContext(Dispatchers.Main) { player.watchCurrentVideo() }
-            await("Video Mode", ::isSelectedPlaybackMode)
+            await("Music Mode")
             captureVideoControl("android-video-playback-mode.png")
             tap("Music Mode")
             await("Now Playing")
@@ -438,6 +444,21 @@ class VideoDetailsDeviceTest {
             app.plugins.remove(plugin)
             app.refreshPlugins()
             plugin.dataDirectory.deleteRecursively()
+        }
+    }
+
+    private fun swipeVideoDetails(tab: String, left: Boolean) {
+        val node = matches(tab).first(); val bounds = android.graphics.Rect(); node.getBoundsInScreen(bounds)
+        val size = instrumentation.targetContext.resources.displayMetrics
+        val y = bounds.bottom + 75 * size.density
+        val start = size.widthPixels * if (left) 0.8f else 0.2f
+        val end = size.widthPixels * if (left) 0.2f else 0.8f
+        val down = android.os.SystemClock.uptimeMillis()
+        for (step in 0..20) {
+            val action = if (step == 0) android.view.MotionEvent.ACTION_DOWN else if (step == 20) android.view.MotionEvent.ACTION_UP else android.view.MotionEvent.ACTION_MOVE
+            val event = android.view.MotionEvent.obtain(down, down + step * 15L, action, start + (end - start) * step / 20, y, 0)
+            event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+            instrumentation.uiAutomation.injectInputEvent(event, true); event.recycle()
         }
     }
 

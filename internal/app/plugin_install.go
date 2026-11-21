@@ -94,19 +94,20 @@ const pluginCheckEvery = 24 * time.Hour
 type pluginInstaller struct {
 	// open is whether the dialog shows: asking for a repository, with github,
 	// or about a plugin on its way, or what went wrong with one.
-	open, github bool
-	catalogOpen  bool
-	catalog      []edge.Package
-	repo         string          // what's written in the field
-	busy         bool            // one's downloading
-	err          string          // what went wrong last
-	pending      *plugin.Pending // one downloaded, for the listener to allow
-	batch        bool
-	batchStatus  string
-	stars        *starsImport
-	starsAddress string
-	updating     map[string]bool
-	updateErr    map[string]string // what went wrong updating a plugin, by ID
+	renamingID, localName string
+	open, github          bool
+	catalogOpen           bool
+	catalog               []edge.Package
+	repo                  string          // what's written in the field
+	busy                  bool            // one's downloading
+	err                   string          // what went wrong last
+	pending               *plugin.Pending // one downloaded, for the listener to allow
+	batch                 bool
+	batchStatus           string
+	stars                 *starsImport
+	starsAddress          string
+	updating              map[string]bool
+	updateErr             map[string]string // what went wrong updating a plugin, by ID
 	// checked is what checking a plugin for a new version came to, when the
 	// listener asked, by ID.
 	checked map[string]checkResult
@@ -290,12 +291,16 @@ func (a *app) pluginInstalled(id string) error {
 	at := slices.IndexFunc(a.allLibs, func(l *library) bool { return l.id == id })
 	if at < 0 {
 		a.allLibs = append(a.allLibs, lib)
+		if a.pluginPrefsDocument.Version == 1 {
+			a.applyPluginPreferences(a.pluginPrefsDocument)
+		}
 		a.plugins = append(a.plugins, p)
 		a.enabledChanged()
 		a.redraw()
 		return nil
 	}
 	old := a.allLibs[at]
+	lib.localName = old.localName
 	a.invalidateEdge(old)
 	a.allLibs[at] = lib
 	if was := pluginOf(old); was != nil {
@@ -856,6 +861,18 @@ func (a *app) pluginMenu(c *ui.Context, lib *library, p palette) {
 	}
 	more := iconButton(c.Key("plugin-more"), iconMore, 16, p.muted, Tf("More for %s", lib.name()))
 	more.Menu(func(m *ui.Menu) {
+		if m.Item(T("Rename Locally")).Disabled(a.pluginPrefsBusy).Chosen() {
+			a.installer.renamingID = lib.id
+			a.installer.localName = lib.localName
+		}
+		if m.Item(T("Move Up")).Disabled(a.pluginPrefsBusy).Chosen() {
+			a.movePlugin(lib, -1)
+		}
+		if m.Item(T("Move Down")).Disabled(a.pluginPrefsBusy).Chosen() {
+			a.movePlugin(lib, 1)
+		}
+		m.Separator()
+
 		if plug.Origin() != nil {
 			busy := a.installer.batch || a.installer.checked[lib.id] == checking || a.installer.updating[lib.id]
 			if m.Item(T("Check for Updates")).Disabled(busy).Chosen() {

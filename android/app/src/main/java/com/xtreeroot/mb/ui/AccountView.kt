@@ -59,6 +59,15 @@ internal fun AccountSignOutDialog(close: () -> Unit, signOut: () -> Unit) {
 
 @Composable
 internal fun SignInDialog(state: AccountState, model: AccountModel) {
+    if (state.choosingSignInMethod) {
+        AlertDialog(onDismissRequest = model::cancelSignIn, title = { Text(mb("选择登录方式", "Choose sign-in method")) },
+            text = { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                state.signInMethods.forEach { method ->
+                    Button(onClick = { model.chooseSignInMethod(method.id) }, modifier = Modifier.fillMaxWidth()) { Text(method.label) }
+                }
+            } }, confirmButton = {}, dismissButton = { TextButton(onClick = model::cancelSignIn) { Text(mb("取消", "Cancel")) } })
+        return
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prompt = state.prompt

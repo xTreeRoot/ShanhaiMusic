@@ -73,3 +73,35 @@ private actor LibraryFixture: LibrarySource {
     await active.loadMore()
     #expect(active.tracks.map(\.title) == ["one", "two"])
 }
+
+private actor MethodAccountFixture: SignInMethodSource {
+    nonisolated let displayName = "方式测试"
+    nonisolated let signInMethods = [SignInMethod(id: "first", label: "第一种"), SignInMethod(id: "second", label: "第二种")]
+    var calls: [String] = []
+    func search(query: String, page: Int) -> TrackPage { TrackPage(tracks: [], hasMore: false) }
+    func account() -> SourceAccount? { nil }
+    func signIn(prompt: @escaping @Sendable (SignInPrompt) async -> Void) throws -> SourceAccount { throw URLError(.unsupportedURL) }
+    func signIn(method: String, prompt: @escaping @Sendable (SignInPrompt) async -> Void) -> SourceAccount {
+        calls.append(method); return SourceAccount(id: method, name: method)
+    }
+    func signOut() {}
+}
+
+@Test @MainActor func choosingLoginMethodWaitsForInputAndOnlyStartsSelectedProvider() async {
+    let source = MethodAccountFixture(), model = AccountModel(source: nil)
+    model.signIn(); #expect(!model.choosingSignInMethod)
+    let active = AccountModel(source: source)
+    active.signIn(); #expect(active.choosingSignInMethod); #expect(await source.calls.isEmpty)
+    active.chooseSignInMethod("invalid"); #expect(active.choosingSignInMethod); #expect(await source.calls.isEmpty)
+    active.chooseSignInMethod("second"); await active.waitForSignIn()
+    #expect(await source.calls == ["second"]); #expect(active.account?.id == "second")
+    #expect(!active.choosingSignInMethod)
+}
+
+@Test @MainActor func cancellingMethodPickerDoesNotStartOrReplaceAccount() async {
+    let source = MethodAccountFixture()
+    let other = AccountModel(source: source)
+    other.signIn(); other.cancelSignIn(); other.chooseSignInMethod("first")
+    await other.waitForSignIn()
+    #expect(await source.calls.isEmpty); #expect(other.account == nil); #expect(!other.choosingSignInMethod)
+}

@@ -66,10 +66,13 @@ func openData(recovery, space, platform, key string, envelope Envelope, value an
 	if err != nil {
 		return errors.New("cannot authenticate MB platform data")
 	}
-	target := struct {
-		Value any `json:"value"`
-	}{value}
-	return json.Unmarshal(plain, &target)
+	var target struct {
+		Value json.RawMessage `json:"value"`
+	}
+	if json.Unmarshal(plain, &target) != nil || len(target.Value) == 0 || string(target.Value) == "null" {
+		return errors.New("invalid MB platform data payload")
+	}
+	return json.Unmarshal(target.Value, value)
 }
 
 func dataPath(platform, key string) (string, error) {

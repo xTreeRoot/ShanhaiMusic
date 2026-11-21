@@ -21,6 +21,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -49,7 +51,7 @@ internal fun MusicNavigation(content: @Composable androidx.compose.foundation.la
 internal fun MusicNavigationItem(label: String, icon: ImageVector, active: Boolean, onClick: () -> Unit,
                                  modifier: Modifier = Modifier) {
     val color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-    Column(modifier.heightIn(min = 56.dp).selectable(active, onClick = onClick, role = Role.Tab)
+    Column(modifier.heightIn(min = 56.dp).selectable(active, interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick, role = Role.Tab)
         .padding(horizontal = 3.dp, vertical = 7.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)) {
         Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = color)

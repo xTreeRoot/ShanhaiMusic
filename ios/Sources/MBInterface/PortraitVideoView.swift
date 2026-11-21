@@ -8,6 +8,7 @@ struct PortraitVideoView: View {
     let playback: PlaybackModel
     let interactionSource: (any InteractionSource)?
     let openMusic: () -> Void
+    var browse: (() -> Void)? = nil
     let saveResource: (Track) -> Void
     let menu: (Track) -> AnyView
     @State private var comments = false
@@ -17,12 +18,12 @@ struct PortraitVideoView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Button { video.browse() } label: { Label("返回浏览", systemImage: "chevron.left").frame(minHeight: 44) }
+                Button { if let browse { browse() } else { video.browse() } } label: { Label("返回浏览", systemImage: "chevron.left").frame(minHeight: 44) }
                 Spacer()
                 Button(action: openMusic) { Label("听歌模式", systemImage: "headphones").frame(minHeight: 44) }
             }.padding(.horizontal, 16)
             GeometryReader { geometry in
-                VideoScreen(video: video, pictureVisible: true)
+                VideoScreen(video: video, pictureVisible: video.isVisible)
                     .aspectRatio(video.aspectRatio, contentMode: .fit)
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .contentShape(Rectangle())

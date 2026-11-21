@@ -540,9 +540,6 @@ func (a *app) settingsSections(c *ui.Context, p palette) []settingsSection {
 		})
 	})
 
-	if a.edge.nodes != nil || a.edge.message != "" {
-		add("edge", T("Connect to Node"), iconRefresh, func(row settingsRow, block settingsBlock) { a.edgeSettings(c, p, block) })
-	}
 	if a.updates {
 		add("updates", T("Updates"), iconRefresh, func(row settingsRow, block settingsBlock) {
 			desc := T("Check for a new version once a day")
@@ -671,6 +668,7 @@ func (a *app) pluginSettings(c *ui.Context, lib *library, p palette) {
 	info := lib.src.Info()
 	enabled := a.pluginEnabled(lib)
 	ui.Column(c).Padding(12, 16).Gap(10).Children(func() {
+		a.pluginNameEditor(c, lib)
 		ui.Row(c).Gap(10).AlignItems(ui.Center).MinHeight(24).Children(func() {
 			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
 				name := lib.name()
@@ -763,7 +761,7 @@ func (a *app) pluginEnabled(lib *library) bool { return slices.Contains(a.libs, 
 func (a *app) pluginSwitch(c *ui.Context, lib *library) {
 	on := a.pluginEnabled(lib)
 	last := on && len(a.libs) == 1
-	if ui.Switch(c.Key("enabled"), &on).Label(Tf("Enable %s", lib.name())).Disabled(last).Changed() {
+	if ui.Switch(c.Key("enabled"), &on).Label(Tf("Enable %s", lib.name())).Disabled(last || a.pluginPrefsBusy).Changed() {
 		a.setPluginEnabled(lib, on)
 	}
 }

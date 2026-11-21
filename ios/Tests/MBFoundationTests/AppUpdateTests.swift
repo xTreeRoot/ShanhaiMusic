@@ -140,3 +140,21 @@ func officialAppReleaseCanDownloadAndVerifyItsPublishedIPA() async throws {
         else { #expect(try AppRelease.latest(in: data).build == 29) }
     }
 }
+
+private actor AutomaticUpdateRequests {
+    var count = 0
+    func fetch(_ release: AppRelease) -> AppRelease { count += 1; return release }
+}
+
+@MainActor @Test func disabledAutomaticChecksSendNoRequestButManualCheckStillWorks() async throws {
+    let requests = AutomaticUpdateRequests(), release = try updateRelease()
+    let model = AppUpdateModel(version: "0.1.0", build: 26, fetch: { await requests.fetch(release) }, receive: { _, _ in URL(filePath: "/unused") })
+    #expect(await model.checkAutomatically(enabled: false) == false)
+    #expect(await requests.count == 0)
+    #expect(await model.checkAutomatically(enabled: true))
+    #expect(await requests.count == 1)
+    #expect(await model.checkAutomatically(enabled: false) == false)
+    #expect(await requests.count == 1)
+    await model.check()
+    #expect(await requests.count == 2 && model.release == release)
+}

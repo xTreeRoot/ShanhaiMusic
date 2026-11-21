@@ -46,6 +46,7 @@ public struct PluginManifest: Codable, Sendable {
     public let settings: [Setting]?
     public let navigation: [Navigation]?
     public let requestHeaders: [HeaderRule]?
+    public let signInMethods: [SignInMethod]?
     public var entry: String { main ?? "index.js" }
     public var displayName: String { name ?? id }
     public func validate(hostVersion: String = "0.1.28") throws {
@@ -55,6 +56,9 @@ public struct PluginManifest: Codable, Sendable {
             guard let required = Self.version(minAppVersion), let host = Self.version(hostVersion) else { throw PluginFailure.invalid("Invalid compatibility version") }
             if host.lexicographicallyPrecedes(required) { throw PluginFailure.invalid("Requires host \(minAppVersion)") }
         }
+        let methods = signInMethods ?? []
+        guard methods.count <= 16, Set(methods.map(\.id)).count == methods.count,
+              methods.allSatisfy({ !$0.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.id.range(of: "^[A-Za-z0-9][A-Za-z0-9_.-]*$", options: .regularExpression) != nil }) else { throw PluginFailure.invalid("Invalid sign-in methods") }
         guard playback == nil || playback == "stream" else { throw PluginFailure.unavailable }
         if !(permissions?.process ?? []).isEmpty { throw PluginFailure.unavailable }
         for rule in requestHeaders ?? [] {

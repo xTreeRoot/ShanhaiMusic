@@ -13,6 +13,7 @@ import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Precision
 import coil.size.Scale
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -41,23 +42,57 @@ internal class AppearanceBackgroundStore(private val context: Context) {
         }
     }
 
-    suspend fun replace(uri: Uri): Bitmap = withContext(Dispatchers.IO) {
+    suspend fun prepare(uri: Uri): Bitmap = withContext(Dispatchers.IO) {
         require(uri.scheme == ContentResolver.SCHEME_CONTENT)
-        val request = ImageRequest.Builder(context).data(uri).size(maxDimension, maxDimension)
+        decode(uri)
+    }
+
+    suspend fun prepareRemote(address: String): Bitmap = withContext(Dispatchers.IO) {
+        val url = address.trim().toHttpUrlOrNull() ?: throw IOException("Invalid image URL")
+        require(url.username.isEmpty() && url.password.isEmpty())
+        val client = (context.applicationContext as com.xtreeroot.mb.MBApplication).http.newBuilder()
+            .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+        val bytes = client.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("Image request failed")
+            val body = response.body ?: throw IOException("Empty image")
+            require(body.contentLength() <= appearanceBackgroundByteLimit)
+            body.byteStream().use { input ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    require(output.size().toLong() + count <= appearanceBackgroundByteLimit)
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            }
+        }
+        decode(bytes)
+    }
+
+    private suspend fun decode(data: Any): Bitmap {
+        val request = ImageRequest.Builder(context).data(data).size(maxDimension, maxDimension)
             .scale(Scale.FIT).precision(Precision.INEXACT).allowHardware(false)
             .memoryCachePolicy(CachePolicy.DISABLED).diskCachePolicy(CachePolicy.DISABLED)
             .networkCachePolicy(CachePolicy.DISABLED).build()
         val result = context.imageLoader.execute(request) as? SuccessResult
         val decoded = (result?.drawable as? BitmapDrawable)?.bitmap ?: throw IOException("Invalid image")
         val longestSide = maxOf(decoded.width, decoded.height)
-        val bitmap = if (longestSide <= maxDimension) decoded else Bitmap.createScaledBitmap(decoded,
+        return if (longestSide <= maxDimension) decoded else Bitmap.createScaledBitmap(decoded,
             (decoded.width.toLong() * maxDimension / longestSide).toInt().coerceAtLeast(1),
             (decoded.height.toLong() * maxDimension / longestSide).toInt().coerceAtLeast(1), true)
+    }
+
+    suspend fun save(bitmap: Bitmap): Bitmap = withContext(Dispatchers.IO) {
+        require(bitmap.width in 1..maxDimension && bitmap.height in 1..maxDimension)
         files.withLock {
             write { if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) throw IOException("Cannot encode image") }
         }
         bitmap
     }
+
+    suspend fun replace(uri: Uri): Bitmap = save(prepare(uri))
 
     suspend fun <Value> snapshot(read: (File, Long) -> Value): Value? = files.withLock {
         if (!exists()) null else read(file.baseFile, revision.value)

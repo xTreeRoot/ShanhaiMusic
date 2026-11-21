@@ -2,6 +2,12 @@ package i18n
 
 // zhCN is the app's text in Simplified Chinese, by its English.
 var zhCN = map[string]string{
+	"Shanhai Service":                         "山海服务",
+	"Node Password":                           "节点密码",
+	"Node Address":                            "节点地址",
+	"Clear Node Address":                      "清空节点地址",
+	"Show Password":                           "显示密码",
+	"Hide Password":                           "隐藏密码",
 	"Connect to Node":                         "接入节点",
 	"Server Domain or HTTPS Address":          "服务器域名 / HTTPS 地址",
 	"Password":                                "密码",
@@ -142,6 +148,10 @@ var zhCN = map[string]string{
 	"Cache":                                 "缓存",
 	"Cancel":                                "取消",
 	"Change Repeat Mode":                    "切换循环模式",
+	"Local Name":                            "本地名称",
+	"Rename Locally":                        "本地重命名",
+	"Move Up":                               "上移",
+	"Move Down":                             "下移",
 	"Check for Updates":                     "检查更新",
 	"Check for Updates Automatically":       "自动检查更新",
 	"Check for Updates…":                    "检查更新…",
@@ -257,8 +267,6 @@ var zhCN = map[string]string{
 	"Menu Bar Only":                                                                   "仅菜单栏",
 	"Minimize":                                                                        "最小化",
 	"More":                                                                            "更多",
-	"Move Down":                                                                       "下移",
-	"Move Up":                                                                         "上移",
 	"Move the pointer to the top center to pause or skip": "指针移到顶部中央，即可暂停、切歌",
 	"Music without end":           "无尽音乐",
 	"Mute":                        "静音",

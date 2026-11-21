@@ -39,7 +39,7 @@ import org.json.JSONObject
 internal class PluginSource(
     val manifest: PluginManifest,
     private val runtime: PluginRuntime,
-) : PlaybackSource, VideoSource, AccountSource, InteractionSource, PlaybackRecorder, StationPlaybackSource, SuggestionSource {
+) : PlaybackSource, VideoSource, AccountSource, com.xtreeroot.mb.music.SignInMethodSource, InteractionSource, PlaybackRecorder, StationPlaybackSource, SuggestionSource {
     override val id: String get() = manifest.id
     val catalog = PluginCatalog(manifest, runtime, ::tracks, ::image, ::catalogInvoke)
     private val accountCacheLock = Any()
@@ -129,13 +129,19 @@ internal class PluginSource(
         return found
     }
 
-    override suspend fun signIn(prompt: suspend (SignInPrompt) -> Unit): SourceAccount = coroutineScope {
+    override val signInMethods get() = manifest.signInMethods
+    override suspend fun signIn(prompt: suspend (SignInPrompt) -> Unit): SourceAccount = signInWithArguments(JSONObject(), prompt)
+    override suspend fun signIn(method: String, prompt: suspend (SignInPrompt) -> Unit): SourceAccount {
+        if (signInMethods.none { it.id == method }) throw PluginException("Unknown sign-in method")
+        return signInWithArguments(JSONObject().put("method", method), prompt)
+    }
+    private suspend fun signInWithArguments(arguments: JSONObject, prompt: suspend (SignInPrompt) -> Unit): SourceAccount = coroutineScope {
         val prompts = Channel<PluginPrompt>(Channel.CONFLATED)
         val observer = launch {
             for (item in prompts) prompt(SignInPrompt(item.qrUrl, message = item.message))
         }
         try {
-            val found = account(runtime.signIn { prompts.trySend(it) }) ?: throw PluginException("Sign-in returned no account")
+            val found = account(runtime.signIn(arguments) { prompts.trySend(it) }) ?: throw PluginException("Sign-in returned no account")
             rememberAccount(found, force = true)
             found
         }
@@ -148,6 +154,18 @@ internal class PluginSource(
         likes = runtime.supports("like"), comments = runtime.supports("comments"),
         posting = runtime.supports("postComment"), commentLikes = runtime.supports("likeComment"),
     )
+
+    override suspend fun interactionSummary(trackId: String): com.xtreeroot.mb.music.TrackInteractionSummary {
+        val method = if (runtime.supports("interactionSummary")) "interactionSummary" else if (runtime.supports("comments")) "comments"
+            else return com.xtreeroot.mb.music.TrackInteractionSummary()
+        val value = runtime.invoke(method, JSONObject().put("trackId", trackId).put("offset", 0)) as? JSONObject
+            ?: throw PluginException("Invalid interaction summary")
+        fun count(key: String): Long? = (value.opt(key) as? Number)?.toDouble()?.takeIf {
+            it.isFinite() && it >= 0 && it <= 9_007_199_254_740_991.0 && it % 1.0 == 0.0
+        }?.toLong()
+        return if (method == "comments") com.xtreeroot.mb.music.TrackInteractionSummary(comments = count("total"))
+        else com.xtreeroot.mb.music.TrackInteractionSummary(count("likes"), count("comments"))
+    }
 
     override suspend fun isLiked(trackId: String): Boolean {
         if (!runtime.supports("isLiked")) return false

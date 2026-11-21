@@ -150,6 +150,9 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
     val favorite = (activity[track.id]?.likedAt ?: 0) > 0
     val app = LocalContext.current.applicationContext as MBApplication
     val source = app.playbackSource(track.sourceId)
+    var trackActions by remember(track.id) { mutableStateOf(false) }
+    val openCreator: (() -> Unit)? = track.artistId?.takeIf { it.isNotBlank() && source is LibrarySource }?.let { id -> { showArtist(id) } }
+    if (trackActions) MusicTrackActions(track, saved, preferences, openCreator) { trackActions = false }
     val supportsVideo = state.videoAvailable
     var showingCaptions by rememberSaveable { mutableStateOf(preferences.lyricsStage) }
     var widePage by rememberSaveable { mutableStateOf(WidePlayerPage.Lyrics) }
@@ -249,12 +252,15 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
                     captions.error != null -> Retry(checkNotNull(captions.error)) { model.loadCaptions(track) }
                     captions.value.isEmpty() -> EmptyMessage(mb("暂无歌词", "No Lyrics"))
                     rhythm -> RhythmCaptionStage(captions.value, state.positionMs, state.playing, animate, seekCurrent)
-                    else -> CaptionStage(captions.value, state.positionMs, preferences.lyricStyle,
-                        preferences.stageSparks, animate, seekCurrent)
+                    else -> androidx.compose.runtime.key(track.id) {
+                        CaptionStage(captions.value, state.positionMs, preferences.lyricStyle,
+                            preferences.stageSparks, animate, seekCurrent)
+                    }
                 }
             }
             val stage: @Composable (Modifier) -> Unit = { modifier ->
-                Box(modifier.padding(horizontal = 24.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                Box(modifier.padding(horizontal = 24.dp, vertical = 6.dp)
+                    .musicTrackSwipes(track.id, previous = model::previous, next = model::next), contentAlignment = Alignment.Center) {
                     when {
                         comment != null -> Column(Modifier.fillMaxWidth().clickable { openComments = true }.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -274,26 +280,7 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
             }
             val controls: @Composable (Modifier) -> Unit = { modifier ->
                 Column(modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(track.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        if (inLibrary) {
-                            IconButton(onClick = { saved.toggleFavorite(track) }) {
-                                Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                    if (favorite) mb("取消本地喜欢", "Unlike Locally") else mb("本地喜欢", "Like Locally"))
-                            }
-                        } else {
-                            IconButton(onClick = { saved.download(track) }, enabled = track.id !in transfers && !track.isUnavailable) {
-                                Icon(painterResource(R.drawable.ic_download), mb("下载音频", "Download Audio"))
-                            }
-                        }
-                        TrackActionsButton(track)
-                    }
-                    val artistId = track.artistId
-                    Text(track.artist, modifier = if (artistId == null || source !is LibrarySource) Modifier else Modifier.clickable(onClickLabel = mb("查看 UP 主投稿", "View Creator Uploads")) {
-                        showArtist(artistId)
-                    }, style = MaterialTheme.typography.bodyLarge, maxLines = 1,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    MusicTrackMetadata(track, source as? InteractionSource, openCreator) { trackActions = true }
                     state.station?.let { station ->
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(station.title.ifBlank { mb("电台", "Radio") }, Modifier.weight(1f), maxLines = 1,
@@ -329,7 +316,6 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
                                 model.repeat()?.let { modeNotice = PlayerModeNotice.Repeat(it) }
                             }, Modifier.weight(1f))
                     }
-                    PlayerInteractionBar(track, signedIn, showCommentsButton = !wide)
                 }
             }
             BoxWithConstraints(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {

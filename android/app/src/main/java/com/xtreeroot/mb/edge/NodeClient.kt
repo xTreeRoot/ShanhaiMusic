@@ -35,7 +35,7 @@ internal fun nodeOrigin(input: String): HttpUrl {
     return url
 }
 
-internal enum class NodeFailure { Unauthorized, BadPassword, Protocol, Conflict, Rejected, Retryable, Deleted, OtherAccount, KeyChanged }
+internal enum class NodeFailure { Unauthorized, BadPassword, Unsupported, Protocol, Conflict, Rejected, Retryable, Deleted, OtherAccount, KeyChanged }
 
 internal class NodeException(val failure: NodeFailure, val status: Int? = null) : IOException(failure.name)
 
@@ -128,6 +128,7 @@ internal class NodeClient(http: OkHttpClient) {
 
     private fun Response.failure() = NodeException(when (code) {
         401 -> NodeFailure.Unauthorized
+        404 -> NodeFailure.Unsupported
         412 -> NodeFailure.Conflict
         408, 429, in 500..599 -> NodeFailure.Retryable
         in 400..499 -> if (code == 404 || code == 410) NodeFailure.Protocol else NodeFailure.Rejected

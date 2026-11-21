@@ -24,6 +24,7 @@ public actor PluginInstaller {
         let revision: String
         let address: URL
     }
+    private lazy var preferenceCache = PluginPreferenceCache(root: root)
     private let root: URL
     private let fetch: @Sendable (URLRequest, Int) async throws -> (Data, URLResponse)
     public init(directory: URL? = nil) {
@@ -33,13 +34,56 @@ public actor PluginInstaller {
     init(directory: URL, fetch: @escaping @Sendable (URLRequest, Int) async throws -> (Data, URLResponse)) {
         root = directory; self.fetch = fetch
     }
+    private func migratePreferences(_ writer: String) throws -> PluginPreferences {
+        var document = PluginPreferences()
+        let presentationFile = root.appendingPathComponent("presentation.json")
+        if FileManager.default.fileExists(atPath: presentationFile.path) {
+            let old = try JSONDecoder().decode(PluginPresentation.self, from: Data(contentsOf: presentationFile))
+            for id in old.names.keys.sorted() { document = try document.withName(id: id, name: old.names[id]!, writer: writer) }
+            if !old.order.isEmpty { document = try document.withOrder(old.order, writer: writer) }
+        }
+        let disabledFile = root.appendingPathComponent("disabled.json")
+        let disabled = FileManager.default.fileExists(atPath: disabledFile.path) ? try JSONDecoder().decode(Set<String>.self, from: Data(contentsOf: disabledFile)) : []
+        for id in disabled.sorted() {
+            document = try document.withEnabled(id: id, enabled: false, writer: writer)
+        }
+        return document
+    }
+    public func pluginPreferences() throws -> PluginPreferences { try preferenceCache.load(migrate: migratePreferences) }
+    public func mergePluginPreferences(_ remote: PluginPreferences) throws -> PluginPreferences {
+        try Task.checkCancellation()
+        return try preferenceCache.update(migrate: migratePreferences) { current, _ in try current.merged(with: remote) }
+    }
     public func presentation() throws -> PluginPresentation {
-        let file = root.appendingPathComponent("presentation.json")
-        return FileManager.default.fileExists(atPath: file.path) ? try JSONDecoder().decode(PluginPresentation.self, from: Data(contentsOf: file)) : PluginPresentation()
+        let preferences = try pluginPreferences()
+        var result = PluginPresentation()
+        result.names = preferences.names.compactMapValues { $0.value.isEmpty ? nil : $0.value }
+        result.order = preferences.order?.value ?? []
+        return result
+    }
+    public func rename(_ id: String, to rawName: String) throws {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try preferenceCache.update(migrate: migratePreferences) { current, writer in
+            if current.names[id]?.value == name { return current }
+            return try current.withName(id: id, name: name, writer: writer)
+        }
+    }
+    public func saveOrder(_ ids: [String]) throws {
+        _ = try preferenceCache.update(migrate: migratePreferences) { current, writer in
+            let order = preservingMissingPluginOrder(current.order?.value ?? [], visible: ids)
+            return current.order?.value == order ? current : try current.withOrder(order, writer: writer)
+        }
     }
     public func savePresentation(_ value: PluginPresentation) throws {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try JSONEncoder().encode(value).write(to: root.appendingPathComponent("presentation.json"), options: .atomic)
+        _ = try preferenceCache.update(migrate: migratePreferences) { current, writer in
+            var next = current
+            for id in Set(current.names.keys).union(value.names.keys).sorted() {
+                let name = value.names[id] ?? ""
+                if (current.names[id]?.value ?? "") != name { next = try next.withName(id: id, name: name, writer: writer) }
+            }
+            if (current.order?.value ?? []) != value.order { next = try next.withOrder(value.order, writer: writer) }
+            return next
+        }
     }
     public func installed() throws -> [InstalledPlugin] {
         let folder = root.appendingPathComponent("installed")
@@ -162,6 +206,12 @@ public actor PluginInstaller {
                 throw PluginFailure.invalid(AppLocalization.text("该插件 ID 已被其他来源占用"))
             }
         }
+        let existing = try installed()
+        if let previous = existing.first(where: { $0.id == manifest.id }), previous.manifest.displayName != manifest.displayName {
+            var display = try presentation()
+            display.order = display.sorted(existing).map(\.id)
+            try savePresentation(display)
+        }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
         let origin = Origin(repository: pending.repository, revision: pending.revision)
@@ -178,15 +228,12 @@ public actor PluginInstaller {
         let current = current.hasPrefix("v") ? String(current.dropFirst()) : current
         return version.compare(current, options: .numeric) == .orderedDescending
     }
-    public func disabled() throws -> Set<String> {
-        let file = root.appendingPathComponent("disabled.json")
-        return FileManager.default.fileExists(atPath: file.path) ? try JSONDecoder().decode(Set<String>.self, from: Data(contentsOf: file)) : []
-    }
+    public func disabled() throws -> Set<String> { Set(try pluginPreferences().enabled.filter { !$0.value.value }.keys) }
     public func setEnabled(_ id: String, enabled: Bool) throws {
-        var values = try disabled()
-        if enabled { values.remove(id) } else { values.insert(id) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try JSONEncoder().encode(values).write(to: root.appendingPathComponent("disabled.json"), options: .atomic)
+        _ = try preferenceCache.update(migrate: migratePreferences) { current, writer in
+            if current.enabled[id]?.value == enabled { return current }
+            return try current.withEnabled(id: id, enabled: enabled, writer: writer)
+        }
     }
     public func settings(for plugin: InstalledPlugin) throws -> [String: String] {
         let file = plugin.dataDirectory.appendingPathComponent("settings.json")

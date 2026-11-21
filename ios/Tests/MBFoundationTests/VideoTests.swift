@@ -462,8 +462,42 @@ private actor RestoredSession: PlaybackSessionStore {
 @Test @MainActor func nativeVideoMeasuresPortraitTrackAndClearsGeometryOnStop() async throws {
     let file = try #require(Bundle.module.url(forResource: "Fixtures/video-portrait", withExtension: "mp4"))
     let engine = NativeVideoEngine()
-    try await engine.load(url: file, at: 0)
+    try await engine.load(resource: MediaResource(url: file, headers: [:], fileExtension: "mp4"), at: 0)
     #expect(abs((engine.aspectRatio ?? 0) - 9.0 / 16) < 0.001)
     engine.stop()
     #expect(engine.aspectRatio == nil)
+}
+
+@Test @MainActor func floatingVideoReusesTheLoadedEngineAndKeepsTransportSelection() async {
+    let source = VideoFixture(), engine = TestVideo(), model = VideoModel(source: nil)
+    #expect(!model.isFloating)
+    let video = VideoModel(source: source, engine: engine)
+    video.updateTrack(videoTracks[0]); video.sync(positionMilliseconds: 12_000, playing: true)
+    video.watchCurrent(); await video.waitUntilLoaded()
+    let loaded = engine.loads.count, stopped = engine.stopped
+    video.minimize()
+    #expect(video.isFloating && !video.isVisible && video.isReady)
+    video.sync(positionMilliseconds: 13_000, playing: true)
+    video.open()
+    #expect(!video.isFloating && video.isVisible)
+    #expect(engine.loads.count == loaded && engine.stopped == stopped && engine.positions.last == 13_000)
+    video.minimize(); video.handleSelection(videoTracks[1], intent: .transport, positionMilliseconds: 0, playing: true)
+    await video.waitUntilLoaded()
+    #expect(video.isFloating && video.track == videoTracks[1] && engine.loads.count == loaded + 1)
+    video.browse()
+    #expect(!video.isFloating && !video.isReady && !video.isVisible)
+}
+
+@Test @MainActor func systemVideoControlsAreNotOverwrittenByPeriodicAudioTicks() async {
+    let source = VideoFixture(), engine = TestVideo(), video = VideoModel(source: source, engine: engine)
+    video.updateTrack(videoTracks[0]); video.watchCurrent(); await video.waitUntilLoaded()
+    video.setSystemControlled(true)
+    let count = engine.positions.count
+    video.sync(positionMilliseconds: 10_000, playing: true)
+    #expect(engine.positions.count == count)
+    video.applySystemPlayback(positionMilliseconds: 20_000, playing: false)
+    #expect(engine.positions.last == 20_000 && !engine.isPlaying)
+    video.setSystemControlled(false)
+    video.sync(positionMilliseconds: 21_000, playing: true)
+    #expect(engine.positions.last == 21_000 && engine.isPlaying)
 }

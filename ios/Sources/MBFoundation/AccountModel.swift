@@ -8,6 +8,8 @@ import UIKit
 public final class AccountModel {
     public private(set) var account: SourceAccount?
     public private(set) var prompt: SignInPrompt?
+    public private(set) var choosingSignInMethod = false
+    public var signInMethods: [SignInMethod] { (source as? any SignInMethodSource)?.signInMethods ?? [] }
     public private(set) var isSigningIn = false
     public private(set) var isSigningOut = false
     public private(set) var errorMessage: String?
@@ -34,15 +36,28 @@ public final class AccountModel {
     }
 
     public func signIn() {
+        guard source != nil else { return }
+        if !signInMethods.isEmpty { cancelSignIn(); choosingSignInMethod = true; errorMessage = nil }
+        else { startSignIn(method: nil) }
+    }
+    public func chooseSignInMethod(_ method: String) {
+        guard choosingSignInMethod, signInMethods.contains(where: { $0.id == method }) else { return }
+        startSignIn(method: method)
+    }
+    private func startSignIn(method: String?) {
         guard let source else { return }
         cancelSignIn()
         let current = generation
         isSigningIn = true; errorMessage = nil
         attempt = Task { [self] in
             do {
-                let found = try await source.signIn { [weak self] prompt in
+                let receive: @Sendable (SignInPrompt) async -> Void = { [weak self] prompt in
                     await self?.receive(prompt, generation: current)
                 }
+                let found: SourceAccount
+                if let method, let selectable = source as? any SignInMethodSource {
+                    found = try await selectable.signIn(method: method, prompt: receive)
+                } else { found = try await source.signIn(prompt: receive) }
                 guard current == generation, !Task.isCancelled else { return }
                 endBackgroundSignIn()
                 account = found; revision += 1
@@ -59,7 +74,7 @@ public final class AccountModel {
         generation += 1
         attempt?.cancel(); attempt = nil
         endBackgroundSignIn()
-        isSigningIn = false; prompt = nil
+        isSigningIn = false; prompt = nil; choosingSignInMethod = false
     }
 
     public func signOut() async {

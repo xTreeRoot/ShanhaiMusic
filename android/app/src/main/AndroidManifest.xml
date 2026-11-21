@@ -17,6 +17,7 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc" />
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop"
+            android:supportsPictureInPicture="true" android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

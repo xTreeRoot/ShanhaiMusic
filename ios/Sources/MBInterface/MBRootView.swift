@@ -27,6 +27,7 @@ public struct MBRootView: View {
     @State private var showingPlayer = false
     @State private var showingQueue = false
     @State private var showingSettings = false
+    @State private var showingService = false
     @State private var showingPlugins = false
     @State private var account: AccountModel
     @State private var accountPlatformID: String
@@ -35,6 +36,9 @@ public struct MBRootView: View {
     @State private var systemPlayback = SystemPlaybackCoordinator()
     @State private var downloads: DownloadModel
     @State private var preferences = PreferencesModel()
+    #if os(iOS)
+    @State private var pictureInPicture = VideoPictureInPicture()
+    #endif
     @State private var skin: BackgroundSkin
     @State private var localLibrary: LocalLibraryModel
     @State private var previewLibrary: DemoLibrary?
@@ -69,9 +73,14 @@ public struct MBRootView: View {
         self.initialSource = source; self.initialSourceID = sourceID
         _selectedSourceID = State(initialValue: sourceID)
         _trackSearch = State(initialValue: SearchModel(source: source))
-        _playback = State(initialValue: PlaybackModel(source: demo && !demoTrackProblems ? source as? any PlaybackSource : router,
+        var playbackSource: (any PlaybackSource)? = demo && !demoTrackProblems ? source as? any PlaybackSource : router
+        var videoSource: (any VideoSource)? = demo ? source as? any VideoSource : router
+        #if DEBUG
+        if demo, let fixture = DemoVideoSource.fixture() { playbackSource = fixture; videoSource = fixture }
+        #endif
+        _playback = State(initialValue: PlaybackModel(source: playbackSource,
                                                      engine: NativeAudioEngine(), store: demo ? nil : AppPersistence.shared, mediaLibrary: demo ? nil : MediaLibrary.shared))
-        _video = State(initialValue: VideoModel(source: demo ? source as? any VideoSource : router, store: demo ? nil : AppPersistence.shared))
+        _video = State(initialValue: VideoModel(source: videoSource, store: demo ? nil : AppPersistence.shared))
         _source = State(initialValue: source)
         self.demo = demo
         _account = State(initialValue: AccountModel(source: source as? any AccountSource))
@@ -104,7 +113,7 @@ public struct MBRootView: View {
             DownloadsView(model: downloads, library: localLibrary, playback: playback)
                 .safeAreaInset(edge: .bottom, spacing: 0) { legacyMiniPlayer(for: .library) }
                 .tabItem { Label("资料库", systemImage: "music.note.list") }.tag(MBTab.library)
-            AccountLibraryView(account: account, plugin: source as? PluginSource, source: source as? any LibrarySource, playback: playback, downloads: downloads, select: select, openSettings: { showingAppSettings = true }, openPlugins: { showingPlugins = true })
+            AccountLibraryView(account: account, plugin: source as? PluginSource, source: source as? any LibrarySource, playback: playback, downloads: downloads, select: select, openSettings: { showingAppSettings = true }, openPlugins: { showingPlugins = true }, openService: { showingService = true })
                 .safeAreaInset(edge: .bottom, spacing: 0) { legacyMiniPlayer(for: .account) }
                 .tabItem { Label("我的", systemImage: "person.crop.circle") }.tag(MBTab.account)
         }
@@ -147,11 +156,18 @@ public struct MBRootView: View {
             #if os(iOS)
             .statusBarHidden(video.isVisible)
             #endif
-            .environment(\.backgroundSkinImage, skin.image)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if skin.preview != nil { BackgroundPreviewControls(skin: skin) {
+                    if let opacity = await skin.confirmPreview() { preferences.values.backgroundOpacity = opacity }
+                } }
+            }
+            .environment(\.backgroundSkinImage, skin.preview ?? skin.image)
+            .environment(\.backgroundSkinOpacity, skin.preview != nil ? skin.previewOpacity : preferences.values.backgroundOpacity)
             .preferredColorScheme(preferences.values.appearance == .system ? nil : preferences.values.appearance == .dark ? .dark : .light)
             .playerPresentation(isPresented: $showingPlayer) { NowPlayingView(playback: playback, demo: demo, interactionSource: currentInteractions, librarySource: currentLibrarySource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: { video.watchCurrent() }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
             .sheet(isPresented: $showingQueue) { QueueView(playback: playback) }
-            .sheet(isPresented: $showingAppSettings) { SettingsView(preferences: preferences, network: networkSettings, plugins: plugins, skin: skin, platformData: platformData, account: verifiedProfileAccount, platform: selectedSourceID) }
+            .sheet(isPresented: $showingService) { ShanhaiServiceView(model: platformData, account: verifiedProfileAccount, platform: selectedSourceID) }
+            .sheet(isPresented: $showingAppSettings) { SettingsView(preferences: preferences, network: networkSettings, plugins: plugins, skin: skin) }
             .sheet(item: $resourceDetail) { track in
                 NavigationStack { ResourceDetailView(track: track, library: localLibrary)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { resourceDetail = nil } } }
@@ -175,6 +191,12 @@ public struct MBRootView: View {
         tabs
             .task { await skin.restore() }
             .task { if !demo { await platformData.restore() } }
+            .task(id: "plugins:\(plugins.revision):\(platformData.revision):\(scenePhase)") {
+                if !demo, scenePhase == .active {
+                    await platformData.syncPluginPreferences(load: { try await plugins.pluginPreferences() },
+                        merge: { try await plugins.mergePluginPreferences($0) })
+                }
+            }
             .task(id: "\(selectedSourceID):\(accountPlatformID):\(account.revision):\(account.isSigningIn):\(account.isSigningOut):\(platformData.revision)") {
                 if !demo { platformData.sync(verifiedProfileAccount, platform: selectedSourceID) }
             }
@@ -228,7 +250,18 @@ public struct MBRootView: View {
 
     private var observedTabs: some View {
         AnyView(initializedTabs)
+            .modifier(AutomaticAppUpdate(preferences: preferences,
+                enabled: !demo || ProcessInfo.processInfo.arguments.contains("--demo-startup-update"),
+                canPresent: skin.preview == nil && !showingPlayer && !showingQueue && !showingAppSettings && !showingService && !showingPlugins && !showingSettings && resourceDetail == nil && commentTrack == nil && !account.isSigningIn && !account.choosingSignInMethod && !video.isVisible,
+                model: demo && ProcessInfo.processInfo.arguments.contains("--demo-startup-update") ? DemoCatalog.startupUpdateModel() : nil))
             .onChange(of: selectedSourceID) { _, id in if demo || preferences.isRestored { preferences.values.selectedSourceID = id } }
+            .onChange(of: skin.preview != nil) { _, previewing in
+                if previewing {
+                    showingAppSettings = false; showingService = false; showingPlugins = false; showingSettings = false
+                    showingPlayer = false; showingQueue = false
+                    selectedTab = .discover; path = []
+                }
+            }
             .onChange(of: selectedTab) { _, _ in inputFocused = false }
             .onChange(of: plugins.revision) { _, _ in Task { await registerPlugins() } }
             .onChange(of: playback.positionMilliseconds) { _, _ in syncVideoClock() }
@@ -279,21 +312,38 @@ public struct MBRootView: View {
                 else { path.removeAll { $0 == .video }; searchPath.removeAll { $0 == .video } }
             }
             .onChange(of: path) { _, pages in
-                if selectedTab == .discover, !pages.contains(.video), video.isVisible { video.browse() }
+                if selectedTab == .discover, !pages.contains(.video), video.isVisible { minimizeVideo() }
             }
             .onChange(of: searchPath) { _, pages in
-                if selectedTab == .search, !pages.contains(.video), video.isVisible { video.browse() }
+                if selectedTab == .search, !pages.contains(.video), video.isVisible { minimizeVideo() }
             }
     }
 
     private func syncVideoClock() {
         video.sync(positionMilliseconds: playback.positionMilliseconds, playing: playback.state == .playing && !playback.audioBuffering)
-        if !video.isVisible { video.preloadCurrent() }
-        playback.holdForVideo(video.isVisible && (video.isLoading || video.isBuffering))
+        if !video.isVisible && !video.isFloating { video.preloadCurrent() }
+        playback.holdForVideo((video.isVisible || video.isFloating) && (video.isLoading || video.isBuffering))
     }
 
     public var body: some View {
         AnyView(playbackObservedTabs)
+            .overlay {
+                if video.isFloating && preferences.values.inAppVideoWindow {
+                    FloatingVideoWindow(video: video, playback: playback) { video.open(); showVideo() }
+                }
+            }
+            #if os(iOS)
+            .environment(\.videoPictureInPicture, pictureInPicture)
+            .onChange(of: preferences.values.systemVideoWindow, initial: true) { _, enabled in
+                pictureInPicture.configure(enabled: enabled, video: video, playback: playback) { video.open(); showVideo() }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .inactive && preferences.values.systemVideoWindow && (video.isVisible || video.isFloating) && playback.state == .playing {
+                    pictureInPicture.start()
+                }
+            }
+            #endif
+            .onChange(of: preferences.values.inAppVideoWindow) { _, enabled in if !enabled && video.isFloating { video.browse() } }
             .overlay {
                 if let modeNotice {
                     Text(LocalizedStringKey(modeNotice)).font(.subheadline.weight(.medium)).padding(.horizontal, 22).padding(.vertical, 14)
@@ -465,7 +515,7 @@ public struct MBRootView: View {
             VideoPageView(video: video, playback: playback, interactionSource: interactionTrackID == playback.queue.current?.id ? currentInteractions : nil, accountRevision: account.revision, openMusic: {
                 showingPlayer = true
                 Task { await video.choose(.music) }
-            }, saveResource: { track in Task { await localLibrary.saveResource(track) } }, menu: trackMenu)
+            }, browse: minimizeVideo, saveResource: { track in Task { await localLibrary.saveResource(track) } }, menu: trackMenu)
             #if os(iOS)
             .toolbar(.hidden, for: .navigationBar, .tabBar)
             .toolbarBackground(.hidden, for: .navigationBar)
@@ -628,6 +678,9 @@ public struct MBRootView: View {
 
     private func chooseMode(_ mode: PlaybackMode) {
         Task { await video.choose(mode) }
+    }
+    private func minimizeVideo() {
+        if preferences.values.inAppVideoWindow { video.minimize() } else { video.browse() }
     }
     private func showVideo() {
         if selectedTab == .search { if searchPath.last != .video { searchPath.append(.video) } }

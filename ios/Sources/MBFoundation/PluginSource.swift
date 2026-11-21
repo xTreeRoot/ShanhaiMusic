@@ -1,6 +1,6 @@
 import Foundation
 
-public actor PluginSource: PlaybackSource, VideoSource, AccountSource, InteractionSource, SuggestionSource, PlaybackRecorder {
+public actor PluginSource: PlaybackSource, VideoSource, AccountSource, SignInMethodSource, InteractionSource, SuggestionSource, PlaybackRecorder {
     public nonisolated let manifest: PluginManifest
     public let runtime: PluginRuntime
     public nonisolated var displayName: String { manifest.displayName }
@@ -113,10 +113,18 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, Interacti
         cacheAccount = scope
         return found
     }
+    public nonisolated var signInMethods: [SignInMethod] { manifest.signInMethods ?? [] }
     public func signIn(prompt: @escaping @Sendable (SignInPrompt) async -> Void) async throws -> SourceAccount {
+        try await signIn(arguments: .object([:]), prompt: prompt)
+    }
+    public func signIn(method: String, prompt: @escaping @Sendable (SignInPrompt) async -> Void) async throws -> SourceAccount {
+        guard signInMethods.contains(where: { $0.id == method }) else { throw PluginFailure.invalid("Unknown sign-in method") }
+        return try await signIn(arguments: .object(["method": .string(method)]), prompt: prompt)
+    }
+    private func signIn(arguments: PluginJSON, prompt: @escaping @Sendable (SignInPrompt) async -> Void) async throws -> SourceAccount {
         await runtime.setPrompt { value in Task { await prompt(value) } }
         do {
-            let value = try await runtime.invoke("signIn", timeout: .seconds(300))
+            let value = try await runtime.invoke("signIn", arguments: arguments, timeout: .seconds(300))
             await runtime.setPrompt(nil)
             guard let account = try await account(value) else { throw PluginFailure.execution("Sign-in returned no account") }
             accountGeneration += 1; cacheAccount = "user:" + account.id
@@ -135,6 +143,20 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, Interacti
     public func supportsCommentLikes() async -> Bool { (try? await supports("likeComment")) == true }
     public func likeComment(trackID: String, commentID: String, enabled: Bool) async throws {
         _ = try await runtime.invoke("likeComment", arguments: .object(["trackId": .string(trackID), "commentId": .string(commentID), "on": .bool(enabled)]))
+    }
+    public func interactionSummary(trackID: String) async throws -> TrackInteractionSummary {
+        func count(_ value: PluginJSON) -> Int? {
+            guard case .number(let value) = value, value.isFinite, value >= 0,
+                  value <= 9_007_199_254_740_991, value.rounded(.down) == value else { return nil }
+            return Int(value)
+        }
+        guard try await supports("interactionSummary") else {
+            guard try await supports("comments") else { return TrackInteractionSummary() }
+            let page = try await runtime.invoke("comments", arguments: .object(["trackId": .string(trackID), "offset": .number(0)]))
+            return TrackInteractionSummary(comments: count(page["total"]))
+        }
+        let value = try await runtime.invoke("interactionSummary", arguments: .object(["trackId": .string(trackID)]))
+        return TrackInteractionSummary(likes: count(value["likes"]), comments: count(value["comments"]))
     }
     public func isLiked(trackID: String) async throws -> Bool {
         try await runtime.invoke("isLiked", arguments: .object(["ids": .array([.string(trackID)])]))[trackID] == .bool(true)

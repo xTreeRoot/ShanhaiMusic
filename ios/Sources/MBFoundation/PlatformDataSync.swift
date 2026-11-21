@@ -207,6 +207,7 @@ struct PlatformDataClient: Sendable {
     public var address = ""
     public var password = ""
     public private(set) var busy = false
+    public private(set) var syncing = false
     public private(set) var message: String?
     public private(set) var revision = 0
     public var linked: Bool { node != nil }
@@ -253,7 +254,18 @@ struct PlatformDataClient: Sendable {
         catch { message = error.localizedDescription }
     }
 
-    public func cancelProfileSync() { profileTask?.cancel(); profileTask = nil }
+    public func cancelProfileSync() { profileTask?.cancel(); profileTask = nil; syncing = false }
+
+    /// 插件缓存与平台资料共用当前绑定；回调必须与本地编辑串行，并在落盘前检查取消。
+    public func syncPluginPreferences(load: @MainActor () async throws -> PluginPreferences,
+                                     merge: @MainActor (PluginPreferences) async throws -> PluginPreferences) async {
+        guard !busy, let node, node.active else { return }
+        let generation = revision
+        do {
+            try await client.syncPluginPreferences(node, load: load, merge: merge, stillCurrent: { generation == self.revision && !self.busy })
+        } catch is CancellationError { }
+        catch { if generation == revision, !Task.isCancelled { message = error.localizedDescription } }
+    }
 
     public func sync(_ account: SourceAccount?, platform: String, publish: Bool = false) {
         cancelProfileSync()
@@ -262,12 +274,14 @@ struct PlatformDataClient: Sendable {
         guard profile.valid else { return }
         let generation = revision
         if publish { message = nil }
+        syncing = true
         profileTask = Task {
+            defer { if generation == revision, !Task.isCancelled { syncing = false } }
             do {
                 let synced = try await client.sync(node, platform: platform, local: profile, publish: publish)
                 guard generation == revision, !Task.isCancelled else { return }
                 try await persistence.cachePlatformProfile(synced, for: node, platform: platform)
-                if publish, generation == revision, !Task.isCancelled { message = "平台资料已同步" }
+                if generation == revision, !Task.isCancelled { message = publish ? "平台资料已同步" : nil }
             } catch { if generation == revision, !Task.isCancelled { message = error.localizedDescription } }
         }
     }

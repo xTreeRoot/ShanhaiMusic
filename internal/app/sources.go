@@ -53,10 +53,11 @@ func probeCaps(src music.Source) map[string]bool {
 // so an answer that comes after the listener switched to another source lands
 // where it belongs, and shows when they come back.
 type library struct {
-	id      string
-	src     music.Source
-	caps    map[string]bool // what it can do
-	started bool            // what it lists was asked for
+	localName string
+	id        string
+	src       music.Source
+	caps      map[string]bool // what it can do
+	started   bool            // what it lists was asked for
 
 	account      *music.Account
 	accountBusy  bool // it's being asked who's signed in
@@ -153,6 +154,9 @@ func (l *library) signedOut() bool {
 func (l *library) name() string {
 	if l.id == local.ID {
 		return T("Local Files")
+	}
+	if l.localName != "" {
+		return l.localName
 	}
 	return l.src.Info().Name
 }

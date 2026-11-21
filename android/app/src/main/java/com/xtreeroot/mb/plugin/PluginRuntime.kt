@@ -76,14 +76,14 @@ internal class PluginRuntime(
         invoke(runtime, "stream", arguments, 30_000)
     }
 
-    suspend fun signIn(prompt: (PluginPrompt) -> Unit): Any = useMachine { runtime ->
+    suspend fun signIn(arguments: JSONObject = JSONObject(), prompt: (PluginPrompt) -> Unit): Any = useMachine { runtime ->
         val requests = mutableSetOf<Int>()
         val diagnostics = PluginSignInDiagnostics(dataDirectory)
         runtime.signInRequests = requests
         runtime.signInDiagnostics = diagnostics
         hostState().onPrompt = prompt
         var completed = false
-        try { invoke(runtime, "signIn", JSONObject(), 300_000).also { completed = true } }
+        try { invoke(runtime, "signIn", arguments, 300_000).also { completed = true } }
         finally {
             runtime.signInDiagnostics = null
             diagnostics.finish(completed)

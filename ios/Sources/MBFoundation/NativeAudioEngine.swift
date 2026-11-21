@@ -76,6 +76,7 @@ public struct AudioEngineSnapshot: Sendable {
     }
 
     public func load(resource: MediaResource, at milliseconds: Int64) async throws {
+        if resource.url.isFileURL { try await load(url: resource.url, at: milliseconds); return }
         remote?.cancel()
         let loader = try RemoteMediaAsset(resource: resource)
         remote = loader
