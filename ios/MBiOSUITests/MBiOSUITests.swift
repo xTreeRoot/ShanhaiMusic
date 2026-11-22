@@ -1587,6 +1587,48 @@ extension MBiOSUITests {
 }
 
 extension MBiOSUITests {
+    @MainActor func testLandscapeVideoSideDragsShowSystemAdjustmentsInlineAndFullscreen() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launchEnvironment["MB_VIDEO_UI_FIXTURE"] = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Tests/MBFoundationTests/Fixtures/video-ui.mp4").path
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        if UIDevice.current.userInterfaceIdiom != .pad {
+            XCTAssertTrue(app.buttons["查看更多为你推荐"].waitForExistence(timeout: 8)); app.buttons["查看更多为你推荐"].tap()
+        }
+        chooseMode("视频模式", app: app)
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 晚风里的片刻")).firstMatch.tap()
+        let surface = app.otherElements["native-video-surface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 12))
+        for full in [false, true] {
+            let start = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.64))
+            start.press(forDuration: 0.05, thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.3)))
+            let feedback = app.otherElements["video-adjustment-feedback"]
+            XCTAssertTrue(feedback.exists)
+            XCTAssertEqual(feedback.label, "系统亮度")
+            XCTAssertTrue((feedback.value as? String)?.hasSuffix("%") == true)
+            capture(full ? "全屏视频-系统亮度滑动" : "内嵌视频-系统亮度滑动", app: app)
+            // 向下调整仍在同一画面，不能触发暂停或切换资源。
+            surface.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.32)).press(forDuration: 0.05,
+                thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.62)))
+            XCTAssertTrue(feedback.exists); XCTAssertEqual(feedback.label, "系统亮度")
+            surface.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.6)).press(forDuration: 0.05,
+                thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.34)))
+            XCTAssertTrue(feedback.exists); XCTAssertEqual(feedback.label, "系统音量")
+            capture(full ? "全屏视频-系统音量滑动" : "内嵌视频-系统音量滑动", app: app)
+            if !full {
+                if !app.buttons["全屏播放"].exists { surface.tap() }
+                XCTAssertTrue(app.buttons["全屏播放"].waitForExistence(timeout: 5)); app.buttons["全屏播放"].tap()
+                XCTAssertTrue(app.otherElements["fullscreen-video"].waitForExistence(timeout: 8))
+            }
+        }
+        if !app.buttons["退出全屏"].exists { surface.tap() }
+        app.buttons["退出全屏"].tap()
+        XCTAssertTrue(app.buttons["简介"].waitForExistence(timeout: 8))
+    }
+
     @MainActor func testPullRefreshReplacesPluginHomeAndIndependentShelf() {
         continueAfterFailure = false
         let app = XCUIApplication()

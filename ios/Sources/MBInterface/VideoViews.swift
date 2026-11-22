@@ -199,7 +199,7 @@ private struct VideoFullscreenView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            VideoScreen(video: video).ignoresSafeArea().modifier(VideoTapControls(chrome: chrome, playback: playback))
+            VideoScreen(video: video).ignoresSafeArea().modifier(VideoTapControls(chrome: chrome, playback: playback, allowsAdjustments: video.aspectRatio >= 1))
             if chrome.visible {
                 VStack {
                     HStack {

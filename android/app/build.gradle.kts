@@ -27,8 +27,8 @@ android {
         applicationId = "com.xtreeroot.mb"
         minSdk = 26
         targetSdk = 36
-        versionCode = 38
-        versionName = "0.1.37"
+        versionCode = 39
+        versionName = "0.1.38"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

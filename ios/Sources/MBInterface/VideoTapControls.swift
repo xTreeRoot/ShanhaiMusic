@@ -5,8 +5,9 @@ import SwiftUI
 struct VideoTapControls: ViewModifier {
     let chrome: VideoChromeState
     let playback: PlaybackModel
+    var allowsAdjustments = true
     func body(content: Content) -> some View {
-        content.contentShape(Rectangle())
+        content.modifier(VideoAdjustmentControls(enabled: allowsAdjustments)).contentShape(Rectangle())
             .gesture(TapGesture(count: 2).exclusively(before: TapGesture(count: 1)).onEnded { tap in
                 switch tap {
                 case .first: playback.toggle(); chrome.interacted()

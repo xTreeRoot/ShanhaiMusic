@@ -143,6 +143,8 @@
 "简介" = "Info";
 "系统代理域名白名单" = "System Proxy Domains";
 "系统音量" = "System Volume";
+"系统亮度" = "System Brightness";
+"当前设备暂不支持调节" = "Adjustment is unavailable on this device";
 "缓存" = "Cache";
 "缓存上限" = "Cache Limit";
 "网络与系统代理" = "Network and Proxy";

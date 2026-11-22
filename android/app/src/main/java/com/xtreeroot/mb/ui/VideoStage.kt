@@ -162,13 +162,18 @@ private fun VideoFrame(engine: Player?, loading: Boolean, playback: PlaybackStat
             }, onRelease = { view -> view.player = null },
             modifier = Modifier.fillMaxSize())
         if (loading) Loading()
-        Box(Modifier.matchParentSize().pointerInput(playback.current?.id, playback.index) {
-            detectTapGestures(onTap = { if (portrait) currentToggle() else toggleControls() }, onDoubleTap = { currentToggle(); revision += 1 })
-        }.semantics {
-            contentDescription = pictureLabel
-            onClick(label = if (portrait) toggleLabel else controlsLabel) { if (portrait) currentToggle() else toggleControls(); true }
-            customActions = listOf(CustomAccessibilityAction(toggleLabel) { currentToggle(); revision += 1; true })
-        })
+        val ratio = qualityState?.aspectRatio ?: playback.current?.let {
+            if (it.videoWidth > 0 && it.videoHeight > 0) it.videoWidth.toFloat() / it.videoHeight else 16f / 9f
+        } ?: 16f / 9f
+        VideoAdjustmentControls(enabled = !portrait && ratio >= 1f, modifier = Modifier.matchParentSize()) {
+            Box(Modifier.matchParentSize().pointerInput(playback.current?.id, playback.index) {
+                detectTapGestures(onTap = { if (portrait) currentToggle() else toggleControls() }, onDoubleTap = { currentToggle(); revision += 1 })
+            }.semantics {
+                contentDescription = pictureLabel
+                onClick(label = if (portrait) toggleLabel else controlsLabel) { if (portrait) currentToggle() else toggleControls(); true }
+                customActions = listOf(CustomAccessibilityAction(toggleLabel) { currentToggle(); revision += 1; true })
+            })
+        }
         if (portrait && !playback.playWhenReady && !loading) {
             Icon(Icons.Default.PlayArrow, null,
                 modifier = Modifier.padding(24.dp), tint = Color.White)
