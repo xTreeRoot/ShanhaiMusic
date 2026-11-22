@@ -609,3 +609,35 @@ private actor PlaybackLaneGate {
         #expect(try await runtime.invoke("video")["count"] == .number(2))
     }
 }
+
+@Test func legacyBrowseContinuationKeepsAvatarHeadersAndDoesNotReplaceHomeNavigation() async throws {
+    try await withPlugin("""
+    export function browse({page}) { return {sections:[{links:[{title:page,subtitle:'A long creator introduction',page:'creator:'+page,imageUrl:'https://api.example.test/avatar.png'}],morePage:page==='first'?'second':page}]}; }
+    """) { runtime, _, manifest in
+        let source = PluginSource(manifest: manifest, runtime: runtime)
+        let preview = try await source.browse("first")
+        #expect(preview.sections[0].morePage == "second")
+        let (first, more, count) = try await source.browsePage("first")
+        #expect(more && count == 1 && first.nextBrowse == .init(page: "second", offset: 0))
+        #expect(first.sections[0].morePage == nil)
+        #expect(first.sections[0].links[0].imageURL?.absoluteString == "https://api.example.test/avatar.png")
+        #expect(first.sections[0].links[0].subtitle == "A long creator introduction")
+        let cursor = try #require(first.nextBrowse)
+        let (second, again, _) = try await source.browsePage(cursor.page, offset: cursor.offset)
+        #expect(!again && second.nextBrowse == nil && second.sections[0].links[0].title == "second")
+    }
+}
+
+@Test func browseContinuationDeduplicatesResourcesAndKeepsNewArtwork() async throws {
+    try await withPlugin("""
+    export function browse({page}) { return {sections:[{tracks:[{id:'same',name:'Same'},...(page==='second'?[{id:'new',name:'New'}]:[])],links:[{title:'Creator',page:'creator:same',imageUrl:'https://api.example.test/avatar.png'},...(page==='second'?[{title:'New Creator',page:'creator:new',imageUrl:'https://api.example.test/new.png'}]:[])]}]}; }
+    """) { runtime, _, manifest in
+    let source = PluginSource(manifest: manifest, runtime: runtime)
+    let first = try await source.browse("first")
+    let second = try await source.browse("second")
+    let combined = first.appending(second, offset: 2)
+    #expect(combined.sections.flatMap(\.tracks).map(\.sourceTrackID) == ["same", "new"])
+    #expect(combined.sections.flatMap(\.links).map(\.page) == ["creator:same", "creator:new"])
+    #expect(combined.sections.flatMap(\.links).last?.imageURL?.absoluteString == "https://api.example.test/new.png")
+    }
+}

@@ -43,11 +43,10 @@ struct DiscoveryHomeView: View {
                                 }
                             }.padding(.horizontal, 20)
                         } else {
-                            DiscoveryShelf(count: section.tracks.count, rowHeight: cardHeight) {
-                                ForEach(Array(section.tracks.enumerated()), id: \.element.id) { index, track in
-                                    DiscoveryCoverCard(track: track, prominent: section.category == .recommended,
-                                                       play: { select(section.tracks, index) }, menu: { menu(track) })
-                                }
+                            DiscoveryShelf(count: section.tracks.count, rowHeight: cardHeight) { index in
+                                let track = section.tracks[index]
+                                DiscoveryCoverCard(track: track, prominent: section.category == .recommended,
+                                                   play: { select(section.tracks, index) }, menu: { menu(track) })
                             }
                         }
                     }

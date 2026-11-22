@@ -57,6 +57,8 @@ struct PluginCatalogPage: View {
     @State private var initialLoad: Task<Void, Never>?
     @State private var artworkPrefetch: Task<Void, Never>?
     @State private var offset = 0
+    @State private var nextBrowse: PluginBrowse.Cursor?
+    @State private var visitedBrowse: Set<PluginBrowse.Cursor> = []
     @State private var more = false
     @State private var appendFailed = false
     @State private var capabilities: Set<String> = []
@@ -109,10 +111,6 @@ struct PluginCatalogPage: View {
                 if let content {
                     if !content.subtitle.isEmpty { Text(content.subtitle).font(.subheadline).foregroundStyle(.secondary) }
                     if !content.description.isEmpty { Text(content.description).font(.callout).foregroundStyle(.secondary) }
-                    let tracks = content.sections.flatMap(\.tracks)
-                    if !tracks.isEmpty, case .entity = request {
-                        Button { play(tracks, index: 0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
-                    }
                     ForEach(content.sections) { section in
                         Section {
                             if section.trackLayout == "videos" {
@@ -128,17 +126,14 @@ struct PluginCatalogPage: View {
                             }
                             ForEach(section.entities) { entity in
                                 NavigationLink { PluginCatalogPage(source: source, request: .entity(entity), select: select, menu: menu) } label: {
-                                    HStack(spacing: 12) {
-                                        if entity.value["imageUrl"].string != nil { ArtworkView(track: entity.artworkTrack(sourceID: source.manifest.id)) }
-                                        else { Image(systemName: entity.kind == .artist ? "person.crop.circle.fill" : entity.kind == .playlist ? "music.note.list" : "square.stack.fill").font(.title2).foregroundStyle(skinAccent).frame(width: 52, height: 52).background(skinAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10)) }
-                                        VStack(alignment: .leading, spacing: 5) { Text(entity.title).font(.headline); if !entity.subtitle.isEmpty { Text(entity.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
-                                    }
+                                    PluginCatalogRow(track: entity.artworkTrack(sourceID: source.manifest.id), subtitle: entity.subtitle,
+                                                     avatar: entity.kind == .artist, symbol: entity.kind == .artist ? "person.crop.circle.fill" : entity.kind == .playlist ? "music.note.list" : "square.stack.fill")
                                 }
                             }
                             ForEach(section.links) { link in
                                 NavigationLink { PluginBrowseView(source: source, page: link.page, select: select, menu: menu) } label: {
-                                    VStack(alignment: .leading) { Text(link.title); if !link.subtitle.isEmpty { Text(link.subtitle).font(.caption).foregroundStyle(.secondary) } }
-                                }
+                                    PluginCatalogRow(track: artwork(link), subtitle: link.subtitle, avatar: true, symbol: "person.crop.circle.fill")
+                                }.accessibilityLabel(link.title).accessibilityIdentifier("catalog-link-" + link.page)
                             }
                             if let page = section.morePage { NavigationLink("查看更多") { PluginBrowseView(source: source, page: page, select: select, menu: menu) } }
                             if section.tracks.isEmpty && section.entities.isEmpty && section.links.isEmpty && !section.empty.isEmpty { Text(section.empty).foregroundStyle(.secondary) }
@@ -195,6 +190,11 @@ struct PluginCatalogPage: View {
             await load()
         }
     }
+    private func artwork(_ link: PluginBrowse.Link) -> Track {
+        var track = Track(sourceID: source.manifest.id, sourceTrackID: link.page, title: link.title, artist: "", artworkURL: link.imageURL)
+        track.artworkHeaders = link.artworkHeaders
+        return track
+    }
     private var title: String {
         if request.isHome { return sourceNames[source.manifest.id] ?? source.displayName }
         if case .collection(_, let title) = request { return AppLocalization.text(title) }
@@ -202,9 +202,15 @@ struct PluginCatalogPage: View {
         switch request { case .home: return source.displayName; case .browse(let page): return page; case .collection(_, let title): return title; case .entity(let item): return item.title; case .search(let query, _): return query }
     }
     private func play(_ tracks: [Track], index: Int) {
+        let queue: [Track]
+        let selected: Int
+        if case .entity = request, tracks.indices.contains(index), let loaded = content?.sections.flatMap(\.tracks),
+           let position = loaded.firstIndex(where: { $0.id == tracks[index].id }) {
+            queue = loaded; selected = position
+        } else { queue = tracks; selected = index }
         if case .entity(let item) = request, item.kind == .station, let playback {
-            playback.startStation(PlaybackStation(sourceID: source.manifest.id, id: item.sourceID, title: item.title), tracks: tracks, index: index)
-        } else { select(tracks, index) }
+            playback.startStation(PlaybackStation(sourceID: source.manifest.id, id: item.sourceID, title: item.title), tracks: queue, index: selected)
+        } else { select(queue, selected) }
     }
     private var saveAction: (method: String, on: String, off: String)? {
         guard case .entity(let item) = request else { return nil }
@@ -247,22 +253,31 @@ struct PluginCatalogPage: View {
         do {
             let page: PluginBrowse, hasMore: Bool, count: Int
             if refresh && (!request.isHome || filterPage != nil) { await source.invalidateCatalog() }
-            switch filterPage.map(PluginPageRequest.browse) ?? request {
+            let cursor = append ? nextBrowse : nil
+            let effectiveRequest = cursor.map { PluginPageRequest.browse($0.page) } ?? filterPage.map(PluginPageRequest.browse) ?? request
+            var loadedBrowse: PluginBrowse.Cursor?
+            switch effectiveRequest {
             case .home:
                 page = try await source.discoveryHome(preferences: discoveryModel?.discoveryPreferences ?? DiscoveryPreferences(), refresh: refresh)
                 navigationPreviews = [:]
                 hasMore = false; count = 0
-            case .browse(let value): (page, hasMore, count) = try await source.browsePage(value, offset: append ? offset : 0, refresh: refresh)
+            case .browse(let value):
+                let at = cursor?.offset ?? (append ? offset : 0)
+                loadedBrowse = .init(page: value, offset: at)
+                (page, hasMore, count) = try await source.browsePage(value, offset: at, refresh: refresh)
             case .collection(let method, _): (page, hasMore, count) = try await source.collection(method, offset: append ? offset : 0)
             case .entity(let item): (page, hasMore, count) = try await source.entity(item, offset: append ? offset : 0)
             case .search(let query, let kind): (page, hasMore, count) = try await source.searchCatalog(query, kind: kind, offset: append ? offset : 0)
             }
             guard revision == loadRevision, !Task.isCancelled else { return }
-            if append, var previous = content { previous.sections += page.sections.enumerated().map { index, section in section.reidentified("\(offset)-\(index)") }; content = previous; offset += count }
+            if !append { visitedBrowse = [] }
+            if let loadedBrowse { visitedBrowse.insert(loadedBrowse) }
+            nextBrowse = page.nextBrowse.flatMap { visitedBrowse.contains($0) ? nil : $0 }
+            if append, let previous = content { content = previous.appending(page, offset: offset); offset += count }
             else { content = page; offset = count }
             if !page.tabs.isEmpty { filterTabs = page.tabs }
             if request.isHome && filterPage == nil { homeTab = page.selectedTab }
-            more = hasMore && count > 0
+            more = hasMore && count > 0 && (loadedBrowse == nil || nextBrowse != nil)
             artworkPrefetch?.cancel()
             let artwork = page.artworkTracks(sourceID: source.manifest.id)
             artworkPrefetch = Task { await ArtworkCache.shared.prefetch(artwork) }

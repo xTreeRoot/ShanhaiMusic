@@ -224,7 +224,7 @@ class AccountPageDeviceTest {
             }) {
                 awaitNode("Short 1-0"); awaitNode("Short 1-1")
                 val top = android.graphics.Rect(); node("Short 1-0")!!.getBoundsInScreen(top)
-                val bottom = android.graphics.Rect(); node("Short 1-1")!!.getBoundsInScreen(bottom)
+                val bottom = android.graphics.Rect(); node("Short 1-2")!!.getBoundsInScreen(bottom)
                 assertTrue("Distinct resources must appear in two card rows", bottom.top > top.bottom)
                 val heading = android.graphics.Rect(); node("Shorts")!!.getBoundsInScreen(heading)
                 val more = android.graphics.Rect(); node("More")!!.getBoundsInScreen(more)
@@ -236,6 +236,68 @@ class AccountPageDeviceTest {
                 capture("android-pull-refresh-two-rows")
             }
         } finally { app.plugins.remove(plugin); app.refreshPlugins(); plugin.dataDirectory.deleteRecursively() }
+    }
+
+    @Test fun followingLinksKeepAvatarAndWrapDescriptionAndAppendOnScroll() = runBlocking {
+        val id = "following-layout-${UUID.randomUUID()}"
+        val archive = ByteArrayOutputStream().apply { ZipOutputStream(this).use { zip ->
+            val script = """
+                export function browse({page}) {
+                    if (page.startsWith('profile:')) return {title:'Creator Profile',sections:[]};
+                    const start=page==='people'?1:19;
+                    return {title:'Following',sections:[{links:Array.from({length:start===1?18:3},(_,i)=>({title:'Followed Creator '+(start+i),subtitle:'A complete introduction that uses the remaining row width and wraps onto additional lines instead of being truncated after two lines.',page:'profile:'+(start+i),imageUrl:'https://avatar.example.test/'+(start+i)+'.png'})),morePage:start===1?'people:2':undefined}]};
+                }
+                export function playlist(){return {tracks:[{id:'first',name:'Playlist First'},{id:'second',name:'Playlist Second'}]};}
+            """.trimIndent()
+            for ((name, text) in mapOf("plugin.json" to """{"id":"$id","name":"Following Fixture"}""", "index.js" to script)) {
+                zip.putNextEntry(ZipEntry(name)); zip.write(text.encodeToByteArray()); zip.closeEntry()
+            }
+        } }.toByteArray()
+        val plugin = app.plugins.install(app.plugins.prepareZip { archive.inputStream() })
+        try {
+            app.plugins.setEnabled(plugin, true); app.refreshPlugins()
+            val source = app.playbackSource(id) as PluginSource
+            val first = source.catalog.load(PluginCatalogRequest.Browse("people", "Following"))
+            assertEquals("https://avatar.example.test/1.png", first.sections.single().links.first().image?.url)
+            val navigator = PluginCatalogNavigator()
+            val destination = CatalogDestination.Content(PluginCatalogRequest.Browse("people", "Following"))
+            withPage(source, dark = false, content = {
+                PluginCatalogBrowser(source, destination, navigator, { _, _ -> }, { _, _, _ -> })
+            }) {
+                awaitNode("Followed Creator 1")
+                assertNull(node("See More")); assertNull(node("Followed Creator 19"))
+                capture("android-following-avatar-and-introduction")
+                repeat(14) { if (node("Followed Creator 21") == null) swipeCatalogUp() }
+                awaitNode("Followed Creator 21")
+                capture("android-following-second-page")
+                tap("Followed Creator 21")
+                assertEquals(PluginCatalogRequest.Browse("profile:21", "Followed Creator 21"), (navigator.current as CatalogDestination.Content).request)
+            }
+            val playlist = CatalogDestination.Content(PluginCatalogRequest.Entity(com.xtreeroot.mb.plugin.PluginEntity(com.xtreeroot.mb.plugin.PluginEntityKind.Playlist, "list", "Playlist")))
+            var selection: Pair<List<Track>, Track>? = null
+            withPage(source, dark = false, content = {
+                PluginCatalogBrowser(source, playlist, PluginCatalogNavigator(), { queue, track -> selection = queue to track }, { _, _, _ -> })
+            }) {
+                awaitNode("Playlist First"); assertNull(node("Play All"))
+                tap("Playlist Second")
+                assertEquals(listOf("Playlist First", "Playlist Second"), selection?.first?.map { it.title })
+                assertEquals("Playlist Second", selection?.second?.title)
+                capture("android-plugin-playlist-without-play-all")
+            }
+        } finally { app.plugins.remove(plugin); app.refreshPlugins(); plugin.dataDirectory.deleteRecursively() }
+    }
+
+    private fun swipeCatalogUp() {
+        val metrics = app.resources.displayMetrics
+        val down = android.os.SystemClock.uptimeMillis()
+        for (step in 0..20) {
+            val action = if (step == 0) android.view.MotionEvent.ACTION_DOWN else if (step == 20) android.view.MotionEvent.ACTION_UP else android.view.MotionEvent.ACTION_MOVE
+            val event = android.view.MotionEvent.obtain(down, down+step*15L, action, metrics.widthPixels*.6f, metrics.heightPixels*(.8f-.6f*step/20), 0)
+            event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+            instrumentation.uiAutomation.injectInputEvent(event, true); event.recycle()
+        }
+        instrumentation.waitForIdleSync()
+        Thread.sleep(200)
     }
 
     private fun pullDiscoveryDown() {

@@ -29,17 +29,18 @@ struct PluginNavigationShelf: View {
                     Text(content.sections.first.map { $0.empty.isEmpty ? "暂无内容" : $0.empty } ?? "暂无内容")
                         .font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 20)
                 } else {
-                    DiscoveryShelf(count: tracks.count + entities.count + links.count, rowHeight: cardHeight) {
-                        ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                    DiscoveryShelf(count: tracks.count + entities.count + links.count, rowHeight: cardHeight) { index in
+                        if index < tracks.count {
+                            let track = tracks[index]
                             Button { select(tracks, index) } label: { PluginDiscoveryTile(track: track, subtitle: track.artist) }
                                 .buttonStyle(.plain).contextMenu { menu(track) }
-                        }
-                        ForEach(entities) { entity in
+                        } else if index < tracks.count + entities.count {
+                            let entity = entities[index - tracks.count]
                             NavigationLink { PluginCatalogPage(source: source, request: .entity(entity), select: select, menu: menu) } label: {
                                 PluginDiscoveryTile(track: entity.artworkTrack(sourceID: source.manifest.id), subtitle: entity.subtitle)
                             }.buttonStyle(.plain)
-                        }
-                        ForEach(links) { link in
+                        } else {
+                            let link = links[index - tracks.count - entities.count]
                             NavigationLink { PluginBrowseView(source: source, page: link.page, select: select, menu: menu) } label: {
                                 PluginDiscoveryTile(track: artwork(link), subtitle: link.subtitle)
                             }.buttonStyle(.plain)

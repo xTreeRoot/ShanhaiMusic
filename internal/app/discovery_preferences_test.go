@@ -2,11 +2,15 @@ package app
 
 import (
 	"context"
-	"github.com/egoist/mygo/ui"
-	"mygo-music/internal/discoveryprefs"
-	"mygo-music/internal/music"
+	"fmt"
+	"os"
 	"slices"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
+
+	"mygo-music/internal/discoveryprefs"
+	"mygo-music/internal/music"
 )
 
 func TestDiscoverySelectionControlsRequestsAndOrder(t *testing.T) {
@@ -148,5 +152,51 @@ func TestDiscoveryLegacyRoutesKeepStableIDsAndSkipDisabledRequests(t *testing.T)
 	page, err := loadDiscovery(context.Background(), f, after)
 	if err != nil || !slices.Equal(calls, []string{"public"}) || len(page.Sections) != 1 {
 		t.Fatal(calls, page, err)
+	}
+}
+
+func TestDiscoveryShelfFillsRowsAndPreservesQueue(t *testing.T) {
+	for _, count := range []int{1, 2, 3, 8} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			a := newTestApp()
+			tracks := framesTracks(a)[:count]
+			fake(a).info.Discovery = []music.DiscoverySection{{ID: "shelf", Title: "Shelf", Page: "shelf"}}
+			a.home = &music.Browse{Sections: []music.Section{{Title: "Shelf", Tracks: tracks}}}
+			tt := ui.NewTester(a.view, 680, 980)
+			settled(tt)
+			first, ok := tt.Find(tracks[0].Name)
+			if !ok {
+				t.Fatal("missing first card")
+			}
+			if count > 1 {
+				second, ok := tt.Find(tracks[1].Name)
+				if !ok || second.Y != first.Y || second.X <= first.X {
+					t.Fatalf("two cards must share the first row: %+v %+v", first, second)
+				}
+			}
+			if count > 2 {
+				third, ok := tt.Find(tracks[2].Name)
+				if !ok || third.Y <= first.Y || third.X != first.X {
+					t.Fatalf("third card starts second row: %+v %+v", first, third)
+				}
+				tt.SetSize(1180, 980)
+				settled(tt)
+				third, ok = tt.Find(tracks[2].Name)
+				first, _ = tt.Find(tracks[0].Name)
+				if !ok || third.Y != first.Y || third.X <= first.X {
+					t.Fatalf("wider viewport must fill first row: %+v %+v", first, third)
+				}
+			}
+			if dir := os.Getenv("MM_FRAMES"); dir != "" {
+				saveFrame(t, dir, fmt.Sprintf("desktop-shelf-%d.png", count), tt.Image())
+			}
+			selected := min(1, count-1)
+			if err := tt.Click(tracks[selected].Name); err != nil {
+				t.Fatal(err)
+			}
+			if current := a.pl.Current(); current == nil || current.ID != tracks[selected].ID || len(a.pl.Queue()) != count {
+				t.Fatalf("card lost full queue: %+v", current)
+			}
+		})
 	}
 }

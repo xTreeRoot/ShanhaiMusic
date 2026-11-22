@@ -1,7 +1,7 @@
 import MBFoundation
 import SwiftUI
 
-/// 插件首页复用目录实体和路由，只把首页摘要改成双行横滑封面。
+/// 插件首页复用目录实体和路由，首页摘要按可见宽度排列，最多两行横滑封面。
 struct PluginDiscoveryHome: View {
     let source: PluginSource
     let capabilities: Set<String>
@@ -45,23 +45,25 @@ struct PluginDiscoveryHome: View {
                             if count == 0 {
                                 if !section.empty.isEmpty { Text(section.empty).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 20) }
                             } else {
-                                DiscoveryShelf(count: count, rowHeight: cardHeight) {
-                                    ForEach(Array(section.tracks.enumerated()), id: \.offset) { index, track in
+                                DiscoveryShelf(count: count, rowHeight: cardHeight) { index in
+                                    if index < section.tracks.count {
+                                        let track = section.tracks[index]
                                         Button { select(section.tracks, index) } label: {
                                             PluginDiscoveryTile(track: track, subtitle: track.artist)
                                         }.buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
+                                            .accessibilityIdentifier("plugin-card-\(section.id)-\(index)")
                                             .modifier(TrackProblemAccessibility(track: track))
                                             .contextMenu { menu(track) }
-                                    }
-                                    ForEach(section.entities) { entity in
+                                    } else if index < section.tracks.count + section.entities.count {
+                                        let entity = section.entities[index - section.tracks.count]
                                         NavigationLink {
                                             PluginCatalogPage(source: source, request: .entity(entity), select: select, menu: menu)
                                         } label: {
                                             PluginDiscoveryTile(track: entity.artworkTrack(sourceID: source.manifest.id),
                                                                 subtitle: entity.subtitle)
                                         }.buttonStyle(.plain)
-                                    }
-                                    ForEach(section.links) { link in
+                                    } else {
+                                        let link = section.links[index - section.tracks.count - section.entities.count]
                                         NavigationLink {
                                             PluginBrowseView(source: source, page: link.page, select: select, menu: menu)
                                         } label: {
@@ -101,10 +103,10 @@ struct PluginDiscoveryTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            RemoteArtwork(track: track).aspectRatio(1, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 14))
+            RemoteArtwork(track: track).frame(width: 156, height: 156).accessibilityHidden(true).clipShape(RoundedRectangle(cornerRadius: 14))
             Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(2)
                 .frame(minHeight: 38, alignment: .topLeading).multilineTextAlignment(.leading)
             Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-        }.frame(width: 156, alignment: .topLeading)
+        }.frame(width: 156, alignment: .topLeading).contentShape(Rectangle())
     }
 }

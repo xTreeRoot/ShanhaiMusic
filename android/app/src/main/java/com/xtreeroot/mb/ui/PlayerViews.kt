@@ -151,10 +151,10 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
     val app = LocalContext.current.applicationContext as MBApplication
     val source = app.playbackSource(track.sourceId)
     var trackActions by remember(track.id) { mutableStateOf(false) }
-    val openCreator: (() -> Unit)? = track.artistId?.takeIf { it.isNotBlank() && source is LibrarySource }?.let { id -> { showArtist(id) } }
+    val openCreator: (() -> Unit)? = track.artistId?.takeIf { it.isNotBlank() && (source is LibrarySource || source is com.xtreeroot.mb.plugin.PluginSource) }?.let { id -> { showArtist(id) } }
     if (trackActions) MusicTrackActions(track, saved, preferences, openCreator) { trackActions = false }
     val supportsVideo = state.videoAvailable
-    var showingCaptions by rememberSaveable { mutableStateOf(preferences.lyricsStage) }
+    var showingCaptions by remember { mutableStateOf(false) }
     var widePage by rememberSaveable { mutableStateOf(WidePlayerPage.Lyrics) }
     var modeNotice by remember { mutableStateOf<PlayerModeNotice?>(null) }
     LaunchedEffect(modeNotice) {
@@ -270,17 +270,17 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
                         }
                         showingCaptions -> showLyrics(false)
                         else -> {
-                            val watch = mb("切换到实时视频", "Switch to Video")
+                            val lyrics = mb("查看歌词", "Show Lyrics")
                             PlayerArtwork(track, state, preferences.playerStyle, animate,
-                                if (supportsVideo) Modifier.clickable(onClickLabel = watch, role = Role.Button, onClick = model::watchCurrentVideo)
-                                    .semantics { contentDescription = watch } else Modifier)
+                                Modifier.clickable(onClickLabel = lyrics, role = Role.Button, onClick = { showingCaptions = true })
+                                    .semantics { contentDescription = lyrics })
                         }
                     }
                 }
             }
             val controls: @Composable (Modifier) -> Unit = { modifier ->
                 Column(modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp)) {
-                    MusicTrackMetadata(track, source as? InteractionSource, openCreator) { trackActions = true }
+                    if (wide || !showingCaptions) MusicTrackMetadata(track, source as? InteractionSource, openCreator) { trackActions = true }
                     state.station?.let { station ->
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(station.title.ifBlank { mb("电台", "Radio") }, Modifier.weight(1f), maxLines = 1,
@@ -319,6 +319,15 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
                 }
             }
             BoxWithConstraints(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                val lyricsHeader: @Composable () -> Unit = {
+                    if (showingCaptions) Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val back = mb("返回封面播放页", "Back to Artwork")
+                        TrackRowArtwork(track, null, Modifier.size(60.dp).clickable(onClickLabel = back, role = Role.Button) { showingCaptions = false }
+                            .semantics { contentDescription = back })
+                        Box(Modifier.weight(1f)) { MusicTrackMetadata(track, source as? InteractionSource, openCreator, compact = true) { trackActions = true } }
+                    }
+                }
                 if (wide) {
                     Row(Modifier.widthIn(max = 1040.dp).fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                         WidePlayerStage(track, state, model, widePage, { widePage = it }, interaction, signedIn, showLyrics,
@@ -328,17 +337,20 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
                 } else if (maxWidth >= 720.dp) {
                     val stageHeight = minOf(540.dp, maxHeight * 0.62f)
                     Column(Modifier.widthIn(max = 580.dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                        lyricsHeader()
                         stage(Modifier.fillMaxWidth().height(stageHeight))
                         controls(Modifier.fillMaxWidth())
                     }
                 } else if (enlargedText || maxHeight < 520.dp) {
                     val stageHeight = minOf(maxWidth, 360.dp)
                     Column(Modifier.widthIn(max = 480.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
+                        lyricsHeader()
                         stage(Modifier.fillMaxWidth().height(stageHeight))
                         controls(Modifier.fillMaxWidth())
                     }
                 } else {
                     Column(Modifier.widthIn(max = 480.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        lyricsHeader()
                         stage(Modifier.weight(1f).fillMaxWidth())
                         controls(Modifier.fillMaxWidth())
                     }

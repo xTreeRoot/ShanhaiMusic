@@ -66,7 +66,7 @@ internal suspend fun PluginCatalog.discoveryHome(manifest: PluginManifest, prefe
                 item.page?.let { PluginCatalogLink(item.title, "", destination) }, error.message ?: "加载失败", false)); continue
         }
         val section = PluginCatalogSection(item.title, page.sections.flatMap { it.tracks }.take(12), page.sections.flatMap { it.entities }.take(12),
-            page.sections.flatMap { it.links }.take(12), (page.sections.singleOrNull()?.more ?: page.nextPage?.let { PluginCatalogLink(item.title, "", it) } ?: PluginCatalogLink(item.title, "", destination)), page.sections.firstOrNull()?.empty.orEmpty(), page.sections.firstOrNull()?.videos == true)
+            page.sections.flatMap { it.links }.take(12), PluginCatalogLink(item.title, "", destination), page.sections.firstOrNull()?.empty.orEmpty(), page.sections.firstOrNull()?.videos == true)
         result = result.copy(sections = result.sections + section,
             tabs = page.tabs.ifEmpty { result.tabs }, selectedTab = page.selectedTab ?: result.selectedTab)
     }

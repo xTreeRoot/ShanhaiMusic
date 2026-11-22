@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
@@ -127,12 +126,9 @@ internal fun Discover(
                     VideoCoverCard(track) { play(section.tracks, track) }
                 }
                 else -> item(span = { GridItemSpan(maxLineSpan) }) {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(section.tracks.chunked(2)) { pair ->
-                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                pair.forEach { track -> MusicCoverCard(track) { play(section.tracks, track) } }
-                            }
-                        }
+                    DiscoveryShelf(section.tracks.size, itemKey = { section.tracks[it].id }) { index ->
+                        val track = section.tracks[index]
+                        MusicCoverCard(track) { play(section.tracks, track) }
                     }
                 }
             }

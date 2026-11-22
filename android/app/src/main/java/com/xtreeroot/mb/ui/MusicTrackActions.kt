@@ -37,7 +37,7 @@ import java.util.Locale
 
 /** 曲目身份重建时取消旧请求；只显示插件实际提供的总数。 */
 @Composable
-internal fun MusicTrackMetadata(track: Track, source: InteractionSource?, creator: (() -> Unit)?, more: () -> Unit) = key(track.id, source) {
+internal fun MusicTrackMetadata(track: Track, source: InteractionSource?, creator: (() -> Unit)?, compact: Boolean = false, more: () -> Unit) = key(track.id, source) {
     var capabilities by remember { mutableStateOf(InteractionCapabilities(false, false, false)) }
     var summary by remember { mutableStateOf(TrackInteractionSummary()) }
     var liked by remember { mutableStateOf(false) }
@@ -60,7 +60,7 @@ internal fun MusicTrackMetadata(track: Track, source: InteractionSource?, creato
     Column {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Column(Modifier.weight(1f)) {
-                Text(track.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+                Text(track.title, style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 val artistModifier = if (creator == null) Modifier else Modifier.clickable(
                     onClickLabel = mb("查看作者 ${track.artist}", "View artist ${track.artist}"), onClick = creator)

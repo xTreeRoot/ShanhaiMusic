@@ -174,9 +174,6 @@ func loadDiscovery(ctx context.Context, src music.Source, selection discoverypre
 		if item.Page != "" {
 			var result *music.Browse
 			result, err = src.Browse(item.Page)
-			if result != nil && len(result.Sections) == 1 && result.Sections[0].MorePage != "" {
-				section.MorePage = result.Sections[0].MorePage
-			}
 			if result != nil {
 				for _, row := range result.Sections {
 					section.Tracks = append(section.Tracks, row.Tracks...)

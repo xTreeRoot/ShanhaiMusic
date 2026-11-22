@@ -22,6 +22,8 @@ type browseData struct {
 	at      time.Time // when page came
 	loading bool
 	err     string
+	next    string
+	visited map[string]bool
 }
 
 // loadBrowse loads a page, unless it has, or again. One loaded longer than
@@ -53,6 +55,50 @@ func (a *app) loadBrowse(lib *library, page string, again bool) {
 				return
 			}
 			d.page, d.at = b, time.Now()
+			d.visited = map[string]bool{page: true}
+			d.next = browseContinuation(b, d.visited)
+		})
+	}()
+}
+
+// 详情单列表的旧式 morePage 是续页；首页多栏目仍保留“更多”入口。
+func browseContinuation(page *music.Browse, visited map[string]bool) string {
+	if page == nil || len(page.Sections) != 1 {
+		return ""
+	}
+	section := &page.Sections[0]
+	next := section.MorePage
+	section.MorePage = ""
+	count := len(section.Tracks) + len(section.Albums) + len(section.Artists) + len(section.Playlists) + len(section.Shows) + len(section.Stations) + len(section.Links)
+	if count == 0 || visited[next] {
+		return ""
+	}
+	return next
+}
+
+func (a *app) loadBrowseNext(lib *library, d *browseData) {
+	if d.loading || d.next == "" {
+		return
+	}
+	id, gen := d.next, lib.accountGen
+	d.loading, d.err = true, ""
+	go func() {
+		page, err := answered(lib.src.Browse(id))
+		a.post(func() {
+			if lib.accountGen != gen {
+				return
+			}
+			d.loading = false
+			if err != nil {
+				d.err = a.problem(lib, err, T("Couldn't load this page"))
+				return
+			}
+			if d.visited == nil {
+				d.visited = map[string]bool{}
+			}
+			d.visited[id] = true
+			d.next = browseContinuation(page, d.visited)
+			d.page.Sections = append(d.page.Sections, page.Sections...)
 		})
 	}()
 }
@@ -75,7 +121,15 @@ func (a *app) browsePage(c *ui.Context) {
 		a.trackSkeleton(c, a.pageShimmer(c), true, func(c *ui.Context) {})
 		return
 	}
-	a.browseRows(c, d.page, id, func(c *ui.Context) { a.browseHeader(c, d.page) })
+	a.browseRows(c, d.page, id, func(c *ui.Context) { a.browseHeader(c, d.page) }, func(c *ui.Context) {
+		if d.err != "" {
+			ui.Text(c, d.err).TextColor(a.pal.muted)
+			ui.Button(c, T("Retry")).OnClick(func() { a.loadBrowseNext(lib, d) })
+		}
+	})
+	if d.err == "" && d.next != "" && !d.loading && a.trackList.AtEnd() {
+		a.loadBrowseNext(lib, d)
+	}
 }
 
 // browseHeader heads a page the source made up: its title, and what it says
@@ -189,7 +243,13 @@ func browseLayout(page *music.Browse, pageID string, cols, videoCols int) []brow
 		cards(rowPlaylists, s, len(sec.Playlists))
 		cards(rowShows, s, len(sec.Shows))
 		cards(rowStations, s, len(sec.Stations))
-		cards(rowLinks, s, len(sec.Links))
+		if pageID != "" {
+			for i := range sec.Links {
+				rows = append(rows, browseRow{rowLinks, s, i, i + 1})
+			}
+		} else {
+			cards(rowLinks, s, len(sec.Links))
+		}
 		if sec.Empty != "" && len(sec.Tracks)+len(sec.Albums)+len(sec.Artists)+len(sec.Playlists)+len(sec.Shows)+len(sec.Stations)+len(sec.Links) == 0 {
 			rows = append(rows, browseRow{rowEmpty, s, 0, 0})
 		}
@@ -198,13 +258,13 @@ func browseLayout(page *music.Browse, pageID string, cols, videoCols int) []brow
 }
 
 // browseRows shows a page under a header, which scrolls with it.
-func (a *app) browseRows(c *ui.Context, page *music.Browse, pageID string, header func(c *ui.Context)) {
+func (a *app) browseRows(c *ui.Context, page *music.Browse, pageID string, header func(c *ui.Context), footer ...func(c *ui.Context)) {
 	cols := a.columns(c, 156)
 	videoCols := a.columns(c, 220)
 	layout := browseLayout(page, pageID, cols, videoCols)
 	top, bottom := a.insets(c)
 	a.underTop, a.underBottom = true, true
-	rows := len(layout) + 1
+	rows := len(layout) + 1 + len(footer)
 	now := c.Now()
 	ui.List(c.Key(a.route), &a.trackList, rows, func(i int) {
 		if i == 0 {
@@ -216,6 +276,10 @@ func (a *app) browseRows(c *ui.Context, page *music.Browse, pageID string, heade
 		}
 		if i == rows-1 {
 			defer a.endMark(c)
+		}
+		if i > len(layout) {
+			ui.Column(c).Padding(12).Children(func() { footer[i-len(layout)-1](c) })
+			return
 		}
 		r := layout[i-1]
 		sec := &page.Sections[r.section]
@@ -234,6 +298,25 @@ func (a *app) browseRows(c *ui.Context, page *music.Browse, pageID string, heade
 			a.trackRow(c, sec.Tracks, r.from, true, "")
 		case rowVideos:
 			a.videoTrackRow(c, sec, r, videoCols)
+		case rowLinks:
+			if pageID == "" {
+				a.cardRow(c, sec, r, cols)
+				break
+			}
+			link := sec.Links[r.from]
+			button := ui.ButtonBase(c.Key(link.Page)).Label(link.Title).Padding(12).FocusRing(false)
+			button.Row().Gap(12).AlignItems(ui.Start).Children(func() {
+				ui.Box(c).Size(52, 52).Radius(26).Children(func() { a.coverFill(c, link.ImageURL, 104, 26) })
+				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(5).Children(func() {
+					ui.Text(c, link.Title).FontSize(15).FontWeight(600)
+					if link.Subtitle != "" {
+						ui.Text(c, link.Subtitle).FontSize(12).TextColor(a.pal.muted).LineHeight(1.45)
+					}
+				})
+			})
+			if button.Clicked() {
+				a.open(route{page: pageBrowse, id: link.Page})
+			}
 		case rowEmpty:
 			ui.Column(c).Margin(0, 12, cardRowGap, 12).Children(func() { a.empty(c, sec.Empty) })
 		default:

@@ -213,6 +213,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         val libraryPage by library.pages.state.collectAsStateWithLifecycle()
         var browseCreators by rememberSaveable(sourceId, stateSaver = creatorStackSaver) { mutableStateOf(emptyList()) }
         var playerCreators by rememberSaveable(sourceId, stateSaver = creatorStackSaver) { mutableStateOf(emptyList()) }
+        var playerPluginCreator by remember { mutableStateOf<com.xtreeroot.mb.plugin.PluginEntity?>(null) }
         val browsingPlayback = showPlayer || showVideo
         val creatorRoute = (if (browsingPlayback) playerCreators else browseCreators).lastOrNull()
         val playback by player.playback.collectAsStateWithLifecycle(minActiveState = androidx.lifecycle.Lifecycle.State.CREATED)
@@ -279,7 +280,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         val playbackAccount = pluginUser.account.takeIf { playback.current?.sourceId == pluginSource?.id && pluginUser.verifiedSource === pluginSource }
         val playbackSignedIn = playbackAccount != null
         val isWide = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() >= 720.dp }
-        LaunchedEffect(browsingPlayback) { if (!browsingPlayback) playerCreators = emptyList() }
+        LaunchedEffect(browsingPlayback) { if (!browsingPlayback) { playerCreators = emptyList(); playerPluginCreator = null } }
         LaunchedEffect(playback.connected, playback.current?.id, playback.presentation.mode, playback.connectionIssue) {
             if ((playback.connected || playback.connectionIssue != null) && playback.current == null) { showPlayer = false; showVideo = false; floatingVideo = false }
             if (playback.connectionIssue != null) showQueue = false
@@ -313,7 +314,11 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         val showArtist: (String) -> Unit = { id ->
             val destination = LibraryRoute.Creator(id)
             focus.clearFocus()
-            if (browsingPlayback) {
+            val provider = playback.current?.sourceId?.let(app::playbackSource)
+            if (browsingPlayback && provider is com.xtreeroot.mb.plugin.PluginSource) {
+                playerPluginCreator = com.xtreeroot.mb.plugin.PluginEntity(com.xtreeroot.mb.plugin.PluginEntityKind.Artist, id,
+                    playback.current?.artist.orEmpty())
+            } else if (browsingPlayback) {
                 if (playerCreators.lastOrNull() != destination) playerCreators = playerCreators + destination
             } else if (browseCreators.lastOrNull() != destination) browseCreators = browseCreators + destination
         }
@@ -506,6 +511,12 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                 { floatingVideo = false; showVideo = true }, { floatingVideo = false; player.closeVideo() })
         }
         }
+        }
+        val playingPlugin = playback.current?.sourceId?.let(app::playbackSource) as? com.xtreeroot.mb.plugin.PluginSource
+        if (browsingPlayback && playerPluginCreator != null && playingPlugin != null) {
+            PluginCreatorDialog(playingPlugin, checkNotNull(playerPluginCreator), close = { playerPluginCreator = null },
+                play = { tracks, track -> playerPluginCreator = null; select(tracks, track) },
+                station = { tracks, track, station -> playerPluginCreator = null; player.play(tracks, track, station) })
         }
         if (browsingPlayback && creatorRoute != null && !showSettings && !showService && !showPlugins) {
             CompositionLocalProvider(LocalTrackActions provides openTrackActions, LocalMarkedTrack provides markedTrack) {

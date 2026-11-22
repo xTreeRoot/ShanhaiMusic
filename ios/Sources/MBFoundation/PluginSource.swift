@@ -70,12 +70,25 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, SignInMet
         guard try await supports("home") else { return PluginBrowse(title: displayName) }
         return try await browseResult(try await catalogInvoke("home", refresh: refresh))
     }
-    public func browse(_ page: String, refresh: Bool = false) async throws -> PluginBrowse { try await browsePage(page, refresh: refresh).0 }
+    public func browse(_ page: String, refresh: Bool = false) async throws -> PluginBrowse {
+        try await browseResult(catalogInvoke("browse", arguments: .object(["page": .string(page), "offset": .number(0)]), refresh: refresh))
+    }
     public func browsePage(_ page: String, offset: Int = 0, refresh: Bool = false) async throws -> (PluginBrowse, Bool, Int) {
         let value = try await catalogInvoke("browse", arguments: .object(["page": .string(page), "offset": .number(Double(offset))]), refresh: refresh)
-        let result = try await browseResult(value)
+        var result = try await browseResult(value)
         let count = result.sections.reduce(0) { $0 + $1.tracks.count + $1.entities.count + $1.links.count }
-        return (result, value["more"] == .bool(true), count)
+        if count > 0, value["more"] == .bool(true) {
+            result.nextBrowse = .init(page: page, offset: offset + count)
+        }
+        // 单列表 morePage 是旧插件的续页；首页各分区的“更多”仍保留导航语义。
+        if result.sections.count == 1 {
+            if result.nextBrowse == nil, count > 0, let next = result.sections[0].morePage,
+               !next.isEmpty, next != page {
+                result.nextBrowse = .init(page: next, offset: 0)
+            }
+            result.sections[0].morePage = nil
+        }
+        return (result, result.nextBrowse != nil, count)
     }
     public func audio(track: Track, quality: AudioQuality) async throws -> MediaResource {
         let result = try await runtime.invoke("stream", arguments: .object(["id": .string(track.sourceTrackID), "quality": .string(quality.rawValue)]))
@@ -249,21 +262,38 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, SignInMet
 }
 
 public struct PluginBrowse: Sendable {
+    public struct Cursor: Hashable, Sendable {
+        public let page: String
+        public let offset: Int
+        public init(page: String, offset: Int) { self.page = page; self.offset = offset }
+    }
     public struct Link: Identifiable, Sendable { public let title: String; public let subtitle: String; public let page: String; public var imageURL: URL? = nil; public var artworkHeaders: [String: String] = [:]; public var id: String { page } }
-    public struct Section: Identifiable, Sendable { public let id: String; public var entities: [PluginEntity] = []; public var empty = ""; public var trackLayout = ""; public let title: String; public let tracks: [Track]; public let links: [Link]; public let morePage: String?; public var moreCollection: String? = nil }
+    public struct Section: Identifiable, Sendable { public let id: String; public var entities: [PluginEntity] = []; public var empty = ""; public var trackLayout = ""; public let title: String; public let tracks: [Track]; public let links: [Link]; public var morePage: String?; public var moreCollection: String? = nil }
     public let title: String
     public var subtitle = ""
     public var description = ""
     public var sections: [Section] = []
     public var tabs: [Link] = []
     public var selectedTab: String? = nil
-}
-
-public extension PluginBrowse.Section {
-    func reidentified(_ value: String) -> Self { Self(id: value, entities: entities, empty: empty, trackLayout: trackLayout, title: title, tracks: tracks, links: links, morePage: morePage, moreCollection: moreCollection) }
+    public var nextBrowse: Cursor? = nil
 }
 
 public extension PluginBrowse {
+    /// 旧式续页可能重复首屏摘要，按资源身份追加，保持原顺序和图片上下文。
+    func appending(_ page: Self, offset: Int) -> Self {
+        var result = self
+        var tracks = Set(sections.flatMap(\.tracks).map(\.id))
+        var entities = Set(sections.flatMap(\.entities).map(\.id))
+        var links = Set(sections.flatMap(\.links).map(\.id))
+        result.sections += page.sections.enumerated().map { index, section in
+            Section(id: "\(offset)-\(index)", entities: section.entities.filter { entities.insert($0.id).inserted },
+                    empty: section.empty, trackLayout: section.trackLayout, title: section.title,
+                    tracks: section.tracks.filter { tracks.insert($0.id).inserted },
+                    links: section.links.filter { links.insert($0.id).inserted }, morePage: section.morePage,
+                    moreCollection: section.moreCollection)
+        }
+        return result
+    }
     func artworkTracks(sourceID: String) -> [Track] {
         sections.flatMap { section in
             section.tracks + section.entities.map { $0.artworkTrack(sourceID: sourceID) } + section.links.map { link in

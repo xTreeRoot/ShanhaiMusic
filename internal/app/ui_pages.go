@@ -305,7 +305,9 @@ func (a *app) playlistHeader(c *ui.Context, pl *music.Playlist) {
 				ui.Text(c, strings.ReplaceAll(d, "\n", " ")).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45).Margin(2, 0, 0, 0)
 			}
 			ui.Row(c).Gap(10).Margin(10, 0, 0, 0).Children(func() {
-				a.playButtons(c, pl.Tracks)
+				if a.local != nil && a.library.src == a.local {
+					a.playButtons(c, pl.Tracks)
+				}
 				if a.savable(pl) {
 					icon, label := iconPlus, TC("Save", "library")
 					if a.isSaved(pl) {

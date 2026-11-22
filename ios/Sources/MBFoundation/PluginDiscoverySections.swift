@@ -72,7 +72,7 @@ extension PluginSource {
             let tracks = Array(sections.flatMap(\.tracks).prefix(12))
             let links = Array(sections.flatMap(\.links).prefix(12))
             let message = sections.compactMap { $0.empty.isEmpty ? nil : $0.empty }.first ?? ""
-            let morePage = sections.count == 1 ? (sections[0].morePage ?? item.page) : item.page
+            let morePage = item.page
             var section = PluginBrowse.Section(id: id, entities: entities, empty: message,
                 trackLayout: sections.first?.trackLayout ?? "", title: AppLocalization.text(item.title),
                 tracks: tracks, links: links, morePage: morePage)

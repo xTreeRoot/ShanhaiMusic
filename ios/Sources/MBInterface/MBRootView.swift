@@ -54,6 +54,7 @@ public struct MBRootView: View {
     @State private var currentInteractions: (any InteractionSource)?
     @State private var interactionTrackID: String?
     @State private var currentLibrarySource: (any LibrarySource)?
+    @State private var currentPluginSource: PluginSource?
     private let router: SourceRouter
     private let initialSource: any MusicSource
     private let initialSourceID: String
@@ -169,7 +170,7 @@ public struct MBRootView: View {
                 } }
             }
             .preferredColorScheme(preferences.values.appearance == .system ? nil : preferences.values.appearance == .dark ? .dark : .light)
-            .playerPresentation(isPresented: $showingPlayer) { NowPlayingView(playback: playback, demo: demo, interactionSource: currentInteractions, librarySource: currentLibrarySource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: { video.watchCurrent() }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
+            .playerPresentation(isPresented: $showingPlayer) { NowPlayingView(playback: playback, demo: demo, interactionSource: currentInteractions, librarySource: currentLibrarySource, pluginSource: currentPluginSource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: { video.watchCurrent() }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
             .sheet(isPresented: $showingQueue) { QueueView(playback: playback) }
             .sheet(isPresented: $showingService) { ShanhaiServiceView(model: platformData, account: verifiedProfileAccount, platform: selectedSourceID) }
             .sheet(isPresented: $showingAppSettings) { SettingsView(preferences: preferences, network: networkSettings, plugins: plugins, skin: skin) }
@@ -248,11 +249,13 @@ public struct MBRootView: View {
                 currentInteractions = nil
                 interactionTrackID = nil
                 currentLibrarySource = nil
+                currentPluginSource = nil
                 let track = playback.queue.current
                 await registerPlugins()
                 guard let track, let provider = await router.source(for: track), !Task.isCancelled,
                       playback.queue.current?.id == track.id else { return }
                 currentLibrarySource = provider as? any LibrarySource
+                currentPluginSource = provider as? PluginSource
                 if let interactions = provider as? any InteractionSource {
                     let available = await interactions.capabilities().available
                     guard !Task.isCancelled, playback.queue.current?.id == track.id else { return }

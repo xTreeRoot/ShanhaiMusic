@@ -19,9 +19,26 @@ final class MBiOSUITests: XCTestCase {
         like.tap(); XCTAssertEqual(like.value as? String, "129")
         like.tap(); XCTAssertEqual(like.value as? String, "128")
         XCTAssertEqual(app.buttons["player-track-comments"].value as? String, "2")
+        app.buttons["播放界面样式"].tap(); app.buttons["播放器样式"].tap(); app.buttons["黑胶"].tap()
+        let artwork = app.buttons["player-artwork-vinyl"]
+        XCTAssertTrue(artwork.waitForExistence(timeout: 5))
+        artwork.tap()
+        let cover = app.buttons["player-lyrics-cover"]
+        XCTAssertTrue(cover.waitForExistence(timeout: 5))
+        let lyrics = app.buttons["选择歌词 把今天的喧闹放远"]
+        XCTAssertTrue(lyrics.waitForExistence(timeout: 5))
+        let header = app.descendants(matching: .any)["player-lyrics-header"].firstMatch
+        XCTAssertTrue(header.staticTexts["晚风里的片刻"].exists)
+        let headerY = cover.frame.minY
+        lyrics.swipeUp()
+        XCTAssertEqual(cover.frame.minY, headerY, accuracy: 2, "歌词滚动时歌曲信息固定在顶部")
         app.buttons["player-creator"].tap()
         XCTAssertTrue(app.navigationBars["UP 主投稿"].waitForExistence(timeout: 5)); app.buttons["完成"].tap()
-        capture("音乐播放器-作者与互动总数", app: app)
+        XCTAssertTrue(cover.waitForExistence(timeout: 5))
+        capture("音乐播放器-固定歌词头与作者入口", app: app)
+        cover.tap(); XCTAssertTrue(artwork.waitForExistence(timeout: 5))
+        XCTAssertFalse(cover.exists)
+        capture("音乐播放器-返回用户黑胶样式", app: app)
         app.buttons["player-track-more"].tap()
         XCTAssertTrue(app.buttons["player-collect"].waitForExistence(timeout: 5))
         app.buttons["player-quality"].tap(); app.buttons["player-quality-lossless"].tap()
@@ -265,7 +282,7 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertFalse(confirm.exists)
         line.tap(); XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         app.descendants(matching: .any)["music-player-swipe-stage"].firstMatch.swipeLeft()
-        XCTAssertTrue(app.otherElements["player-controls"].staticTexts["城市慢下来"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.otherElements["player-lyrics-header"].staticTexts["城市慢下来"].waitForExistence(timeout: 5))
         XCTAssertFalse(confirm.exists, "换歌后清除未确认的歌词选择")
     }
 
@@ -795,7 +812,7 @@ final class MBiOSUITests: XCTestCase {
         let shelf = app.scrollViews["plugin-shelf-0"]
         let firstCard = app.buttons["播放 插件示例歌曲"]
         let secondRowCard = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "示例专辑")).firstMatch
-        XCTAssertGreaterThan(secondRowCard.frame.minY, firstCard.frame.minY, "目录封面使用两行")
+        XCTAssertEqual(secondRowCard.frame.minY, firstCard.frame.minY, accuracy: 2, "目录封面先填满第一行")
         let moreCard = app.buttons["更多示例"]
         shelf.swipeLeft()
         XCTAssertTrue(moreCard.isHittable)
@@ -823,6 +840,67 @@ final class MBiOSUITests: XCTestCase {
         selectTab("我的", app: app)
         XCTAssertTrue(app.buttons["open-settings"].waitForExistence(timeout: 5))
         capture("紧凑首页-我的", app: app)
+    }
+
+    @MainActor func testDiscoveryShelfFillsRowsAndFollowingKeepsAvatarsAndLoadsAtBottom() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--plugin-demo", "--shelf-layout-fixture", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch(); selectTab("设置", app: app); app.buttons["settings-plugins"].tap()
+        XCTAssertTrue(app.buttons["安装"].waitForExistence(timeout: 8)); app.buttons["安装"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "示例插件")).firstMatch.waitForExistence(timeout: 8))
+        selectTab("发现", app: app); app.buttons["source-tab-fixture"].tap()
+        let first = app.buttons["播放 封面资源1"], second = app.buttons["播放 封面资源2"]
+        XCTAssertTrue(second.waitForExistence(timeout: 8))
+        XCTAssertEqual(first.frame.minY, second.frame.minY, accuracy: 2)
+        XCTAssertLessThan(first.frame.maxX, second.frame.minX)
+        capture("发现卡片-两项先填第一行", app: app)
+        for count in [1, 2, 3, 8] {
+            let tab = app.buttons["plugin-filter-tab-shelf:\(count)"]
+            XCTAssertTrue(tab.waitForExistence(timeout: 5)); tab.tap()
+            let cards = (1...count).map { app.buttons["播放 封面资源\($0)"] }
+            XCTAssertTrue(cards[0].waitForExistence(timeout: 5))
+            if count > 1 {
+                XCTAssertTrue(cards[1].waitForExistence(timeout: 5))
+                XCTAssertEqual(cards[0].frame.minY, cards[1].frame.minY, accuracy: 2)
+            }
+            if count > 2 {
+                let columns = max(1, Int((app.frame.width - 40 + 16) / 172))
+                if count > columns {
+                    XCTAssertTrue(cards[columns].exists)
+                    capture("发现卡片-第二行边界-\(count)项", app: app)
+                    XCTAssertGreaterThan(cards[columns].frame.minY - cards[0].frame.minY, 246, "第二行须位于完整卡片高度之后")
+                }
+            }
+            capture("发现卡片-\(count)项", app: app)
+        }
+        app.buttons["plugin-filter-tab-shelf:2"].tap()
+        app.buttons["播放 封面资源1"].tap()
+        XCTAssertTrue(app.buttons["player-creator"].waitForExistence(timeout: 8))
+        app.buttons["player-creator"].tap()
+        XCTAssertTrue(app.navigationBars["插件作者主页"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["播放 作者的另一首歌"].exists)
+        capture("播放器-独立插件歌手主页", app: app)
+        app.buttons["完成"].tap(); app.buttons["收起"].tap()
+        let people = app.buttons["查看更多我的关注"]
+        for _ in 0..<5 { if !people.isHittable { app.swipeUp() } }
+        XCTAssertTrue(people.isHittable); people.tap()
+        let author = app.buttons["catalog-link-profile:1"]
+        XCTAssertTrue(author.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.staticTexts["查看更多"].exists)
+        XCTAssertFalse(app.buttons["catalog-link-profile:19"].exists)
+        capture("关注列表-头像名称与完整介绍", app: app)
+        let last = app.buttons["catalog-link-profile:21"]
+        let mini = app.otherElements["mini-player"].firstMatch
+        func visibleBottom() -> CGFloat { (mini.exists ? mini.frame.minY : app.frame.maxY) - 8 }
+        for _ in 0..<14 {
+            if !last.exists || !last.isHittable || last.frame.midY > visibleBottom() { app.swipeUp() }
+        }
+        XCTAssertTrue(last.waitForExistence(timeout: 8) && last.isHittable)
+        XCTAssertLessThan(last.frame.midY, visibleBottom())
+        capture("关注列表-触底追加第二页", app: app)
+        last.tap(); XCTAssertTrue(app.navigationBars["作者主页"].waitForExistence(timeout: 5))
     }
 
     @MainActor func testPluginTrackRowsExplainUnavailableAudio() {

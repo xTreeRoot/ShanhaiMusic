@@ -174,14 +174,14 @@ class VideoDetailsDeviceTest {
             withContext(Dispatchers.Main) { video.value = false }
             await(tracks[1].title) { node ->
                 val first = matches(tracks.first().title).firstOrNull()?.let { Rect().also(it::getBoundsInScreen) }
-                first != null && first.bottom <= Rect().also(node::getBoundsInScreen).top
+                first != null && first.top == Rect().also(node::getBoundsInScreen).top
             }
         } finally {
             withContext(Dispatchers.Main) { activity.finish() }
         }
     }
 
-    @Test fun musicDiscoveryUsesTwoRowsAndRetainsTheSectionQueue() = runBlocking {
+    @Test fun musicDiscoveryFillsTheFirstRowAndRetainsTheSectionQueue() = runBlocking {
         val tracks = (1..4).map { Track("music-cards", "$it", "Music Card $it", "Fixture Artist") }
         val category = DiscoveryCategory.Recommended
         val source = object : DiscoverySource {
@@ -207,12 +207,63 @@ class VideoDetailsDeviceTest {
             }
             tracks.forEach { await(it.title) }
             val frames = tracks.map { Rect().also(matches(it.title).first()::getBoundsInScreen) }
-            assertTrue("First column should contain two rows: $frames", frames[0].bottom < frames[1].top && frames[0].left == frames[1].left)
-            assertTrue("Next column should align with first: $frames", frames[0].top == frames[2].top && frames[0].right < frames[2].left)
+            assertTrue("First row should fill from left to right: $frames", frames[0].top == frames[1].top && frames[0].right < frames[1].left)
+            assertTrue("Second row should start below the first: $frames", frames[0].bottom < frames[2].top && frames[0].left == frames[2].left)
             tap(tracks[1].title)
             assertEquals(tracks to tracks[1], withContext(Dispatchers.Main) { selection.value })
             captureVideoControl("android-music-discovery-two-rows.png")
         } finally { withContext(Dispatchers.Main) { activity.finish() } }
+    }
+
+    @Test fun musicArtworkOpensPinnedLyricsAndReturnsToTheChosenStyle() = runBlocking {
+        instrumentation.uiAutomation.serviceInfo = instrumentation.uiAutomation.serviceInfo.apply {
+            flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        }
+        val id = "music-layout-${UUID.randomUUID()}"
+        val plugin = app.plugins.install(app.plugins.prepareZip { fixtureZip(id).inputStream() })
+        val track = Track(id, "first", "Pinned Song", "Fixture Artist", artistId = "artist", durationMs = 30_000)
+        val screen = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        val creator = java.util.concurrent.atomic.AtomicReference<String>()
+        try {
+            app.plugins.setEnabled(plugin, true); app.refreshPlugins()
+            withContext(Dispatchers.Main) {
+                val player = ViewModelProvider(screen)[PlaybackModel::class.java]
+                val saved = ViewModelProvider(screen)[SavedLibraryModel::class.java]
+                screen.setContent { com.xtreeroot.mb.ui.components.MBTheme(true) {
+                    CompositionLocalProvider(LocalMBEnglish provides true) {
+                        val artist = androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
+                        NowPlaying(player, PlaybackState(tracks = listOf(track), index = 0, positionMs = 6_000),
+                            app.settings.values.value.copy(playerStyle = com.xtreeroot.mb.preferences.PlayerStyle.Vinyl),
+                            saved, false, {}, {}, { creator.set(it); artist.value = it }, null, null)
+                        artist.value?.let { id -> PluginCreatorDialog(app.playbackSource(track.sourceId) as com.xtreeroot.mb.plugin.PluginSource,
+                            com.xtreeroot.mb.plugin.PluginEntity(com.xtreeroot.mb.plugin.PluginEntityKind.Artist, id, "Fixture Artist"),
+                            { artist.value = null }, { _, _ -> }, { _, _, _ -> }) }
+                    }
+                } }
+            }
+            await("Show Lyrics"); assertTrue(matches("Back to Artwork").isEmpty())
+            captureVideoControl("android-music-vinyl.png")
+            tap("Show Lyrics"); await("Back to Artwork"); await("First lyric")
+            val cover = Rect().also(matches("Back to Artwork").first()::getBoundsInScreen)
+            val lyric = Rect().also(matches("First lyric").first()::getBoundsInScreen)
+            assertTrue("Song header should remain above lyrics", cover.bottom < lyric.top)
+            tap("Fixture Artist ›"); withTimeout(5_000) { while (creator.get() != "artist") delay(25) }
+            await("Artist Page Track")
+            captureVideoControl("android-plugin-author-page.png")
+            tap("Done")
+            instrumentation.waitForIdleSync()
+            await("Back to Artwork")
+            captureVideoControl("android-music-pinned-lyrics.png")
+            tap("Back to Artwork"); await("Show Lyrics")
+            assertTrue(matches("Back to Artwork").isEmpty())
+        } catch (failure: Throwable) {
+            captureVideoControl("android-music-layout-failure.png")
+            println("Music layout failure: activity lifecycle=${screen.lifecycle.currentState}, finishing=${screen.isFinishing}")
+            throw failure
+        } finally {
+            withContext(Dispatchers.Main) { screen.finish() }
+            app.plugins.remove(plugin); app.refreshPlugins(); plugin.dataDirectory.deleteRecursively()
+        }
     }
 
     @Test fun inlineVideoActionsStayOnOneRowAndChangePlaybackOrder() = runBlocking {
@@ -606,6 +657,8 @@ class VideoDetailsDeviceTest {
             zip.putNextEntry(ZipEntry("index.js"))
             zip.write("""
                 let firstRequests = 0;
+                export function lyrics() { return {lrc:'[00:00]First lyric\n[00:10]Second lyric'}; }
+                export function artist() { return {artist:{id:'artist',name:'Fixture Artist'},tracks:[{id:'other',name:'Artist Page Track'}]}; }
                 export function interactionSummary() { return {likes: 100000, comments: 123}; }
                 export function like() {}
                 export function video() { throw new Error('Fixture has no video stream'); }

@@ -21,7 +21,7 @@ import Testing
     let doc = try empty.edited(plugin: "fixture", before: before, draft: draft, writer: PluginPreferences.newWriter())
     let page = try await source.discoveryHome(preferences: doc, refresh: true)
     #expect(page.sections.map(\.title) == ["Three", "One"])
-    #expect(page.sections.first?.morePage == "next:three")
+    #expect(page.sections.first?.morePage == "three")
     #expect(page.artworkTracks(sourceID: "fixture").map(\.sourceTrackID) == ["three", "one"])
     #expect(try await runtime.invoke("probe") == .array([.array([.string("three"),.bool(true)]),.array([.string("one"),.bool(true)])]))
     var disabled = draft; disabled.enabled = ["one": false, "two": false, "three": false]

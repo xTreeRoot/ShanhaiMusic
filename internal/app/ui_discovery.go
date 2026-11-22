@@ -103,7 +103,7 @@ func (a *app) saveDiscoveryEditor() {
 	}()
 }
 
-// 两行卡片使用已有资源组件和路由，栏目标题左、更多右。
+// 卡片按可见宽度先填满第一行，最多两行横滑，栏目标题左、更多右。
 func (a *app) discoveryPage(c *ui.Context) {
 	top, bottom := a.insets(c)
 	ui.Scroll(c.Key(a.route)).Grow(1).Padding(top+pageGap, pagePad, bottom+32, pagePad).Children(func() {
@@ -153,12 +153,19 @@ func (a *app) discoveryPage(c *ui.Context) {
 				ui.Text(c, section.Empty).TextColor(a.pal.muted)
 				continue
 			}
-			ui.ScrollHorizontal(c).Margin(0, 0, 20, 0).Children(func() {
+			viewport := ui.ScrollHorizontal(c).Margin(0, 0, 20, 0)
+			viewport.Children(func() {
+				columns := max(1, int((viewport.Bounds().W+18)/174))
+				capacity := columns * 2
 				ui.Row(c).Gap(18).Children(func() {
-					for start := 0; start < len(cards); start += 2 {
-						ui.Column(c.Key(start)).Width(156).Gap(16).Children(func() {
-							for i := start; i < min(start+2, len(cards)); i++ {
-								ui.Box(c.Key(i)).Width(156).Children(func() { cards[i](c) })
+					for start := 0; start < len(cards); start += capacity {
+						ui.Column(c.Key(start)).Gap(16).Children(func() {
+							for first := start; first < min(start+capacity, len(cards)); first += columns {
+								ui.Row(c.Key(first)).Gap(18).Children(func() {
+									for i := first; i < min(first+columns, len(cards)); i++ {
+										ui.Box(c.Key(i)).Width(156).Children(func() { cards[i](c) })
+									}
+								})
 							}
 						})
 					}

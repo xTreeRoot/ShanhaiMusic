@@ -1,5 +1,6 @@
 import MBFoundation
 import CoreGraphics
+import ImageIO
 import Foundation
 
 /// 仅供 Preview 和显式 --demo 启动；原创示例无媒体地址，不冒充平台结果。
@@ -118,6 +119,8 @@ enum DemoCatalog {
         if ProcessInfo.processInfo.arguments.contains("--discovery-sections-fixture") {
             manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","discovery":[{"id":"one","title":"第一栏目","page":"one"},{"id":"two","title":"第二栏目","page":"two"},{"id":"three","title":"第三栏目","page":"three"}]}"#
         }
+        let shelfFixture = ProcessInfo.processInfo.arguments.contains("--shelf-layout-fixture")
+        if shelfFixture { manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","discovery":[{"id":"small","title":"少量资源","page":"shelf"},{"id":"people","title":"我的关注","page":"people"}]}"# }
         try manifest.write(to: folder.appendingPathComponent("plugin.json"), atomically: true, encoding: .utf8)
         let refreshScript = "const filterFixture = \(filterFixture);" + (refreshFixture ? "const refreshFixture = true;" : "const refreshFixture = false;")
         let script = refreshScript + (includeTrackProblems ? "const extraTracks = [{id:'vip',name:'会员示例曲目',unavailableReason:'vip'}, {id:'missing',name:'无音源示例曲目'}];\n" : "const extraTracks = [];\n") + #"""
@@ -151,7 +154,30 @@ enum DemoCatalog {
         export function savePlaylist(){}
         export function stream({id}){return id==='missing'?{url:''}:{url:'https://media.example.test/sample.mp3',type:'mp3'};}
         """#
+        if shelfFixture {
+            let cover = folder.appendingPathComponent("avatar.png")
+            if let image = DemoCatalog.backgroundImage,
+               let output = CGImageDestinationCreateWithURL(cover as CFURL, "public.png" as CFString, 1, nil) {
+                CGImageDestinationAddImage(output, image, nil); CGImageDestinationFinalize(output)
+            }
+            let address = String(data: try JSONEncoder().encode(cover.absoluteString), encoding: .utf8)!
+            let fixture = """
+            const imageUrl = \(address);
+            export function artist({id}) { return {artist:{id,name:'插件作者主页'},tracks:[{id:'creator-song',name:'作者的另一首歌'}]}; }
+            export function browse({page}) {
+              if(page.startsWith('people')) {
+                const start=page==='people'?1:19;
+                return {title:'我的关注',sections:[{links:Array.from({length:start===1?18:3},(_,i)=>({title:'关注作者'+(start+i),subtitle:'这是作者的完整介绍，文字需要使用右侧剩余宽度，抵达右边后再换行。第二行继续显示介绍内容。',page:'profile:'+(start+i),imageUrl})),morePage:start===1?'people:2':undefined}]};
+              }
+              if(page.startsWith('profile:'))return {title:'作者主页',description:page,sections:[]};
+              const count=page==='shelf'?2:Number(page.split(':')[1]);
+              return {tabs:[1,2,3,8].map(n=>({title:n+'项',page:'shelf:'+n})),selectedTab:'shelf:'+count,sections:[{tracks:Array.from({length:count},(_,i)=>({id:'card'+i,name:'封面资源'+(i+1),artists:[{id:'creator',name:'示例歌手'}],album:{imageUrl}}))}]};
+            }
+            """
+            try fixture.write(to: folder.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
+        } else {
         try script.write(to: folder.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
+        }
         return folder
     }
 

@@ -50,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.xtreeroot.mb.MBApplication
@@ -178,10 +179,6 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                     if (page.description.isNotBlank()) Text(page.description, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            val firstPlayable = tracks.firstOrNull { !it.isUnavailable }
-            if (entity != null && firstPlayable != null) item(span = { GridItemSpan(maxLineSpan) }) {
-                TextButton(onClick = { select(tracks, firstPlayable) }) { Text(mb("播放全部", "Play All")) }
-            }
             var trackIndex = 0
             page.sections.forEach { section ->
                 if (destination.request == PluginCatalogRequest.Home) {
@@ -215,8 +212,8 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                 section.entities.forEach { item -> item(span = { GridItemSpan(maxLineSpan) }) {
                     ListItem(modifier = Modifier.clickable { navigator.open(PluginCatalogRequest.Entity(item)) },
                         headlineContent = { Text(item.title) }, supportingContent = item.subtitle.takeIf(String::isNotBlank)?.let { subtitle ->
-                            { Text(subtitle, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-                        }, leadingContent = { Artwork(item.image?.url, item.image?.headers.orEmpty(), Modifier.size(48.dp)) })
+                            { Text(subtitle) }
+                        }, leadingContent = { Artwork(item.image?.url, item.image?.headers.orEmpty(), Modifier.size(52.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(if (item.kind == PluginEntityKind.Artist) 26.dp else 10.dp))) })
                 } }
                 section.links.forEach { link -> item(span = { GridItemSpan(maxLineSpan) }) { CatalogLinkRow(link, navigator::open) } }
                 section.more?.takeUnless { it.destination == request }?.let { link -> item(span = { GridItemSpan(maxLineSpan) }) { CatalogLinkRow(link, navigator::open) } }
@@ -464,7 +461,7 @@ private enum class PlaylistDialog { Name, Delete, Add }
 private fun CatalogLinkRow(link: PluginCatalogLink, open: (PluginCatalogRequest) -> Unit) {
     val title = link.title.ifBlank { (link.destination as? PluginCatalogRequest.Collection)?.collection?.label() ?: mb("查看更多", "See More") }
     ListItem(modifier = Modifier.clickable { open(link.destination) }, headlineContent = { Text(title) },
-        leadingContent = link.image?.let { image -> { Artwork(image.url, image.headers, Modifier.size(48.dp)) } },
+        leadingContent = link.image?.let { image -> { Artwork(image.url, image.headers, Modifier.size(52.dp).clip(androidx.compose.foundation.shape.CircleShape)) } },
         supportingContent = link.subtitle.takeIf(String::isNotBlank)?.let { subtitle -> { Text(subtitle) } })
 }
 

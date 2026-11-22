@@ -10,6 +10,7 @@ struct NowPlayingView: View {
     let demo: Bool
     var interactionSource: (any InteractionSource)? = nil
     var librarySource: (any LibrarySource)? = nil
+    var pluginSource: PluginSource? = nil
     var accountRevision = 0
     var downloads: DownloadModel? = nil
     var preferences: PreferencesModel? = nil
@@ -33,7 +34,7 @@ struct NowPlayingView: View {
     @State private var showingTrackActions = false
     @State private var queuedCreator = false
     @State private var creatorDestination: CreatorDestination?
-    private struct CreatorDestination: Identifiable { let id: String; let source: any LibrarySource }
+    private struct CreatorDestination: Identifiable { let id: String; let source: (any LibrarySource)?; let plugin: PluginSource? }
 
     var body: some View {
         GeometryReader { geometry in
@@ -81,12 +82,13 @@ struct NowPlayingView: View {
         }
         .sheet(item: $creatorDestination) { destination in
             NavigationStack {
-                LibraryPageView(source: destination.source, route: .creator(destination.id), select: { tracks, index in
-                    creatorDestination = nil; playback.select(tracks, index: index, autoplay: !demo)
-                }, menu: { track in
-                    if let downloads { AnyView(TrackContextMenu(track: track, playback: playback, downloads: downloads)) }
-                    else { AnyView(EmptyView()) }
-                })
+                Group {
+                    if let plugin = destination.plugin, let track = playback.queue.current {
+                        PluginCatalogPage(source: plugin, request: .entity(.creator(id: destination.id, name: track.artist)), select: selectCreatorTrack, menu: creatorTrackMenu)
+                    } else if let source = destination.source {
+                        LibraryPageView(source: source, route: .creator(destination.id), select: selectCreatorTrack, menu: creatorTrackMenu)
+                    }
+                }
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { creatorDestination = nil } } }
             }.id(destination.id)
         }
@@ -104,7 +106,7 @@ struct NowPlayingView: View {
             previewMilliseconds = demo ? 0 : Double(playback.positionMilliseconds)
         }
         .onChange(of: playback.positionMilliseconds) { _, value in if !scrubbing && !demo { previewMilliseconds = Double(value) } }
-        .onAppear { showingCaptions = preferences?.values.lyricsStage == true; if !demo { previewMilliseconds = Double(playback.positionMilliseconds) } }
+        .onAppear { if !demo { previewMilliseconds = Double(playback.positionMilliseconds) } }
         #if os(iOS)
         .onAppear { UIDevice.current.beginGeneratingDeviceOrientationNotifications() }
         .onDisappear { UIDevice.current.endGeneratingDeviceOrientationNotifications() }
@@ -115,6 +117,15 @@ struct NowPlayingView: View {
     private func player(track: Track) -> some View {
         VStack(spacing: 10) {
             header(track: track)
+            if showingCaptions {
+                HStack(alignment: .center, spacing: 12) {
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { showingCaptions = false } } label: {
+                        ArtworkView(track: track, size: 60)
+                    }.buttonStyle(.plain).accessibilityLabel("返回封面播放页")
+                        .accessibilityIdentifier("player-lyrics-cover")
+                    metadata(track: track, compact: true)
+                }.accessibilityElement(children: .contain).accessibilityIdentifier("player-lyrics-header")
+            }
             GeometryReader { region in
                 let side = max(100, min(region.size.width, region.size.height, 440))
                 Group {
@@ -133,16 +144,15 @@ struct NowPlayingView: View {
                                         if demo { previewMilliseconds = Double($0) } else { playback.seek(to: $0) }
                                     }).id(track.id)
                     } else {
-                        Button(action: watchVideo) {
+                        Button { withAnimation(.easeInOut(duration: 0.2)) { showingCaptions = true } } label: {
                             Group {
                                 if let style = preferences?.values.playerStyle, style != .cover {
                                     RetroArtworkView(track: track, style: style, positionMilliseconds: playback.positionMilliseconds,
                                                      durationMilliseconds: playback.durationMilliseconds, playing: playback.state == .playing, size: side)
                                 } else { ArtworkView(track: track, size: side).shadow(color: .black.opacity(0.15), radius: 18, y: 12) }
                             }.contentShape(Rectangle()).accessibilityHidden(true)
-                        }.buttonStyle(.plain).accessibilityLabel("切换到实时视频")
+                        }.buttonStyle(.plain).accessibilityLabel("查看歌词")
                             .accessibilityIdentifier("player-artwork-" + (preferences?.values.playerStyle.rawValue ?? "cover"))
-                            .disabled(track.localFileID != nil)
 
                     }
                 }.frame(width: region.size.width, height: region.size.height)
@@ -153,7 +163,7 @@ struct NowPlayingView: View {
                     .accessibilityIdentifier("music-player-swipe-stage")
             }.frame(minHeight: 130)
             VStack(spacing: 10) {
-                metadata(track: track)
+                if !showingCaptions { metadata(track: track) }
                 if let message = playback.errorMessage, !demo { Text(LocalizedStringKey(message)).font(.caption).foregroundStyle(.red).lineLimit(2) }
                 if let station = playback.station { HStack { Label(station.title, systemImage: "radio"); Spacer(); Button("退出电台") { playback.endStation() } }.font(.caption) }
                 if let message = playback.persistenceMessage { Text(LocalizedStringKey(message)).font(.caption).foregroundStyle(.secondary) }
@@ -191,8 +201,15 @@ struct NowPlayingView: View {
         }
     }
     private func creatorAction(_ track: Track) -> (() -> Void)? {
-        guard let source = librarySource, let id = track.artistID, !id.isEmpty else { return nil }
-        return { creatorDestination = CreatorDestination(id: id, source: source) }
+        guard let id = track.artistID, !id.isEmpty, librarySource != nil || pluginSource != nil else { return nil }
+        return { creatorDestination = CreatorDestination(id: id, source: librarySource, plugin: pluginSource) }
+    }
+    private func selectCreatorTrack(_ tracks: [Track], _ index: Int) {
+        creatorDestination = nil; playback.select(tracks, index: index, autoplay: !demo)
+    }
+    private func creatorTrackMenu(_ track: Track) -> AnyView {
+        if let downloads { AnyView(TrackContextMenu(track: track, playback: playback, downloads: downloads)) }
+        else { AnyView(EmptyView()) }
     }
     private func metadata(track: Track, compact: Bool = false) -> some View {
         PlayerTrackMetadata(track: track, compact: compact, source: interactionSource,

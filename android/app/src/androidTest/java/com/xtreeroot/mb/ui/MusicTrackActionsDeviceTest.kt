@@ -40,7 +40,7 @@ class MusicTrackActionsDeviceTest {
         }
         try {
             withContext(Dispatchers.Main) { screen.setContent { MaterialTheme { CompositionLocalProvider(LocalMBEnglish provides true) {
-                MusicTrackMetadata(track, source, { opened.incrementAndGet() }, { more.set(true) })
+                MusicTrackMetadata(track, source, { opened.incrementAndGet() }) { more.set(true) }
             } } } }
             tap("Fixture artist ›"); await { opened.get() == 1 }
             await { find("Like")?.isEnabled == true }; tap("Like"); await { mutations == listOf(true) }
