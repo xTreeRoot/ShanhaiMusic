@@ -41,7 +41,6 @@ enum PluginPageRequest {
 
 struct PluginCatalogPage: View {
     @Environment(\.discoveryPreferencesModel) private var discoveryModel
-    @State private var editingSections = false
     @Environment(\.skinAccent) private var skinAccent
     let source: PluginSource
     let request: PluginPageRequest
@@ -73,10 +72,6 @@ struct PluginCatalogPage: View {
     @Environment(\.sourceNames) private var sourceNames
     var body: some View {
         VStack(spacing: 0) {
-            if request.isHome, let discoveryModel {
-                HStack { Spacer(); Button("栏目", systemImage: "slider.horizontal.3") { editingSections = true }.buttonStyle(.plain).padding(.horizontal, 20).padding(.vertical, 8) }
-                    .sheet(isPresented: $editingSections) { DiscoverySectionsEditor(source: source, model: discoveryModel) }
-            }
             if !filterTabs.isEmpty {
                 SourceTabs(sources: filterTabs.map { SourceTab(id: $0.page, name: $0.title) },
                            selected: filterPage ?? content?.selectedTab ?? filterTabs[0].page,

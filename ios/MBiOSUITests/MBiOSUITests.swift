@@ -1638,22 +1638,33 @@ extension MBiOSUITests {
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "示例插件")).firstMatch.waitForExistence(timeout: 8))
         selectTab("发现", app: app); app.buttons["source-tab-fixture"].tap()
         XCTAssertTrue(app.buttons["播放 one资源0"].waitForExistence(timeout: 8))
-        app.buttons["栏目"].tap()
+        func openDisplaySettings() {
+            selectTab("设置", app: app); app.buttons["settings-plugins"].tap()
+            let display = app.buttons["plugin-display-fixture"]
+            XCTAssertTrue(display.waitForExistence(timeout: 8)); capture("插件列表-右侧设置显示", app: app); display.tap()
+        }
+        func backToDiscovery() {
+            if app.buttons["dismiss-plugins"].exists { app.buttons["dismiss-plugins"].tap() }
+            selectTab("发现", app: app)
+        }
+        openDisplaySettings()
         let first = app.switches["discovery-section-one"]
         XCTAssertTrue(first.waitForExistence(timeout: 5))
         first.tap()
         XCTAssertEqual(first.value as? String, "0")
         app.buttons["取消"].tap()
+        backToDiscovery()
         XCTAssertTrue(app.buttons["播放 one资源0"].exists)
-        app.buttons["栏目"].tap()
+        openDisplaySettings()
         first.tap()
         XCTAssertEqual(first.value as? String, "0")
         capture("栏目设置-开关与拖动手柄", app: app)
         app.buttons["保存"].tap()
+        backToDiscovery()
         XCTAssertTrue(app.buttons["播放 two资源0"].waitForExistence(timeout: 8))
         XCTAssertTrue(NSPredicate(format: "exists == false").evaluate(with: app.buttons["播放 one资源0"]) ||
             XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["播放 one资源0"])], timeout: 8) == .completed)
-        app.buttons["栏目"].tap()
+        openDisplaySettings()
         XCTAssertEqual(first.value as? String, "0")
         let thirdCell = app.cells.containing(.switch, identifier: "discovery-section-three").firstMatch
         let firstCell = app.cells.containing(.switch, identifier: "discovery-section-one").firstMatch
@@ -1662,9 +1673,10 @@ extension MBiOSUITests {
             .press(forDuration: 0.5, thenDragTo: firstCell.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.1)))
         XCTAssertLessThan(app.switches["discovery-section-three"].frame.minY, first.frame.minY)
         app.buttons["保存"].tap()
+        backToDiscovery()
         XCTAssertTrue(app.buttons["播放 three资源0"].waitForExistence(timeout: 8))
         capture("发现栏目-保存后的两行卡片", app: app)
-        app.buttons["栏目"].tap()
+        openDisplaySettings()
         XCTAssertLessThan(app.switches["discovery-section-three"].frame.minY, first.frame.minY)
         XCTAssertEqual(first.value as? String, "0")
         capture("栏目设置-重开保留排序", app: app)
@@ -1748,7 +1760,7 @@ extension MBiOSUITests {
             app.buttons["展开视频"].tap()
             XCTAssertTrue(app.buttons["简介"].waitForExistence(timeout: 6))
             let top = surface.frame.minY
-            XCTAssertLessThanOrEqual(top, app.frame.minY + 1, "视频内容应延伸到屏幕顶部，不留下原安全区黑边")
+            XCTAssertGreaterThan(top, app.frame.minY + 1, "普通视频保留系统状态栏")
         }
         app.buttons["返回浏览"].tap()
         app.buttons["关闭视频小窗"].tap()
@@ -1794,7 +1806,7 @@ extension MBiOSUITests {
         XCTAssertTrue(app.buttons["展开视频"].waitForNonExistence(timeout: 5))
     }
 
-    @MainActor func testVideoHidesStatusBarAndRestoresItAfterBrowsing() throws {
+    @MainActor func testInlineVideoKeepsStatusBarAndActionsOnOneRow() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
@@ -1812,8 +1824,15 @@ extension MBiOSUITests {
         chooseMode("视频模式", app: app)
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 晚风里的片刻")).firstMatch.tap()
         XCTAssertTrue(app.buttons["video-open-music"].waitForExistence(timeout: 5))
-        XCTAssertTrue(statusBar.waitForNonExistence(timeout: 5))
-        capture("视频-详情隐藏系统状态栏", app: app)
+        XCTAssertTrue(statusBar.waitForExistence(timeout: 5))
+        let previous = app.buttons["上一首"], next = app.buttons["下一首"], shuffle = app.buttons["随机播放"]
+        XCTAssertTrue(previous.waitForExistence(timeout: 5)); XCTAssertTrue(next.exists); XCTAssertTrue(shuffle.exists)
+        XCTAssertEqual(previous.frame.midY, next.frame.midY, accuracy: 2)
+        XCTAssertEqual(previous.frame.midY, shuffle.frame.midY, accuracy: 2)
+        let like = app.buttons["video-action-like"]
+        XCTAssertTrue(like.waitForExistence(timeout: 5)); XCTAssertEqual(previous.frame.midY, like.frame.midY, accuracy: 2)
+        shuffle.tap(); XCTAssertEqual(shuffle.value as? String, "开启")
+        capture("视频-状态栏与同排操作", app: app)
         app.buttons["返回浏览"].tap()
         XCTAssertTrue(statusBar.waitForExistence(timeout: 5))
         capture("视频-返回浏览恢复系统状态栏", app: app)

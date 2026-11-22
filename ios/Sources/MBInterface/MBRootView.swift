@@ -160,7 +160,7 @@ public struct MBRootView: View {
     private var tabs: some View {
         tabsWithPlayer
             #if os(iOS)
-            .statusBarHidden(video.isVisible)
+            .statusBarHidden(video.isVisible && video.aspectRatio < 1)
             #endif
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if skin.preview != nil { BackgroundPreviewControls(skin: skin) {

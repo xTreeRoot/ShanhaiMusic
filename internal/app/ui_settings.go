@@ -52,6 +52,7 @@ func (a *app) openSettings() {
 	a.settingsWin.OnClosed(func() {
 		a.closeStars()
 		a.settingsWin = nil
+		a.discoveryEditor.open = false
 		// Its sign-in dialog goes with it; a sign-in on its way still counts.
 		if a.signIn.here {
 			a.cancelSignIn()
@@ -229,6 +230,7 @@ func (a *app) settingsView(c *ui.Context) {
 	a.installDialog(c, p)
 	a.starsDialog(c, p)
 	a.signInDialog(c, p, true)
+	a.discoveryEditorView(c)
 }
 
 // settingsSidebarWidth is the width of the list of the settings' pages.
@@ -721,6 +723,7 @@ func (a *app) pluginSettings(c *ui.Context, lib *library, p palette) {
 			}
 			a.pluginMenu(c, lib, p)
 			a.pluginSwitch(c, lib)
+			ui.Button(c.Key("discovery-sections"), T("Display Settings")).OnClick(func() { a.openDiscoveryEditor(lib) })
 		})
 		if !enabled {
 			return

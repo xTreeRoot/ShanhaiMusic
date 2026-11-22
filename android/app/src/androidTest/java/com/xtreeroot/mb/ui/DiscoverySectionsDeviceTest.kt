@@ -32,31 +32,32 @@ class DiscoverySectionsDeviceTest {
     private val automation = instrumentation.uiAutomation
 
     @Test fun cancelSaveDragAndReopenPreserveIndependentColumnChoices() = runBlocking {
+        automation.serviceInfo = automation.serviceInfo.apply { flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS }
         val parent = File(app.cacheDir, "discovery-test-${UUID.randomUUID()}").apply { mkdirs() }
         val code = File(parent, "code").apply { mkdirs() }
         File(code, "index.js").writeText("export function home(){return {sections:[]};}")
         val manifest = PluginManifest.parse(JSONObject("""{"id":"fixture","discovery":[{"id":"one","title":"第一栏目","page":"one"},{"id":"two","title":"第二栏目","page":"two"},{"id":"three","title":"第三栏目","page":"three"}]}"""))
-        val runtime = PluginRuntime(app.assets, code, File(parent, "data"), manifest, emptyMap())
         val installer = PluginInstaller(File(parent, "installed"))
-        val source = PluginSource(manifest, runtime)
         val open = mutableStateOf(false)
+        val detail = mutableStateOf(false)
+        val plugin = InstalledPlugin(manifest, UUID.randomUUID(), code, File(parent, "data"), null, false)
         val activity = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
         try {
             installer.loadDiscoveryPreferences()
             withContext(Dispatchers.Main) { activity.setContent { MaterialTheme { CompositionLocalProvider(LocalMBEnglish provides false) {
                 Box(Modifier.fillMaxSize().safeDrawingPadding()) {
-                    if (open.value) DiscoverySectionsEditor(source, installer) { open.value = false }
-                    else PluginDiscoverySection(PluginCatalogSection("第三栏目", emptyList(), (0..5).map {
-                        PluginEntity(PluginEntityKind.Playlist, "fixture-$it", "示例歌单 $it", "示例作者")
-                    }, emptyList(), PluginCatalogLink("更多", "", PluginCatalogRequest.Browse("three", "第三栏目")), "", false), {}, { _, _ -> })
+                    if (open.value) DiscoverySectionsEditor(manifest, installer) { open.value = false }
+                    else if (detail.value) Text("插件详情已打开")
+                    else PluginsOverview(PluginManagerState(installed = listOf(plugin)), false, { detail.value = true }, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, display = { open.value = true })
+
                 }
             } } } }
-            node("第三栏目")
-            screenshot("android-discovery-sections.png")
-            withContext(Dispatchers.Main) { open.value = true }
+            node("设置显示")
+            screenshot("android-plugin-display-settings.png")
+            tap("设置显示"); assertFalse(detail.value)
             tap("栏目开关 第一栏目"); tap("取消", "Cancel")
             withTimeout(6_000) { while (open.value) delay(50) }; assertTrue(installer.loadDiscoveryPreferences().isEmpty)
-            withContext(Dispatchers.Main) { open.value = true }
+            tap("设置显示"); assertFalse(detail.value)
             tap("栏目开关 第一栏目")
             val third = Rect().also { node("排序 第三栏目").getBoundsInScreen(it) }
             val first = Rect().also { node("排序 第一栏目").getBoundsInScreen(it) }
@@ -68,10 +69,12 @@ class DiscoverySectionsDeviceTest {
             assertEquals("three", saved.order.first())
             val reopened = PluginInstaller(File(parent, "installed")).loadDiscoveryPreferences()
             assertEquals(saved, reopened.resolve(manifest.id, manifest.discoverySections.map { it.preferenceSection }))
-            withContext(Dispatchers.Main) { open.value = true }
+            tap("设置显示"); assertFalse(detail.value)
             assertFalse(node("栏目开关 第一栏目").isChecked)
             screenshot("android-discovery-editor-reopened.png")
-        } finally { withContext(Dispatchers.Main) { activity.finish() }; runtime.close(); parent.deleteRecursively() }
+            tap("取消"); withTimeout(6_000) { while (open.value) delay(50) }
+            tap(manifest.name); assertTrue(detail.value)
+        } finally { withContext(Dispatchers.Main) { activity.finish() }; parent.deleteRecursively() }
     }
     private suspend fun node(vararg labels: String): AccessibilityNodeInfo {
         fun find(n: AccessibilityNodeInfo): AccessibilityNodeInfo? {
@@ -86,7 +89,7 @@ class DiscoverySectionsDeviceTest {
         if (found == null) {
             screenshot("android-discovery-missing.png")
             fun tree(n: AccessibilityNodeInfo): String = n.toString() + "\n" + (0 until n.childCount).mapNotNull { n.getChild(it)?.let(::tree) }.joinToString("\n")
-            File(app.cacheDir, "android-discovery-missing.txt").writeText(listOfNotNull(automation.rootInActiveWindow).joinToString("\n", transform = ::tree))
+            File(app.cacheDir, "android-discovery-missing.txt").writeText((listOfNotNull(automation.rootInActiveWindow) + automation.windows.mapNotNull { it.root }).joinToString("\n", transform = ::tree))
             error("Missing accessibility element: ${labels.joinToString()}")
         }
         return found

@@ -16,12 +16,28 @@ import kotlinx.coroutines.launch
 
 /** 本地草稿取消不写入，保存仅提交实际改动，保留编辑时到达的节点数据。 */
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun DiscoverySectionsEditor(source: PluginSource, installer: PluginInstaller, close: () -> Unit) {
+@Composable internal fun DiscoverySectionsEditor(manifest: PluginManifest, installer: PluginInstaller, close: () -> Unit) {
+    var loaded by remember(manifest.id) { mutableStateOf(false) }
+    var failure by remember(manifest.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(manifest.id) {
+        try { installer.loadDiscoveryPreferences(); loaded = true }
+        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (error: Exception) { failure = error.message ?: "无法读取栏目设置" }
+    }
+    if (loaded) LoadedDiscoverySectionsEditor(manifest, installer, close)
+    else MBBottomSheet(onDismissRequest = close) {
+        if (failure == null) Loading() else Text(checkNotNull(failure), Modifier.padding(20.dp), color = MaterialTheme.colorScheme.error)
+        MBTextButton(onClick = close) { Text(mb("取消", "Cancel")) }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun LoadedDiscoverySectionsEditor(manifest: PluginManifest, installer: PluginInstaller, close: () -> Unit) {
     val document by installer.discoveryPreferences.collectAsState()
     val upLabel = mb("上移", "Move Up"); val downLabel = mb("下移", "Move Down")
-    val sections = source.manifest.discoverySections
-    val before = remember(source) { document.resolve(source.id, sections.map { it.preferenceSection }) }
-    var draft by remember(source) { mutableStateOf(before) }
+    val sections = manifest.discoverySections
+    val before = remember(manifest) { document.resolve(manifest.id, sections.map { it.preferenceSection }) }
+    var draft by remember(manifest) { mutableStateOf(before) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -36,7 +52,7 @@ import kotlinx.coroutines.launch
             MBTextButton(enabled = !busy, onClick = {
                 busy = true
                 scope.launch {
-                    try { installer.saveDiscovery(source.id, before, draft); close() }
+                    try { installer.saveDiscovery(manifest.id, before, draft); close() }
                     catch (failure: Exception) { error = failure.message; busy = false }
                 }
             }) { Text(mb("保存", "Save")) }
@@ -56,7 +72,7 @@ import kotlinx.coroutines.launch
                         CustomAccessibilityAction(downLabel) { move(id, index + 1); true }) })
             }
         }
-        MBTextButton(enabled = !busy, onClick = { draft = DiscoveryPreferences().resolve(source.id, sections.map { it.preferenceSection }) }) { Text(mb("恢复默认", "Restore Defaults")) }
+        MBTextButton(enabled = !busy, onClick = { draft = DiscoveryPreferences().resolve(manifest.id, sections.map { it.preferenceSection }) }) { Text(mb("恢复默认", "Restore Defaults")) }
         error?.let { message -> Text(message, Modifier.padding(20.dp), color = MaterialTheme.colorScheme.error) }
     }
 }

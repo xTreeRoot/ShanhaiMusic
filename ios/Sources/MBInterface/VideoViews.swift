@@ -24,7 +24,8 @@ struct VideoPageView: View {
             let sideBySide = geometry.size.width >= 800 && geometry.size.width > geometry.size.height
             let layout = sideBySide ? AnyLayout(HStackLayout(alignment: .top, spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
             layout {
-                picture.frame(width: sideBySide ? geometry.size.width * 0.57 : geometry.size.width)
+                let width = sideBySide ? min(geometry.size.width * 0.57, geometry.size.height * video.aspectRatio) : geometry.size.width
+                picture.frame(width: width, height: width / video.aspectRatio)
                 if let track = playback.queue.current {
                     VideoDetailsView(track: track, video: video, playback: playback, interactionSource: interactionSource)
                         .id("\(track.id):\(accountRevision)")
@@ -32,11 +33,9 @@ struct VideoPageView: View {
             }.accessibilityHidden(fullScreen)
         }
         }
-        }.background(MBTheme.background, ignoresSafeAreaEdges: .bottom)
-        .background(Color.black.ignoresSafeArea(edges: .top))
+        }.background(MBTheme.background, ignoresSafeAreaEdges: .all)
         #if os(iOS)
-        .ignoresSafeArea(.container, edges: .top)
-        .statusBarHidden(video.isVisible)
+        .statusBarHidden(video.isVisible && video.aspectRatio < 1)
         .fullScreenCover(isPresented: $fullScreen) { VideoFullscreenView(video: video, playback: playback) }
         #else
         .sheet(isPresented: $fullScreen) { VideoFullscreenView(video: video, playback: playback) }
@@ -147,17 +146,11 @@ private struct VideoDetailsView: View {
         VStack(alignment: .leading, spacing: 14) {
             Label(track.artist, systemImage: "person.crop.circle").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
             Text(track.title).font(.title3.bold())
-            if let interaction { TrackLikeButton(model: interaction) }
             if let message = playback.errorMessage { Text(LocalizedStringKey(message)).font(.caption).foregroundStyle(.red) }
             if let message = video.persistenceMessage { Text(LocalizedStringKey(message)).font(.caption).foregroundStyle(.secondary) }
             Divider()
-            HStack {
-                Button("上一首", systemImage: "backward.end.fill") { playback.previous() }
-                Spacer()
-                Button("下一首", systemImage: "forward.end.fill") { playback.next() }
-            }
-            .font(.subheadline)
-            PlaybackOrderControls(playback: playback)
+            VideoActionRow(playback: playback, interaction: interaction)
+            if let error = interaction?.likeError { Text(LocalizedStringKey(error)).font(.caption).foregroundStyle(.red) }
             VideoQueueView(playback: playback)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }

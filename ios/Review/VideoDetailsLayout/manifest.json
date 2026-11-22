@@ -1,0 +1,162 @@
+[
+  {
+    "number": 1,
+    "file": "images/001.png",
+    "sha256": "e7529c35e20df2bee8197f93d87c8e9baca0db66e6553ab7ca6becd560b274a1",
+    "name": "发现栏目-保存后的两行卡片",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795339687.593,
+    "origin": "attachments-ipad"
+  },
+  {
+    "number": 2,
+    "file": "images/002.png",
+    "sha256": "8e37abbd9eaeddb071bb82adfe9d8176903b1b220a2160f25485a5bde4c879a6",
+    "name": "插件列表-右侧设置显示",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795339626.263,
+    "origin": "attachments-ipad"
+  },
+  {
+    "number": 3,
+    "file": "images/003.png",
+    "sha256": "5c7a74a55223a844ce6ad1293aa74aad17ef3f28d9e75b9730b41be5aa72b834",
+    "name": "栏目设置-开关与拖动手柄",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795339652.846,
+    "origin": "attachments-ipad"
+  },
+  {
+    "number": 4,
+    "file": "images/004.png",
+    "sha256": "774d43bbfb5a6673b549e879c4801d6fbd729d6c200d38610beee8dd76837976",
+    "name": "栏目设置-重开保留排序",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795339698.774,
+    "origin": "attachments-ipad"
+  },
+  {
+    "number": 5,
+    "file": "images/005.png",
+    "sha256": "055e4eccbe44d48590d4809a3839c3d9de8d0344b7c3fb853f4d9a976024868f",
+    "name": "真实视频-返回前",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testReadyVideoReachesTopAndReturningToFloatingWindowStaysResponsive()",
+    "captured": 1795339729.909,
+    "origin": "attachments-ipad"
+  },
+  {
+    "number": 6,
+    "file": "images/006.png",
+    "sha256": "10de9bced7897813a2ca53e03c2ad317ccb6cfb9ef8d6aeffac816753a24b6d6",
+    "name": "真实视频-返回后小窗",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testReadyVideoReachesTopAndReturningToFloatingWindowStaysResponsive()",
+    "captured": 1795339733.651,
+    "origin": "attachments-ipad"
+  },
+  {
+    "number": 7,
+    "file": "images/007.png",
+    "sha256": "db118b0faf11547f562d3b03bd529b326955a89aff37aecb2946f2e7f54000d0",
+    "name": "视频-状态栏与同排操作",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testInlineVideoKeepsStatusBarAndActionsOnOneRow()",
+    "captured": 1795339715.152,
+    "origin": "attachments-ipad"
+  },
+  {
+    "number": 8,
+    "file": "images/008.png",
+    "sha256": "166e5c06deaff9ed77f126c441d197b442b0eca3d21a673cb61470e3b7315f39",
+    "name": "视频-返回浏览恢复系统状态栏",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testInlineVideoKeepsStatusBarAndActionsOnOneRow()",
+    "captured": 1795339717.312,
+    "origin": "attachments-ipad"
+  },
+  {
+    "number": 9,
+    "file": "images/009.png",
+    "sha256": "ef8bc22682131a47596324b6f79056c2c409c75f6de0e762dce7cbf525bd0ff6",
+    "name": "发现栏目-保存后的两行卡片",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795338796.991,
+    "origin": "attachments-iphone"
+  },
+  {
+    "number": 10,
+    "file": "images/010.png",
+    "sha256": "3f5d43767cfd46710c62f334d49eac135f18642c1e08ce1ea81e173f371cb870",
+    "name": "插件列表-右侧设置显示",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795338734.449,
+    "origin": "attachments-iphone"
+  },
+  {
+    "number": 11,
+    "file": "images/011.png",
+    "sha256": "84362e42a84adbb7a31c6e5512d2f818abbf0ea302044202e6002527e4888f32",
+    "name": "栏目设置-开关与拖动手柄",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795338760.595,
+    "origin": "attachments-iphone"
+  },
+  {
+    "number": 12,
+    "file": "images/012.png",
+    "sha256": "e5a0fc0c81bca0f8910161083ba15a523cd14566fe9843e55c42c589506d95ca",
+    "name": "栏目设置-重开保留排序",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795338808.003,
+    "origin": "attachments-iphone"
+  },
+  {
+    "number": 13,
+    "file": "images/013.png",
+    "sha256": "96cdf82792220fcf3d6538293ec631f3166e065f2751c0dce89fe20e73cee3ae",
+    "name": "真实视频-返回前",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testReadyVideoReachesTopAndReturningToFloatingWindowStaysResponsive()",
+    "captured": 1795338843.078,
+    "origin": "attachments-iphone"
+  },
+  {
+    "number": 14,
+    "file": "images/014.png",
+    "sha256": "27cc4416d13d97ff21d50ac42230673910d95f162e1c8021a3e8eea0e3af52bd",
+    "name": "真实视频-返回后小窗",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testReadyVideoReachesTopAndReturningToFloatingWindowStaysResponsive()",
+    "captured": 1795338846.4,
+    "origin": "attachments-iphone"
+  },
+  {
+    "number": 15,
+    "file": "images/015.png",
+    "sha256": "39f7732f604f3525d0085d79dcd8bf0a2d2ffb8ce63b24ac53bfc5b650880e81",
+    "name": "视频-状态栏与同排操作",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testInlineVideoKeepsStatusBarAndActionsOnOneRow()",
+    "captured": 1795338827.086,
+    "origin": "attachments-iphone"
+  },
+  {
+    "number": 16,
+    "file": "images/016.png",
+    "sha256": "18babee957ecdae9bbe874cb33b4073bedb13496093a54edfa54c3ef594df086",
+    "name": "视频-返回浏览恢复系统状态栏",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testInlineVideoKeepsStatusBarAndActionsOnOneRow()",
+    "captured": 1795338829.108,
+    "origin": "attachments-iphone"
+  }
+]

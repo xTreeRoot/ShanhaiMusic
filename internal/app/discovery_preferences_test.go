@@ -49,8 +49,12 @@ func TestDiscoveryEditorCancelAndSaveControlsLoading(t *testing.T) {
 		calls <- id
 		return &music.Browse{Sections: []music.Section{{Tracks: []music.Track{song(id, id)}}}}, nil
 	}
-	a.openDiscoveryEditor(a.library)
-	tt := ui.NewTester(func(c *ui.Context) { a.discoveryEditorView(c) }, 640, 640)
+	a.settingsPage = "plugins"
+	tt := ui.NewTester(a.settingsView, 940, 780)
+	settled(tt)
+	if err := tt.Click(T("Display Settings")); err != nil {
+		t.Fatal(err)
+	}
 	settled(tt)
 	if err := tt.Click("One"); err != nil {
 		t.Fatal(err)
@@ -114,8 +118,11 @@ func TestDiscoverySectionsFrames(t *testing.T) {
 	settled(tt)
 	saveFrame(t, dir, "desktop-discovery-sections.png", tt.Image())
 	a.openDiscoveryEditor(a.library)
-	settled(tt)
-	saveFrame(t, dir, "desktop-discovery-editor.png", tt.Image())
+	a.allLibs = []*library{a.library}
+	a.settingsPage = "plugins"
+	settings := ui.NewTester(a.settingsView, 1180, 900)
+	settled(settings)
+	saveFrame(t, dir, "desktop-discovery-editor.png", settings.Image())
 }
 
 func TestDiscoveryLegacyRoutesKeepStableIDsAndSkipDisabledRequests(t *testing.T) {

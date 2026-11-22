@@ -44,9 +44,6 @@ func (a *app) homeHello(c *ui.Context, now time.Time) {
 	}
 	ui.Row(c).AlignItems(ui.Center).Gap(16).Children(func() {
 		ui.Box(c).Grow(1).MinWidth(0).Children(func() { a.heading(c, hello, i18n.Today(now)) })
-		if _, localFiles := a.src.(*local.Source); !localFiles {
-			ui.Button(c.Key("discovery-sections"), T("Sections")).OnClick(func() { a.openDiscoveryEditor(a.library) })
-		}
 		if a.can("home") {
 			iconButton(c.Key("refresh-home"), iconRefresh, 18, a.pal.muted, T("Refresh")).
 				Margin(0, 0, 28, 0).Disabled(a.homeLoading).OnClick(func() { a.loadHome(a.library) })

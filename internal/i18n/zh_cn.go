@@ -4,6 +4,7 @@ package i18n
 var zhCN = map[string]string{
 	"Reorder %s":                     "调整 %s 顺序",
 	"Sections":                       "栏目",
+	"Display Settings":               "设置显示",
 	"Discovery Sections":             "发现栏目",
 	"Restore Defaults":               "恢复默认",
 	"Shanhai Service":                "山海服务",

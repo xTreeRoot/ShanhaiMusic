@@ -34,7 +34,7 @@ import kotlin.math.roundToInt
 internal fun PluginsOverview(state: PluginManagerState, reordering: Boolean, open: (InstalledPlugin) -> Unit,
                               rename: (InstalledPlugin) -> Unit, remove: (InstalledPlugin) -> Unit,
                               move: (InstalledPlugin, Int) -> Unit, import: () -> Unit, update: () -> Unit,
-                              zip: () -> Unit, folder: () -> Unit, github: () -> Unit, modifier: Modifier = Modifier) {
+                              zip: () -> Unit, folder: () -> Unit, github: () -> Unit, modifier: Modifier = Modifier, display: (InstalledPlugin) -> Unit = {}) {
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
             MBGroupedSection {
@@ -56,7 +56,7 @@ internal fun PluginsOverview(state: PluginManagerState, reordering: Boolean, ope
                 state.installed.forEachIndexed { index, plugin ->
                     if (index > 0) MBFormDivider()
                     key(plugin.id) { PluginManagerRow(plugin, reordering, state.busy, index, state.installed.lastIndex,
-                        { open(plugin) }, { rename(plugin) }, { remove(plugin) }, { move(plugin, it) }) }
+                        { open(plugin) }, { rename(plugin) }, { remove(plugin) }, { move(plugin, it) }, { display(plugin) }) }
                 }
             }
         }
@@ -77,7 +77,7 @@ internal fun PluginsOverview(state: PluginManagerState, reordering: Boolean, ope
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun PluginManagerRow(plugin: InstalledPlugin, editing: Boolean, busy: Boolean, index: Int, last: Int,
-                              open: () -> Unit, rename: () -> Unit, remove: () -> Unit, move: (Int) -> Unit) {
+                              open: () -> Unit, rename: () -> Unit, remove: () -> Unit, move: (Int) -> Unit, display: () -> Unit) {
     var height by remember(plugin.id) { mutableIntStateOf(1) }
     var drag by remember(plugin.id) { mutableFloatStateOf(0f) }
     val latestMove by rememberUpdatedState(move)
@@ -127,7 +127,9 @@ private fun PluginManagerRow(plugin: InstalledPlugin, editing: Boolean, busy: Bo
                             drag = 0f
                         }) { change, amount -> change.consume(); drag += amount }
                 }, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            else Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .6f))
+            else MBTextButton(display, enabled = !busy) {
+                Text(mb("设置显示", "Display Settings"), maxLines = 1)
+            }
         }
     }
 }

@@ -215,6 +215,65 @@ class VideoDetailsDeviceTest {
         } finally { withContext(Dispatchers.Main) { activity.finish() } }
     }
 
+    @Test fun inlineVideoActionsStayOnOneRowAndChangePlaybackOrder() = runBlocking {
+        val id = "video-actions-${UUID.randomUUID()}"
+        val plugin = app.plugins.install(app.plugins.prepareZip { fixtureZip(id).inputStream() })
+        val tracks = listOf(Track(id, "first", "Inline Action Video", "Fixture Artist"), Track(id, "second", "Next Action Video", "Fixture Artist"))
+        var activity: MainActivity? = null
+        var player: PlaybackModel? = null
+        var engine: androidx.media3.exoplayer.ExoPlayer? = null
+        val firstFrame = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val clip = File(app.cacheDir, "inline-actions-fixture.mp4")
+        try {
+            app.plugins.setEnabled(plugin, true); app.refreshPlugins()
+            val screen = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+            activity = screen
+            withContext(Dispatchers.Main) {
+                val model = ViewModelProvider(screen)[PlaybackModel::class.java]; player = model
+                instrumentation.context.assets.open("video-preload.mp4").use { input -> clip.outputStream().use(input::copyTo) }
+                val video = androidx.media3.exoplayer.ExoPlayer.Builder(app).build().also {
+                    engine = it
+                    it.addListener(object : androidx.media3.common.Player.Listener {
+                        override fun onRenderedFirstFrame() { firstFrame.complete(Unit) }
+                        override fun onPlayerError(error: androidx.media3.common.PlaybackException) { firstFrame.completeExceptionally(error) }
+                    })
+                    it.setMediaItem(androidx.media3.common.MediaItem.fromUri(android.net.Uri.fromFile(clip))); it.prepare()
+                }
+                val frame = com.xtreeroot.mb.playback.VideoFrameState(tracks.first().id, player = video, loading = false, aspectRatio = 16f / 9f)
+                screen.setContent { com.xtreeroot.mb.ui.components.MBTheme(true) {
+                    CompositionLocalProvider(LocalMBEnglish provides true) {
+                        val state by model.playback.collectAsStateWithLifecycle()
+                        VideoDetailsScreen(model, if (state.current == null) state.copy(tracks = tracks, index = 0) else state,
+                            app.settings.values.value, accountId = null, fullScreen = false, setFullScreen = {}, browse = {}, chooseMode = {}, sharedFrame = frame, ownsVideoFrame = false)
+                    }
+                } }
+            }
+            listOf("Previous", "Next", "Like", "In Order", "No Repeat").forEach { await(it) }
+            withTimeout(10_000) { firstFrame.await() }
+            withContext(Dispatchers.Main) {
+                fun picture(view: android.view.View): androidx.media3.ui.PlayerView? {
+                    if (view is androidx.media3.ui.PlayerView) return view
+                    if (view is android.view.ViewGroup) for (index in 0 until view.childCount) picture(view.getChildAt(index))?.let { return it }
+                    return null
+                }
+                val view = checkNotNull(picture(screen.window.decorView))
+                assertEquals(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT, view.resizeMode)
+                assertEquals(16f / 9f, view.width.toFloat() / view.height, .01f)
+            }
+            val frames = listOf("Previous", "Next", "Like", "In Order", "No Repeat").map { label -> Rect().also(matches(label).first()::getBoundsInScreen) }
+            frames.forEach { assertTrue("Actions must share one row: $frames", kotlin.math.abs(it.centerY() - frames.first().centerY()) <= 2) }
+            captureVideoControl("android-inline-video-actions.png")
+            tap("In Order"); await("Shuffle")
+            assertTrue(checkNotNull(player).playback.value.shuffle)
+            tap("No Repeat"); await("Repeat All")
+            assertEquals(androidx.media3.common.Player.REPEAT_MODE_ALL, checkNotNull(player).playback.value.repeatMode)
+        } finally {
+            withContext(Dispatchers.Main) { player?.clear(); activity?.finish(); engine?.release() }
+            clip.delete()
+            app.plugins.remove(plugin); app.refreshPlugins(); plugin.dataDirectory.deleteRecursively()
+        }
+    }
+
     @Test fun videoTabsShareTheLoadedCommentPageAndResetOnTrackChange() = runBlocking {
         val id = "video-comments-${UUID.randomUUID()}"
         val plugin = app.plugins.install(app.plugins.prepareZip { fixtureZip(id).inputStream() })

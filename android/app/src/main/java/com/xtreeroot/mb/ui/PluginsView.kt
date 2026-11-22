@@ -48,6 +48,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PluginsView(model: PluginManagerModel, state: PluginManagerState, removed: (String) -> Unit, close: () -> Unit) {
+    var displaySettings by remember { mutableStateOf<InstalledPlugin?>(null) }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var showZip by rememberSaveable { mutableStateOf(false) }
     var showFolder by rememberSaveable { mutableStateOf(false) }
@@ -90,10 +91,14 @@ internal fun PluginsView(model: PluginManagerModel, state: PluginManagerState, r
         if (selected == null) PluginsOverview(state, reordering, { selected = it.id },
             { localName = it.localName.orEmpty(); rename = it }, { remove = it }, model::move,
             { repository = ""; batchImport = true; showGitHub = true }, model::updateAll,
-            { showZip = true }, { showFolder = true }, { repository = ""; batchImport = false; showGitHub = true }, Modifier.padding(padding))
+            { showZip = true }, { showFolder = true }, { repository = ""; batchImport = false; showGitHub = true }, Modifier.padding(padding), display = { displaySettings = it })
     }
     androidx.activity.compose.BackHandler(selected != null) { selected = null }
 
+    displaySettings?.let { plugin ->
+        val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as com.xtreeroot.mb.MBApplication
+        DiscoverySectionsEditor(plugin.manifest, app.plugins) { displaySettings = null }
+    }
     rename?.let { plugin -> AlertDialog(onDismissRequest = { rename = null }, title = { Text(mb("本地名称", "Local Name")) },
         text = { OutlinedTextField(localName, { localName = it }, singleLine = true, placeholder = { Text(plugin.manifest.name) }) },
         confirmButton = { TextButton(onClick = { model.rename(plugin, localName); rename = null }) { Text(mb("保存", "Save")) } },

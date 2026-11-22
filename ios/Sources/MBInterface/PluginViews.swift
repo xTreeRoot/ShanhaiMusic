@@ -51,6 +51,7 @@ struct PluginsView: View {
     @State private var repo = ""
     @State private var removing: InstalledPlugin?
     @State private var confirmingRemoval = false
+    @State private var displaySettings: InstalledPlugin?
     @State private var renaming: InstalledPlugin?
     @State private var localName = ""
     var body: some View {
@@ -78,6 +79,7 @@ struct PluginsView: View {
                 }
                 Section {
                   ForEach(model.installed) { plugin in
+                    HStack(spacing: 8) {
                     NavigationLink {
                         PluginSettingsView(model: model, plugin: plugin)
                     } label: {
@@ -91,6 +93,10 @@ struct PluginsView: View {
                             Text(LocalizedStringKey(model.disabled.contains(plugin.id) ? "已停用" : "已启用")).font(.caption).foregroundStyle(.secondary)
                             }
                         }.padding(.vertical, 5)
+                    }
+                    Button("设置显示") { displaySettings = plugin }
+                        .buttonStyle(.borderless).font(.subheadline).fixedSize()
+                        .accessibilityIdentifier("plugin-display-\(plugin.id)")
                     }
                     .swipeActions(allowsFullSwipe: false) { Button("删除", role: .destructive) { removing = plugin; confirmingRemoval = true }.disabled(model.busy) }
                     .contextMenu {
@@ -118,6 +124,7 @@ struct PluginsView: View {
             Button("取消", role: .cancel) { renaming = nil }
             Button("保存") { if let plugin = renaming { Task { await model.rename(plugin, to: localName) } }; renaming = nil }
         }
+        .sheet(item: $displaySettings) { plugin in DiscoverySectionsEditor(manifest: plugin.manifest, model: model) }
         .sheet(isPresented: $stars, onDismiss: { Task { await model.discardStars() } }) {
             PluginStarsView(model: model, address: $starsAddress)
         }

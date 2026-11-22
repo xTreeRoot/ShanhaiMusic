@@ -6,7 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import com.xtreeroot.mb.ui.components.MBIconButton as IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import com.xtreeroot.mb.ui.components.MBTab as Tab
 import com.xtreeroot.mb.ui.components.MBScrollableTabRow as PrimaryScrollableTabRow
 import com.xtreeroot.mb.ui.components.MBTabRow as PrimaryTabRow
@@ -102,22 +104,24 @@ internal fun VideoDetailsScreen(model: PlaybackModel, state: PlaybackState, pref
                 showSystemVolume = !fullScreen, modifier = modifier)
         }
     }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Surface(color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
             if (maxWidth >= 600.dp && maxWidth > maxHeight) {
-                val pictureWidth = minOf(maxWidth * 0.57f, maxHeight * (16f / 9f))
+                val pictureWidth = minOf(maxWidth * 0.57f, maxHeight * ratio)
                 Row(Modifier.fillMaxSize()) {
                     picture(Modifier.width(pictureWidth))
                     information(Modifier.weight(1f).fillMaxHeight())
                 }
             } else {
-                val pictureWidth = minOf(maxWidth, maxHeight * (0.62f * 16f / 9f))
+                val pictureWidth = minOf(maxWidth, maxHeight * (0.62f * ratio))
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                     picture(Modifier.width(pictureWidth))
                     information(Modifier.weight(1f))
                 }
             }
         }
+    }
     }
 }
 
@@ -180,13 +184,14 @@ private fun VideoInformation(track: Track, state: PlaybackState, model: Playback
                     Column(Modifier.padding(vertical = 12.dp)) {
                         Text(track.artist, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(track.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        if (source != null) PlayerInteractionBar(track, signedIn, showCommentsButton = false)
                         state.error?.let { Retry(it, model::retry) }
-                        FlowRow(Modifier.fillMaxWidth()) {
-                            TextButton(onClick = model::previous) { Text(mb("上一首", "Previous")) }
-                            TextButton(onClick = model::next) { Text(mb("下一首", "Next")) }
-                            TextButton(onClick = model::shuffle) { Text(if (state.shuffle) mb("随机", "Shuffle") else mb("顺序", "In Order")) }
-                            TextButton(onClick = model::repeat) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            TextButton(onClick = model::previous, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(mb("上一首", "Previous"), maxLines = 1) }
+                            TextButton(onClick = model::next, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(mb("下一首", "Next"), maxLines = 1) }
+                            if (source != null) PlayerInteractionBar(track, signedIn, showCommentsButton = false, modifier = Modifier)
+                            TextButton(onClick = model::shuffle, contentPadding = PaddingValues(horizontal = 8.dp)) { Text(if (state.shuffle) mb("随机", "Shuffle") else mb("顺序", "In Order"), maxLines = 1) }
+                            TextButton(onClick = model::repeat, contentPadding = PaddingValues(horizontal = 8.dp)) {
                                 Text(when (state.repeatMode) {
                                     Player.REPEAT_MODE_ONE -> mb("单曲", "Repeat One")
                                     Player.REPEAT_MODE_ALL -> mb("循环", "Repeat All")

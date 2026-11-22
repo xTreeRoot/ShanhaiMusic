@@ -106,7 +106,6 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                                  playStation: ((List<Track>, Track, PlaybackStation) -> Unit)? = null) {
     val app = LocalContext.current.applicationContext as MBApplication
     val discovery by app.plugins.discoveryPreferences.collectAsStateWithLifecycle()
-    var editingSections by remember { mutableStateOf(false) }
     var displayedPreferences by remember(source) { mutableStateOf<com.xtreeroot.mb.plugin.DiscoveryPreferences?>(null) }
     val request = destination.currentRequest
     val pager = destination.pager
@@ -262,11 +261,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
             item(span = { GridItemSpan(maxLineSpan) }) { EmptyMessage(mb("暂无内容", "No content")) }
         }
     }
-    if (editingSections) DiscoverySectionsEditor(source, app.plugins) { editingSections = false }
     Column(Modifier.fillMaxSize()) {
-        if (destination.request == PluginCatalogRequest.Home) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = { editingSections = true }) { Text(mb("栏目", "Sections")) }
-        }
         if (destination.tabs.isNotEmpty()) {
             val options = destination.tabs.mapNotNull { link -> (link.destination as? PluginCatalogRequest.Browse)?.let { it.page to link.title } }.toMap()
             MusicTabs(options, destination.filter?.page ?: page?.selectedTab ?: options.keys.first()) { selected ->

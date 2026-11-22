@@ -41,7 +41,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun PlayerInteractionBar(track: Track, signedIn: Boolean, showCommentsButton: Boolean = true) {
+internal fun PlayerInteractionBar(track: Track, signedIn: Boolean, showCommentsButton: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth()) {
     val application = LocalContext.current.applicationContext as MBApplication
     val source = application.playbackSource(track.sourceId) as? InteractionSource ?: return
     key(source, track.id, signedIn) {
@@ -59,7 +59,7 @@ internal fun PlayerInteractionBar(track: Track, signedIn: Boolean, showCommentsB
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { likeError = failure.message ?: "无法读取互动状态" }
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier, verticalAlignment = Alignment.CenterVertically) {
             if (capabilities?.likes == true) IconButton(enabled = signedIn && liked != null && !pending, onClick = {
                 val desired = !(liked ?: return@IconButton)
                 pending = true
