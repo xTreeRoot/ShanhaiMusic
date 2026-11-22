@@ -20,6 +20,7 @@ struct CaptionView: View {
     let positionMilliseconds: Int64
     let message: String?
     var viewportHeight: CGFloat = 260
+    var compact = false
     @ScaledMetric(relativeTo: .title2) private var wordSize: CGFloat = 25
     var seek: ((Int64) -> Void)? = nil
     @State private var selectedIndex: Int?
@@ -29,21 +30,29 @@ struct CaptionView: View {
 
     var body: some View {
         if timeline.lines.isEmpty {
-            ContentUnavailableView("暂无字幕", systemImage: "quote.bubble", description: Text(LocalizedStringKey(message ?? "此视频没有提供可用字幕")))
+            if compact {
+                Text(LocalizedStringKey(message ?? "暂无歌词")).font(.subheadline).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView("暂无字幕", systemImage: "quote.bubble", description: Text(LocalizedStringKey(message ?? "此视频没有提供可用字幕")))
+            }
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: compact ? 0 : 24) {
                         ForEach(Array(timeline.lines.enumerated()), id: \.offset) { index, line in
                             HStack(spacing: 8) {
                                 Button { selectedIndex = index } label: {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    LyricWordLayout(style: style) {
+                                VStack(alignment: .leading, spacing: compact ? 4 : 10) {
+                                    if compact {
+                                        Text(line.text).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                                            .foregroundStyle(index == activeIndex ? skinAccent : .secondary)
+                                    } else { LyricWordLayout(style: style) {
                                         ForEach(Array(line.timedWords.enumerated()), id: \.offset) { wordIndex, word in
                                             wordView(word, index: wordIndex, active: index == activeIndex)
                                         }
-                                    }
-                                    if let translation = line.translation, !translation.isEmpty {
+                                    } }
+                                    if !compact, let translation = line.translation, !translation.isEmpty {
                                         Text(translation).font(.subheadline).foregroundStyle(.secondary)
                                     }
                                 }
@@ -63,26 +72,26 @@ struct CaptionView: View {
                                             VStack(spacing: 5) {
                                                 Image(systemName: "play.fill").font(.title3)
                                                 Text(Self.time(line.startMilliseconds)).font(.caption2.monospacedDigit())
-                                            }.frame(width: 56).frame(minHeight: 48)
+                                            }.frame(width: compact ? 48 : 56).frame(minHeight: 48)
                                         }.buttonStyle(.plain)
                                             .accessibilityLabel("从这一句播放 \(line.text)")
                                             .accessibilityIdentifier("lyric-confirm-\(index)")
-                                    } else { Color.clear.frame(width: 56).accessibilityHidden(true) }
-                                }.frame(width: 56)
-                            }.padding(.horizontal, 8).padding(.vertical, 6)
+                                    } else { Color.clear.frame(width: compact ? 48 : 56).accessibilityHidden(true) }
+                                }.frame(width: compact ? 48 : 56)
+                            }.frame(height: compact ? 48 : nil).padding(.horizontal, 8).padding(.vertical, compact ? 0 : 6)
                                 .background(selectedIndex == index ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 14))
                                 .id(index)
 
                         }
-                    }.padding(.vertical, 32).padding(.horizontal, 8).frame(maxWidth: .infinity, alignment: .leading)
+                    }.padding(.top, compact ? 0 : 32).padding(.bottom, compact ? 48 : 32).padding(.horizontal, 8).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(height: viewportHeight)
                 .clipped()
                 .accessibilityIdentifier("lyric-style-" + style.rawValue)
-                .onAppear { if let activeIndex { proxy.scrollTo(activeIndex, anchor: .center) } }
+                .onAppear { if let activeIndex { proxy.scrollTo(activeIndex, anchor: compact ? .top : .center) } }
                 .onChange(of: activeIndex) { _, index in
                     guard selectedIndex == nil, let index else { return }
-                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo(index, anchor: .center) }
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo(index, anchor: compact ? .top : .center) }
                 }
                 .onChange(of: timeline.lines) { _, _ in selectedIndex = nil }
             }
@@ -96,12 +105,12 @@ struct CaptionView: View {
     private func wordView(_ word: CaptionWord, index: Int, active: Bool) -> some View {
         let progress = word.progress(at: positionMilliseconds)
         return Text(word.text)
-            .font(.system(size: style == .tilt ? wordSize * 1.2 : wordSize, weight: style == .tilt && index % 2 == 0 ? .black : .semibold, design: style == .tilt ? .rounded : .default))
+            .font(.system(size: compact ? 16 : (style == .tilt ? wordSize * 1.2 : wordSize), weight: style == .tilt && index % 2 == 0 ? .black : .semibold, design: style == .tilt ? .rounded : .default))
             .foregroundStyle(.secondary)
             .overlay(alignment: .leading) {
                 GeometryReader { geometry in
                     skinAccent.frame(width: geometry.size.width * (active ? progress : 0))
-                }.mask(Text(word.text).font(.system(size: style == .tilt ? wordSize * 1.2 : wordSize, weight: style == .tilt && index % 2 == 0 ? .black : .semibold, design: style == .tilt ? .rounded : .default)))
+                }.mask(Text(word.text).font(.system(size: compact ? 16 : (style == .tilt ? wordSize * 1.2 : wordSize), weight: style == .tilt && index % 2 == 0 ? .black : .semibold, design: style == .tilt ? .rounded : .default)))
             }
             .overlay {
                 if sparks && !reduceMotion && active {

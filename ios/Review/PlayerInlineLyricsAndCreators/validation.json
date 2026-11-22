@@ -1,0 +1,63 @@
+{
+  "android": {
+    "version": "0.1.43",
+    "versionCode": 44,
+    "originalCertificateMatches": true,
+    "firstInstallTimeUnchanged": true,
+    "transport": "wireless",
+    "launched": true,
+    "pluginUpdateConfirmedByUser": true,
+    "privateDataDigestVerified": false,
+    "installedApkDigestMatches": true
+  },
+  "ios": {
+    "build": 45,
+    "transport": "localNetwork",
+    "preservedPrivateFiles": 122,
+    "privateFilesUnchanged": true,
+    "musicLayoutIncluded": true,
+    "launched": true
+  },
+  "iosPluginUpdate": {
+    "build": 45,
+    "transport": "localNetwork",
+    "privateFilesUnchanged": true,
+    "preservedPrivateFiles": 118,
+    "plugins": {
+      "bilibili": "1.1.4",
+      "netease": "0.1.20",
+      "qqmusic": "0.3.11",
+      "youtube-music": "0.2.9",
+      "soda": "0.4.3",
+      "ximalaya": "0.1.9"
+    },
+    "publicFilesReadBack": 55,
+    "launched": true
+  },
+  "artifacts": [
+    {
+      "name": "MB-android-v0.1.43.apk",
+      "sha256": "67067671bb6191a75f9c6e7ede37f9cede46e7d0fd5a83f5c8d785ad54fba8a1",
+      "bytes": 19404330
+    },
+    {
+      "name": "MB-iOS-v0.1.0-build45-unsigned.ipa",
+      "sha256": "32987a8b725c60a27e68a95d27c3df35a1bd83ece514886ebe34288569694dc4",
+      "bytes": 7904391
+    }
+  ],
+  "tests": {
+    "swift": 223,
+    "androidJVM": 168,
+    "androidLintErrors": 0,
+    "androidLintWarnings": 41,
+    "androidUIRounds": 5,
+    "goFull": true,
+    "pluginHost": true,
+    "mygoVet": true,
+    "iphoneUIRounds": 5,
+    "iphoneCasesPerRound": 2,
+    "ipadUI": 2,
+    "simulatorBinariesMatch": true
+  }
+}

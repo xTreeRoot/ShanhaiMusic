@@ -256,7 +256,7 @@ internal fun VideoCaptions(track: Track, state: PlaybackState, model: PlaybackMo
             captions.error != null -> Retry(checkNotNull(captions.error)) { model.loadCaptions(track) }
             captions.value.isEmpty() -> EmptyMessage(mb("暂无字幕", "No Captions"))
             else -> CaptionStage(captions.value, state.positionMs, preferences.lyricStyle, preferences.stageSparks,
-                ValueAnimator.areAnimatorsEnabled(), { model.seekCurrent(state, it) })
+                ValueAnimator.areAnimatorsEnabled(), seek = { model.seekCurrent(state, it) })
         }
     }
 }

@@ -22,6 +22,17 @@ final class MBiOSUITests: XCTestCase {
         app.buttons["播放界面样式"].tap(); app.buttons["播放器样式"].tap(); app.buttons["黑胶"].tap()
         let artwork = app.buttons["player-artwork-vinyl"]
         XCTAssertTrue(artwork.waitForExistence(timeout: 5))
+        let inlineLyrics = app.descendants(matching: .any)["player-inline-lyrics"].firstMatch
+        XCTAssertTrue(inlineLyrics.waitForExistence(timeout: 5))
+        let inlineLine = app.buttons["选择歌词 把今天的喧闹放远"]
+        XCTAssertTrue(inlineLine.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(inlineLyrics.frame.height, 85)
+        XCTAssertGreaterThan(inlineLyrics.frame.minY, app.buttons["player-creator"].frame.midY)
+        inlineLine.tap()
+        XCTAssertTrue(app.buttons["从这一句播放 把今天的喧闹放远"].waitForExistence(timeout: 5))
+        // 封面页选词也必须等待右侧确认，不能改变歌曲或打开完整歌词页。
+        XCTAssertTrue(artwork.exists)
+        capture("music-inline-lyrics", app: app)
         artwork.tap()
         let cover = app.buttons["player-lyrics-cover"]
         XCTAssertTrue(cover.waitForExistence(timeout: 5))
@@ -1621,7 +1632,6 @@ extension MBiOSUITests {
         let open = app.buttons["打开播放页，晚风里的片刻"]
         XCTAssertTrue(open.waitForExistence(timeout: 5)); open.tap()
         XCTAssertTrue(app.buttons["队列"].waitForExistence(timeout: 5))
-        for title in ["歌词", "评论点赞", "音频输出", "待播清单"] { XCTAssertTrue(app.staticTexts[title].exists, "底部小字：\(title)") }
         app.buttons["随机播放"].tap()
         XCTAssertTrue(app.staticTexts["已切换为随机播放"].waitForExistence(timeout: 3))
         app.buttons["随机播放"].tap()
@@ -1630,7 +1640,7 @@ extension MBiOSUITests {
         XCTAssertTrue(app.staticTexts["已切换为列表循环"].waitForExistence(timeout: 3))
         app.buttons["列表循环"].tap()
         XCTAssertTrue(app.staticTexts["已切换为单曲循环"].waitForExistence(timeout: 3))
-        capture("播放器-中文模式与底部小字", app: app)
+        capture("播放器-图标操作与模式提示", app: app)
         // iPad 直接验证设备旋转，避免按钮强制方向掩盖窄弹层问题；iPhone 另验证主动横屏入口。
         if UIDevice.current.userInterfaceIdiom == .phone, app.buttons["横屏播放"].exists {
             app.buttons["横屏播放"].tap()
@@ -1985,24 +1995,33 @@ extension MBiOSUITests {
         capture("分页-个人资源触底自动追加", app: app)
     }
 
-    @MainActor func testPlayerActionCaptionsShareOneBaseline() {
+    @MainActor func testPlayerIconActionsShowNoticesAndOpenLyricsAndQueue() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
-        app.launch()
-        XCTAssertTrue(app.buttons["查看更多为你推荐"].waitForExistence(timeout: 15))
-        app.buttons["查看更多为你推荐"].tap()
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 晚风里的片刻")).firstMatch.tap()
-        app.buttons["打开播放页，晚风里的片刻"].tap()
-        let captions = ["歌词", "待播清单"].map { app.staticTexts[$0] }
-        XCTAssertTrue(captions[0].waitForExistence(timeout: 5))
-        let baseline = captions[0].frame.midY
-        for caption in captions { XCTAssertEqual(caption.frame.midY, baseline, accuracy: 1) }
-        let route = app.descendants(matching: .any)["player-audio-output"].firstMatch
-        XCTAssertTrue(route.exists)
-        // 底部歌词、输出和队列保留一致图标槽；评论已移到歌曲信息右侧。
-        XCTAssertEqual(route.frame.midY, app.buttons["字幕"].frame.minY + 14, accuracy: 4)
-        capture("播放-音频输出与操作图标对齐", app: app)
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        selectTab("搜索", app: app)
+        let field = app.textFields["搜索视频、音乐、UP 主"]
+        field.tap(); field.typeText("icons fixture\n")
+        let song = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "选择 ")).firstMatch
+        XCTAssertTrue(song.waitForExistence(timeout: 5)); song.tap()
+        XCTAssertTrue(app.buttons["字幕"].waitForExistence(timeout: 5))
+        app.buttons["随机播放"].tap()
+        XCTAssertTrue(app.staticTexts["已切换为随机播放"].waitForExistence(timeout: 3))
+        app.buttons["随机播放"].tap()
+        XCTAssertTrue(app.staticTexts["已切换为顺序播放"].waitForExistence(timeout: 3))
+        app.buttons["顺序播放"].tap()
+        XCTAssertTrue(app.staticTexts["已切换为列表循环"].waitForExistence(timeout: 3))
+        app.buttons["字幕"].tap()
+        XCTAssertTrue(app.staticTexts["已切换到歌词"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["player-lyrics-cover"].waitForExistence(timeout: 5))
+        app.buttons["字幕"].tap()
+        XCTAssertTrue(app.staticTexts["已切换到封面"].waitForExistence(timeout: 3))
+        capture("播放-仅图标与轻提示", app: app)
+        app.buttons["队列"].tap()
+        XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH %@", "播放队列")).firstMatch.waitForExistence(timeout: 5))
+        app.buttons["完成"].tap()
+        XCTAssertTrue(app.buttons["字幕"].waitForExistence(timeout: 5))
     }
 }
 

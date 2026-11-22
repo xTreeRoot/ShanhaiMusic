@@ -33,6 +33,7 @@ struct NowPlayingView: View {
     @State private var showingComments = false
     @State private var showingTrackActions = false
     @State private var queuedCreator = false
+    @State private var creatorSupported = false
     @State private var creatorDestination: CreatorDestination?
     private struct CreatorDestination: Identifiable { let id: String; let source: (any LibrarySource)?; let plugin: PluginSource? }
 
@@ -43,8 +44,8 @@ struct NowPlayingView: View {
                     if geometry.size.width > geometry.size.height && geometry.size.width > 600 && !textSize.isAccessibilitySize {
                         widePlayer(track: track)
                     } else if textSize.isAccessibilitySize {
-                        ScrollView { player(track: track).frame(minHeight: max(900, geometry.size.height)) }
-                    } else { player(track: track) }
+                        ScrollView { player(track: track, viewportHeight: max(900, geometry.size.height)).frame(minHeight: max(900, geometry.size.height)) }
+                    } else { player(track: track, viewportHeight: geometry.size.height) }
                 }.padding(.horizontal, geometry.size.width > geometry.size.height ? 16 : 24).padding(.top, 4).padding(.bottom, 2)
             } else { ContentUnavailableView("播放队列为空", systemImage: "music.note.list") }
         }
@@ -69,7 +70,7 @@ struct NowPlayingView: View {
             }
         }
         .tint(skinAccent)
-        .sheet(isPresented: $showingQueue) { QueueView(playback: playback) }
+        .sheet(isPresented: $showingQueue) { QueueView(playback: playback, hint: "待播清单") }
         .sheet(isPresented: $showingComments) {
             if let interactionSource, let track = playback.queue.current { CommentsView(source: interactionSource, track: track).id("\(track.id):\(accountRevision):\(interactionSource != nil)") }
         }
@@ -101,6 +102,13 @@ struct NowPlayingView: View {
                 hotComments = page.comments; hotTrackID = track.id
             } catch { /* 热评失败不打断歌词或播放。 */ }
         }
+        .task(id: pluginSource?.manifest.id) {
+            creatorSupported = false
+            if let pluginSource {
+                let supported = (try? await pluginSource.supports("artist")) == true
+                if !Task.isCancelled { creatorSupported = supported }
+            }
+        }
         .onChange(of: playback.selectionRevision) { _, _ in
             scrubbing = false; scrubbingSelection = nil
             previewMilliseconds = demo ? 0 : Double(playback.positionMilliseconds)
@@ -114,9 +122,10 @@ struct NowPlayingView: View {
         #endif
     }
 
-    private func player(track: Track) -> some View {
+    private func player(track: Track, viewportHeight: CGFloat) -> some View {
         VStack(spacing: 10) {
             header(track: track)
+            if !showingCaptions { Color.clear.frame(height: viewportHeight < 650 ? 12 : 32).accessibilityHidden(true) }
             if showingCaptions {
                 HStack(alignment: .center, spacing: 12) {
                     Button { withAnimation(.easeInOut(duration: 0.2)) { showingCaptions = false } } label: {
@@ -161,9 +170,19 @@ struct NowPlayingView: View {
                         previousTrack: playback.neighboringTrack(forward: false), nextTrack: playback.neighboringTrack(forward: true), previous: playback.previous, next: playback.next))
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("music-player-swipe-stage")
-            }.frame(minHeight: 130)
+            }.frame(height: showingCaptions ? nil : max(120, min(320, (viewportHeight - 330) * 0.55)))
+                .frame(minHeight: showingCaptions ? 130 : nil)
+            if !showingCaptions {
+                metadata(track: track)
+                CaptionView(timeline: demo ? DemoCatalog.timeline : playback.timeline,
+                                positionMilliseconds: demo ? Int64(previewMilliseconds) : playback.positionMilliseconds,
+                                message: playback.captionMessage, viewportHeight: 96, compact: true, seek: {
+                                    if demo { previewMilliseconds = Double($0) } else { playback.seek(to: $0) }
+                                }).id(track.id)
+                    .frame(height: 96).accessibilityIdentifier("player-inline-lyrics")
+                Spacer(minLength: 0)
+            }
             VStack(spacing: 10) {
-                if !showingCaptions { metadata(track: track) }
                 if let message = playback.errorMessage, !demo { Text(LocalizedStringKey(message)).font(.caption).foregroundStyle(.red).lineLimit(2) }
                 if let station = playback.station { HStack { Label(station.title, systemImage: "radio"); Spacer(); Button("退出电台") { playback.endStation() } }.font(.caption) }
                 if let message = playback.persistenceMessage { Text(LocalizedStringKey(message)).font(.caption).foregroundStyle(.secondary) }
@@ -201,7 +220,12 @@ struct NowPlayingView: View {
         }
     }
     private func creatorAction(_ track: Track) -> (() -> Void)? {
-        guard let id = track.artistID, !id.isEmpty, librarySource != nil || pluginSource != nil else { return nil }
+        guard let id = track.artistID, !id.isEmpty else { return nil }
+        guard let pluginSource else {
+            guard librarySource != nil else { return nil }
+            return { creatorDestination = CreatorDestination(id: id, source: librarySource, plugin: nil) }
+        }
+        guard creatorSupported else { return nil }
         return { creatorDestination = CreatorDestination(id: id, source: librarySource, plugin: pluginSource) }
     }
     private func selectCreatorTrack(_ tracks: [Track], _ index: Int) {
@@ -218,22 +242,20 @@ struct NowPlayingView: View {
     }
     private func playerActions(track: Track) -> some View {
         HStack {
-            Button { showingCaptions.toggle() } label: {
-                actionLabel("歌词", icon: "quote.bubble", active: showingCaptions)
+            Button { showingCaptions.toggle(); announceMode(showingCaptions ? "已切换到歌词" : "已切换到封面") } label: {
+                actionLabel(icon: "quote.bubble", active: showingCaptions)
             }.accessibilityLabel("字幕").accessibilityValue(Text(showingCaptions ? "开启" : "关闭"))
             Spacer(minLength: 0)
             #if os(iOS)
-            VStack(spacing: 3) {
-                AudioRoutePicker().frame(width: 44, height: 28).accessibilityLabel("音频输出").accessibilityIdentifier("player-audio-output")
-                Text("音频输出").font(.caption2).accessibilityHidden(true)
-            }.frame(minWidth: 60, minHeight: 48)
+            AudioRoutePicker(onPresent: { announceMode("音频输出") }).frame(width: 60, height: 48)
+                .accessibilityLabel("音频输出").accessibilityIdentifier("player-audio-output")
             Spacer(minLength: 0)
             #endif
-            Button { showingQueue = true } label: { actionLabel("待播清单", icon: "list.bullet") }.accessibilityLabel("队列").accessibilityValue("\(playback.queue.tracks.count)")
+            Button { showingQueue = true } label: { actionLabel(icon: "list.bullet") }.accessibilityLabel("队列").accessibilityValue("\(playback.queue.tracks.count)")
         }.foregroundStyle(.primary)
     }
-    private func actionLabel(_ title: String, icon: String, active: Bool = false) -> some View {
-        VStack(spacing: 3) { Image(systemName: icon).font(.title3).frame(width: 44, height: 28); Text(LocalizedStringKey(title)).font(.caption2) }
+    private func actionLabel(icon: String, active: Bool = false) -> some View {
+        Image(systemName: icon).font(.title3)
             .frame(minWidth: 60, minHeight: 48)
             .background(active ? skinAccent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
     }
@@ -336,7 +358,7 @@ struct NowPlayingView: View {
     private var controls: some View {
         HStack {
             Button { playback.toggleShuffle(); announceMode(playback.queue.shuffled ? "已切换为随机播放" : "已切换为" + playback.queue.repeatMode.title) } label: {
-                VStack(spacing: 3) { Image(systemName: "shuffle"); Text(playback.queue.shuffled ? "随机播放" : "顺序播放").font(.caption2) }.frame(minWidth: 56, minHeight: 48)
+                Image(systemName: "shuffle").frame(minWidth: 56, minHeight: 48)
             }.accessibilityLabel("随机播放")
                 .tint(playback.queue.shuffled ? skinAccent : .secondary).accessibilityValue(Text(playback.queue.shuffled ? "开启" : "关闭"))
             Spacer(minLength: 4)
@@ -349,7 +371,7 @@ struct NowPlayingView: View {
             Button("下一首", systemImage: "forward.end.fill") { playback.next() }.labelStyle(.iconOnly).font(.title2).frame(width: 44, height: 52)
             Spacer(minLength: 4)
             Button { playback.cycleRepeat(); announceMode("已切换为" + playback.queue.repeatMode.title) } label: {
-                VStack(spacing: 3) { Image(systemName: playback.queue.repeatMode == .one ? "repeat.1" : "repeat"); Text(LocalizedStringKey(playback.queue.repeatMode.title)).font(.caption2) }.frame(minWidth: 56, minHeight: 48)
+                Image(systemName: playback.queue.repeatMode == .one ? "repeat.1" : "repeat").frame(minWidth: 56, minHeight: 48)
             }.accessibilityLabel(LocalizedStringKey(playback.queue.repeatMode.title)).tint(playback.queue.repeatMode == .off ? .secondary : skinAccent)
         }.foregroundStyle(.primary)
     }
@@ -357,6 +379,8 @@ struct NowPlayingView: View {
 
 struct QueueView: View {
     let playback: PlaybackModel
+    var hint: String? = nil
+    @State private var showingHint = true
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -373,6 +397,14 @@ struct QueueView: View {
             .overlay {
                 if playback.queue.tracks.isEmpty { ContentUnavailableView("播放队列为空", systemImage: "music.note.list") }
             }
+            .overlay(alignment: .top) {
+                if showingHint, let hint {
+                    Text(LocalizedStringKey(hint)).font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 18).padding(.vertical, 10).background(.regularMaterial, in: Capsule())
+                        .allowsHitTesting(false).accessibilityIdentifier("player-action-notice")
+                }
+            }
+            .task { try? await Task.sleep(for: .seconds(2)); showingHint = false }
             .navigationTitle("播放队列 · \(playback.queue.tracks.count)")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             #if os(iOS)

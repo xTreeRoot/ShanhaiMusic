@@ -242,6 +242,12 @@ class VideoDetailsDeviceTest {
                 } }
             }
             await("Show Lyrics"); assertTrue(matches("Back to Artwork").isEmpty())
+            await("First lyric")
+            val inlineArtist = Rect().also(matches("Fixture Artist ›").first()::getBoundsInScreen)
+            val inlineLyric = Rect().also(matches("First lyric").first()::getBoundsInScreen)
+            assertTrue("Metadata must sit above the scrollable lyrics", inlineArtist.centerY() < inlineLyric.centerY())
+            tap("First lyric"); await("Play from lyric First lyric")
+            assertTrue(matches("Back to Artwork").isEmpty())
             captureVideoControl("android-music-vinyl.png")
             tap("Show Lyrics"); await("Back to Artwork"); await("First lyric")
             val cover = Rect().also(matches("Back to Artwork").first()::getBoundsInScreen)

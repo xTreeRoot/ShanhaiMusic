@@ -19,12 +19,13 @@ import androidx.mediarouter.app.SystemOutputSwitcherDialogController
 import com.xtreeroot.mb.R
 
 @Composable
-internal fun AudioOutputButton(enabled: Boolean) {
+internal fun AudioOutputButton(enabled: Boolean, onOpen: () -> Unit = {}) {
     val context = LocalContext.current
     val label = mb("音频输出", "Audio Output")
     var showFallback by rememberSaveable { mutableStateOf(false) }
     var settingsUnavailable by rememberSaveable { mutableStateOf(false) }
     IconButton(enabled = enabled, onClick = {
+        onOpen()
         settingsUnavailable = false
         showFallback = try { !SystemOutputSwitcherDialogController.showDialog(context) }
         catch (_: ActivityNotFoundException) { true }

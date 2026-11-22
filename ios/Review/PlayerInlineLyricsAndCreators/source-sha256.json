@@ -1,0 +1,13 @@
+{
+  "android/app/build.gradle.kts": "6a61d79b91795af606617c192c6648bd1e8607644529051ea477f08bdd82a2e2",
+  "android/app/src/androidTest/java/com/xtreeroot/mb/ui/VideoDetailsDeviceTest.kt": "90564477f6c000831ee98cb39352a38c708ef51176d34cf1c3edccdb353d9940",
+  "android/app/src/main/java/com/xtreeroot/mb/ui/AudioOutputButton.kt": "9c101332d92eed0271d9e2d8bb9838c50bd081299e26936dd66e3fadeca828f5",
+  "android/app/src/main/java/com/xtreeroot/mb/ui/CaptionStage.kt": "8b8af3e07cd112eb9766b63a92045cbc8888a61e82646a3e1ae010706faeae68",
+  "android/app/src/main/java/com/xtreeroot/mb/ui/PlayerViews.kt": "c68e86b733b052b7acf8e2c60cf875d2f0fcbe8c74efb3c9784ddad7b4eb8b98",
+  "android/app/src/main/java/com/xtreeroot/mb/ui/VideoDetails.kt": "a8d5973ed07e7f0de0a5c160b11ea16cb870123d930806d6ba394a67e39bad62",
+  "ios/MBiOS.xcodeproj/project.pbxproj": "574ce73b910d76606cc422a132711e888978a7dbdcbdf4ac86d42dc00c0a3274",
+  "ios/MBiOSUITests/MBiOSUITests.swift": "7a3dd9831519f08d5179c2c4805dadb69741f05733b552f92ffc8c71d6b82c71",
+  "ios/Sources/MBInterface/AudioRoutePicker.swift": "92ab68cf62021788cabef68f11abf3b73dce5a544699017cda6c147d4e1711a5",
+  "ios/Sources/MBInterface/CaptionView.swift": "29533e8246f29344a93ff1440ac690a7cbf37bfc6d44e24e489153616b4fe82f",
+  "ios/Sources/MBInterface/NowPlayingView.swift": "ef6e133f0f25f2a153906d25847903ca3ff183d6032bfc4c55839c6548a71bc2"
+}
