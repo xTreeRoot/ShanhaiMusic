@@ -643,13 +643,12 @@ private actor PlaybackLaneGate {
 }
 
 
-@Test func explicitPluginSignOutClearsOnlyLoginStorageCatalogAndBothRuntimeLanes() async throws {
+@Test func hostSignOutClearsPluginStorageCatalogAndBothRuntimeLanesWithoutAnExport() async throws {
     try await withPlugin("""
     let local = 'cold';
     export function account() { const value = host.storage.get('session'); return value ? {id:value,name:value} : null; }
     export function signIn() { host.storage.set('session','user'); return account(); }
     export function signOut() { host.storage.set('inactive',true); }
-    export function signOutAndClearCache() { host.storage.remove('session'); }
     export function home() { host.storage.set('loads',(host.storage.get('loads')||0)+1); return {sections:[{title:'Private'}]}; }
     export function warm() { local = 'warm'; }
     export function stream() { const before = local; local = 'playing'; return before; }
@@ -671,7 +670,31 @@ private actor PlaybackLaneGate {
         #expect(value["local"] == .string("cold"))
         #expect(value["session"] == .null)
         #expect(value["quality"] == .string("high"))
-        #expect(value["loads"] == .number(1))
+        #expect(value["loads"] == .null)
         #expect(try await runtime.invoke("stream") == .string("cold"))
+    }
+}
+
+@Test func hostCacheResetCancelsAnInFlightLoginBeforeItCanRestoreCredentials() async throws {
+    try await withPlugin("""
+    export async function signIn() {
+        host.storage.set('pending',true);
+        await new Promise(resolve=>setTimeout(resolve,60000));
+        host.storage.set('session','late'); return {id:'late',name:'Late'};
+    }
+    export function stream() { return host.storage.get('pending'); }
+    export function account() { return host.storage.get('session'); }
+    """) { runtime, _, _ in
+        let signingIn = Task { try await runtime.invoke("signIn", timeout: .seconds(90)) }
+        defer { signingIn.cancel() }
+        for _ in 0..<100 {
+            if try await runtime.invoke("stream") == .bool(true) { break }
+            await Task.yield()
+        }
+        #expect(try await runtime.invoke("stream") == .bool(true))
+        try await runtime.clearLoginCache()
+        await #expect(throws: CancellationError.self) { try await signingIn.value }
+        #expect(try await runtime.invoke("account") == .null)
+        #expect(try await runtime.invoke("stream") == .null)
     }
 }

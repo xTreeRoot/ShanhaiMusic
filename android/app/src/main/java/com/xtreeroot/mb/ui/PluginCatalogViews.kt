@@ -345,8 +345,8 @@ internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalo
             AccountDestinations(destinations)
         }
         item { AccountTools(openSettings, openPlugins, openService) }
-        if (account != null && state.canSignOut) item {
-            AccountSignOutRow(state.loading, { signOut = false }, if (state.canClearLoginCache) {{ signOut = true }} else null)
+        if (account != null && (state.canSignOut || state.canClearLoginCache)) item {
+            AccountSignOutRow(state.loading, { signOut = false }, if (state.canClearLoginCache) {{ signOut = true }} else null, state.canSignOut)
         }
         if (!refreshing && (loading || state.loading && !state.signingIn)) item { Loading() }
         state.error?.takeUnless { state.signingIn }?.let { message -> item { Retry(message, model::refresh) } }

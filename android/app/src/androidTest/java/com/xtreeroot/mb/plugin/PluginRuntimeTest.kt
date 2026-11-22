@@ -661,15 +661,15 @@ class PluginRuntimeTest {
         }
     }
 
-    @Test fun clearingLoginCacheResetsBothMachinesAndPreservesUnrelatedPluginStorage() {
+    @Test fun hostClearsLoginCacheWithoutPluginExportAndPreservesSettings() {
         fixture("""
             const cached = host.storage.get('session');
-            export function account() { return host.storage.get('disabled') ? null : {id:'me',name:'Fixture'}; }
+            export function account() { return host.storage.get('disabled') || !host.storage.get('session') ? null : {id:'me',name:'Fixture'}; }
             export function seed() { host.storage.set('session','fixture-session'); host.storage.set('keep','fixture-setting'); }
             export function signOut() { host.storage.set('disabled',true); }
-            export function signOutAndClearCache() { host.storage.remove('session'); host.storage.set('disabled',true); }
             export function session() { return cached || ''; }
             export function keep() { return host.storage.get('keep'); }
+            export function quality() { return host.setting('quality'); }
             export function stream() { return {url:'https://api.example.test/'+(cached || 'guest'),type:'m4a'}; }
         """.trimIndent()) { runtime, _, _ ->
             val source = PluginSource(manifest, runtime)
@@ -685,7 +685,27 @@ class PluginRuntimeTest {
             assertEquals(null, source.account())
             assertEquals("", runtime.invoke("session"))
             assertTrue(source.audio("fixture").url.endsWith("guest"))
-            assertEquals("fixture-setting", runtime.invoke("keep"))
+            assertEquals(JSONObject.NULL, runtime.invoke("keep"))
+            assertEquals("high", runtime.invoke("quality"))
+        }
+    }
+
+    @Test fun hostCacheResetCancelsPendingLoginAndRejectsLateCookies() {
+        val requested = CompletableDeferred<Unit>()
+        val reply = CompletableDeferred<String>()
+        fixture("""
+            export async function signIn() {
+                const result = await host.webSignIn({url:'https://api.example.test/login',cookiesOf:'https://api.example.test',until:['session']});
+                host.storage.set('session',result.cookie); return {id:'me',name:'Fixture'};
+            }
+            export function account() { return host.storage.get('session'); }
+        """.trimIndent(), webSignIn = { requested.complete(Unit); reply.await() }) { runtime, _, _ ->
+            val signingIn = async { runtime.signIn {} }
+            requested.await()
+            runtime.clearLoginCache()
+            assertTrue(signingIn.runCatching { await() }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+            reply.complete("session=late-fixture")
+            assertEquals(JSONObject.NULL, runtime.invoke("account"))
         }
     }
 

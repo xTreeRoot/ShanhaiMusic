@@ -150,11 +150,10 @@ internal class PluginSource(
 
     override suspend fun signOut() { runtime.invoke("signOut"); rememberAccount(null, force = true) }
 
-    override suspend fun supportsAccountCacheReset(): Boolean = runtime.supports("signOutAndClearCache")
+    override suspend fun supportsAccountCacheReset(): Boolean = true
     override suspend fun signOutAndClearCache() {
-        if (!supportsAccountCacheReset()) throw PluginException("插件不支持清理登录缓存")
         synchronized(accountCacheLock) { accountGeneration++; cacheAccount = null }
-        runtime.invoke("signOutAndClearCache")
+        runtime.clearLoginCache()
         rememberAccount(null, force = true)
         searchLock.withLock { offsets.clear(); searchTerm = "" }
         catalog.invalidate()

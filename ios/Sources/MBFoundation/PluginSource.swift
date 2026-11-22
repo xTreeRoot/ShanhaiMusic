@@ -151,11 +151,10 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
         _ = try await runtime.invoke("signOut")
         accountGeneration += 1; cacheAccount = "guest"
     }
-    public func supportsAccountCacheReset() async -> Bool { (try? await supports("signOutAndClearCache")) == true }
+    public func supportsAccountCacheReset() async -> Bool { true }
     public func signOutAndClearCache() async throws {
-        guard try await supports("signOutAndClearCache") else { throw PluginFailure.unavailable }
         accountGeneration += 1; cacheAccount = nil
-        _ = try await runtime.invoke("signOutAndClearCache")
+        try await runtime.clearLoginCache()
         cacheAccount = "guest"; offsets.removeAll(); commentOffsets.removeAll()
         await invalidateCatalog()
     }

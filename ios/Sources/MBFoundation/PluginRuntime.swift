@@ -96,6 +96,16 @@ public actor PluginRuntime {
         await catalogCache.invalidate()
     }
     public func setPrompt(_ prompt: (@Sendable (SignInPrompt) -> Void)?) { host.prompt = prompt }
+    /// 所有插件共用的宿主重置；先终止旧 VM，阻止迟到登录、定时器或请求恢复旧凭据。
+    public func clearLoginCache() async throws {
+        reset(catalog); reset(playback)
+        await acquire(catalog)
+        await acquire(playback)
+        do { try Task.checkCancellation(); try host.clearLoginStorage() }
+        catch { release(playback); release(catalog); throw error }
+        release(playback); release(catalog)
+        await catalogCache.invalidate()
+    }
     public func supports(_ name: String) async throws -> Bool {
         let lane = lane(for: name)
         await acquire(lane); defer { release(lane) }

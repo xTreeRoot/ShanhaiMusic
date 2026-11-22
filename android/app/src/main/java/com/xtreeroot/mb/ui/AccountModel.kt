@@ -105,7 +105,7 @@ internal class AccountModel(application: Application) : AndroidViewModel(applica
     }
 
     fun signOut(clearCache: Boolean = false) {
-        if (state.value.loading || !state.value.canSignOut || clearCache && !state.value.canClearLoginCache) return
+        if (state.value.loading || if (clearCache) !state.value.canClearLoginCache else !state.value.canSignOut) return
         launch(false) { active, _ ->
             if (clearCache) (active as com.xtreeroot.mb.music.AccountCacheResetSource).signOutAndClearCache()
             else active.signOut()

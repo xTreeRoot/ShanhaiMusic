@@ -30,6 +30,13 @@ internal class PluginHostState(rootDirectory: File, dataDirectory: File, setting
         if (storageFile.exists()) storage = JSONObject(storageFile.readPluginText(storageLimit))
     }
 
+    /** 仅重置本插件的宿主存储；设置、代码、资料库与下载都在各自目录中保留。 */
+    fun clearLoginStorage() {
+        writeAtomic(storageFile, "{}")
+        storage = JSONObject()
+        onPrompt = null
+    }
+
     fun module(path: String): String {
         val file = pluginFile(path)
         if (file.extension != "js") throw PluginException("Invalid plugin module")

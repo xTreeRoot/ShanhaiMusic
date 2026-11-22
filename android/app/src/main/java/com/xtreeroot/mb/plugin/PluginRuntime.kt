@@ -161,6 +161,17 @@ internal class PluginRuntime(
         scope.cancel()
     }
 
+    /** 宿主能力，不要求插件实现清理导出；终止旧 VM，防止迟到响应重新写入登录状态。 */
+    suspend fun clearLoginCache() {
+        withContext(dispatcher) {
+            check(!closed) { "Plugin runtime is closed" }
+            reset(catalog); reset(playback)
+            catalog.calls.withLock { playback.calls.withLock { hostState().clearLoginStorage() } }
+        }
+        // 缓存加载可能正等待 VM，不能持有执行通道锁等待缓存锁。
+        catalogCache.invalidate()
+    }
+
     private suspend fun <T> useMachine(lane: Lane = catalog, operation: suspend (Machine) -> T): T = withContext(dispatcher) {
         lane.calls.withLock {
             check(!closed) { "Plugin runtime is closed" }
@@ -222,7 +233,8 @@ internal class PluginRuntime(
             checkStatus(runtime)
             schedule(runtime)
             if (runtime.status > 0) return JSONTokener(runtime.context.result()).nextValue() ?: JSONObject.NULL
-            runtime.wake.receive()
+            // 重置会关闭旧通道；回到循环按 VM 身份报告取消，不把关停误报成执行错误。
+            runtime.wake.receiveCatching()
         }
     }
 

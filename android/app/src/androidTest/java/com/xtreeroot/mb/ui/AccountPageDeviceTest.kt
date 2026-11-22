@@ -1,6 +1,5 @@
 package com.xtreeroot.mb.ui
 
-import android.content.Intent
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.graphics.Bitmap
 import android.view.accessibility.AccessibilityNodeInfo
@@ -407,10 +406,25 @@ class AccountPageDeviceTest {
 
     @Test fun clearLoginCacheRequiresConfirmationAndNextLoginRequestsANewQr() = runBlocking {
         val id = "account-reset-${UUID.randomUUID()}"
-        val plugin = app.plugins.install(app.plugins.prepareZip { pluginZip(id, accountReset = true).inputStream() })
+        val root = File(app.cacheDir, id).apply { mkdirs() }
+        val code = File(root, "code").apply { mkdirs() }
+        val data = File(root, "data").apply { mkdirs() }
+        File(code, "index.js").writeText("""
+            export function account() { return host.storage.get('disabled') || !host.storage.get('session') ? null : {id:'listener',name:'Fixture Listener'}; }
+            export function signOut() { host.storage.set('disabled',true); }
+            export async function signIn() {
+                if (!host.storage.get('session')) {
+                    host.signInPrompt({qr:'https://api.example.test/scan',text:'Scan again'});
+                    await new Promise(resolve => setTimeout(resolve, 300000));
+                }
+                host.storage.remove('disabled'); return account();
+            }
+        """.trimIndent())
+        File(data, "storage.json").writeText("""{"session":"fixture-session"}""")
+        val manifest = com.xtreeroot.mb.plugin.PluginManifest.parse(org.json.JSONObject("""{"id":"$id","name":"Fixture Music","permissions":{"network":["api.example.test"]}}"""))
+        val runtime = com.xtreeroot.mb.plugin.PluginRuntime(app.assets, code, data, manifest)
+        val source = PluginSource(manifest, runtime)
         try {
-            app.plugins.setEnabled(plugin, true); app.refreshPlugins()
-            val source = app.playbackSource(id) as PluginSource
             withPage(source, dark = true, content = { model ->
                 val state by model.account.collectAsStateWithLifecycle()
                 PluginPersonalContent(source, PluginCatalogNavigator(), model, state)
@@ -424,14 +438,15 @@ class AccountPageDeviceTest {
                 awaitNode("Sign In to Source"); tap("Sign In to Source"); awaitNode("Fixture Listener")
                 tap("Sign Out and Clear Cache"); awaitNode("Clear this sign-in session?")
                 capture("android-account-reset-actions")
-                tap("Sign Out"); awaitNode("Sign In to Source"); tap("Sign In to Source")
-                awaitNode("Sign In QR Code")
+                tap("Sign Out"); awaitNode("Sign In to Source")
                 assertNull(source.account())
+                tap("Sign In to Source")
+                awaitNode("Sign In QR Code")
                 capture("android-account-reset-qr")
                 tap("Cancel")
             }
         } finally {
-            app.plugins.remove(plugin); app.refreshPlugins(); plugin.dataDirectory.deleteRecursively()
+            runtime.close(); root.deleteRecursively()
         }
     }
 
@@ -453,8 +468,14 @@ class AccountPageDeviceTest {
         instrumentation.uiAutomation.serviceInfo = instrumentation.uiAutomation.serviceInfo.apply {
             flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         }
-        val activity = instrumentation.startActivitySync(Intent(app, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        // 由测试 Shell 拉起，避免厂商把测试线程当作后台应用拦截；不等待黑胶动画全局空闲。
+        val monitor = instrumentation.addMonitor(MainActivity::class.java.name, null, false)
+        val activity = try {
+            instrumentation.uiAutomation.executeShellCommand("am start -n ${app.packageName}/.MainActivity -f 0x18000000").use { descriptor ->
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.readBytes() }
+            }
+            checkNotNull(monitor.waitForActivityWithTimeout(5_000)) { "Account test activity did not start" } as MainActivity
+        } finally { instrumentation.removeMonitor(monitor) }
         val store = ViewModelStore()
         val background = if (skin) Bitmap.createBitmap(320, 640, Bitmap.Config.ARGB_8888).also { bitmap ->
             val paint = android.graphics.Paint().apply {
@@ -530,28 +551,18 @@ class AccountPageDeviceTest {
         if (InstrumentationRegistry.getArguments().getString("accountScreenshots") != "true") return
         instrumentation.waitForIdleSync()
         val frame = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-        try { File(app.cacheDir, "$name.png").outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+        val output = File(checkNotNull(app.getExternalFilesDir(null)), "delivery-ui").apply { mkdirs() }
+        try { File(output, "$name.png").outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 100, it) } }
         finally { frame.recycle() }
     }
 
-    private fun pluginZip(id: String, accountReset: Boolean = false) = ByteArrayOutputStream().apply {
+    private fun pluginZip(id: String) = ByteArrayOutputStream().apply {
         ZipOutputStream(this).use { zip ->
             zip.putNextEntry(ZipEntry("plugin.json"))
             zip.write("""{"id":"$id","name":"Fixture Music","permissions":{"network":["api.example.test"]},"navigation":[{"page":"subscriptions","title":"Subscriptions","placement":"personal"},{"page":"personal","title":"Channel","placement":"personal"},{"builtin":"liked","title":"Liked Videos","placement":"personal"},{"page":"music","title":"Music Hub","placement":"personal"}]}""".encodeToByteArray())
             zip.closeEntry()
             zip.putNextEntry(ZipEntry("index.js"))
-            val script = if (accountReset) """
-                export function account() { return host.storage.get('disabled') ? null : {id:'listener',name:'Fixture Listener'}; }
-                export function signOut() { host.storage.set('disabled',true); }
-                export function signOutAndClearCache() { signOut(); host.storage.set('cleared',true); }
-                export async function signIn() {
-                    if (host.storage.get('cleared')) {
-                        host.signInPrompt({qr:'https://api.example.test/scan',text:'Scan again'});
-                        await new Promise(resolve => setTimeout(resolve, 300000));
-                    }
-                    host.storage.remove('disabled'); return account();
-                }
-            """ else """
+            val script = """
                 export function account() { return {id:'listener', name:'Fixture Listener', page:'personal'}; }
                 export function playlists() { return [{id:'pl',name:'List',mine:true}]; }
                 export function liked() { return []; }

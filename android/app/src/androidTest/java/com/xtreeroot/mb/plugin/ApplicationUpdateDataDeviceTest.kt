@@ -35,18 +35,23 @@ class ApplicationUpdateDataDeviceTest {
             hashes.put(file.relativeTo(root).invariantSeparatorsPath, digest.digest().joinToString("") { "%02x".format(it) })
         }
         val checkpoint = File(output, "before-hashes.json")
-        if (stage == "before") {
-            assertTrue(files.isNotEmpty())
-            checkpoint.writeText(hashes.toString())
-            ZipOutputStream(File(output, "private-metadata-backup.zip").outputStream()).use { archive ->
+        val metadataName = if (stage == "before") "private-metadata-backup.zip" else "after-metadata-backup.zip"
+        ZipOutputStream(File(output, metadataName).outputStream()).use { archive ->
                 for (file in files.filter { it.length() <= 16L * 1024 * 1024 && it.extension in setOf("json", "xml", "db", "db-wal", "db-shm", "txt") }) {
                     archive.putNextEntry(ZipEntry(file.relativeTo(root).invariantSeparatorsPath))
                     file.inputStream().use { it.copyTo(archive) }
                     archive.closeEntry()
                 }
-            }
+        }
+        if (stage == "before") {
+            assertTrue(files.isNotEmpty())
+            checkpoint.writeText(hashes.toString())
         } else {
             val before = JSONObject(checkpoint.readText())
+            // AndroidX ProfileVerifier/ProfileInstaller 写入包的 lastUpdateTime；覆盖后必然变化，并非用户资料。
+            val installationMarkers = listOf("files/profileInstalled", "files/profileinstaller_profileWrittenFor_lastUpdateTime.dat")
+            File(output, "after-hashes.json").writeText(hashes.toString())
+            for (name in installationMarkers) { before.remove(name); hashes.remove(name) }
             assertEquals(before.keys().asSequence().toSet(), hashes.keys().asSequence().toSet())
             for (name in before.keys()) assertEquals("Private file changed: $name", before.getString(name), hashes.getString(name))
         }
