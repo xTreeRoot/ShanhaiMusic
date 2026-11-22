@@ -88,6 +88,19 @@ class VideoDetailsDeviceTest {
             await("Portrait fixture"); await("Video Actions")
             withTimeout(10_000) { firstFrame.await() }
             await("Like"); await("Share")
+            withContext(Dispatchers.Main) {
+                fun picture(view: android.view.View): androidx.media3.ui.PlayerView? {
+                    if (view is androidx.media3.ui.PlayerView) return view
+                    if (view is android.view.ViewGroup) for (index in 0 until view.childCount) {
+                        picture(view.getChildAt(index))?.let { return it }
+                    }
+                    return null
+                }
+                val view = checkNotNull(picture(screen.window.decorView))
+                val viewport = android.graphics.Point().also { screen.windowManager.defaultDisplay.getRealSize(it) }
+                assertEquals("视频使用保持比例的裁切铺满", androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM, view.resizeMode)
+                assertEquals("画面不为顶部和进度条预留黑边", viewport.y, view.height)
+            }
             captureVideoControl("android-portrait-controls.png")
             tap("Comments"); await("First page request 1")
             captureVideoControl("android-portrait-comments.png")

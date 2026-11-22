@@ -2,6 +2,10 @@ package com.xtreeroot.mb.ui
 
 import com.xtreeroot.mb.plugin.PluginCatalogPage
 import com.xtreeroot.mb.plugin.PluginCatalogSection
+import com.xtreeroot.mb.plugin.PluginCatalogRequest
+import com.xtreeroot.mb.plugin.PluginCatalogLink
+import com.xtreeroot.mb.plugin.continuing
+import com.xtreeroot.mb.music.Track
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
@@ -132,6 +136,24 @@ class PluginCatalogPagerTest {
         pager.load(append = true) { offset -> page("", offset) }
         assertNull(pager.state.value.page?.nextOffset)
         pager.load(append = true) { throw AssertionError("A stalled page should not trigger another request") }
+    }
+
+    @Test fun legacyMoreRoutesAppendInPlaceDeduplicateAndStopCycles() = runBlocking {
+        val pager = PluginCatalogPager()
+        val first = Track("fixture", "one", "First", "", durationMs = 1000)
+        val second = first.copy(sourceTrackId = "two", title = "Second")
+        val start = PluginCatalogRequest.Browse("start", "")
+        val rest = PluginCatalogRequest.Browse("rest", "")
+        fun response(tracks: List<Track>, route: PluginCatalogRequest.Browse) = page("Items", null).let { value ->
+            value.copy(sections = listOf(value.sections.single().copy(tracks = tracks, more = PluginCatalogLink("", "", route))))
+        }
+        pager.load { response(listOf(first), rest).continuing(start) }
+        assertEquals(rest, pager.state.value.page?.nextPage)
+        assertNull(pager.state.value.page?.sections?.single()?.more)
+        pager.load(true) { offset -> assertEquals(0, offset); response(listOf(first, second), rest).continuing(rest) }
+        assertEquals(listOf(first, second), pager.state.value.page?.sections?.flatMap { it.tracks })
+        assertNull(pager.state.value.page?.nextPage)
+        pager.load(true) { throw AssertionError("A self-route must not load again") }
     }
 
     private fun page(title: String, next: Int?) = PluginCatalogPage("Catalog", "", "", listOf(

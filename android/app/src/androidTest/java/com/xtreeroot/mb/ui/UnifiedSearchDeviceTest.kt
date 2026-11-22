@@ -195,12 +195,14 @@ class UnifiedSearchDeviceTest {
         assertTrue(editable.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value) }))
     }
     private fun swipeRight() {
+        instrumentation.waitForIdleSync()
+        instrumentation.uiAutomation.waitForIdle(100, 5_000)
         val metrics = app.resources.displayMetrics
         val down = SystemClock.uptimeMillis()
         for (step in 0..20) {
             val action = when (step) { 0 -> MotionEvent.ACTION_DOWN; 20 -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
-            val event = MotionEvent.obtain(down, down + step * 20, action, metrics.widthPixels * (0.15f + step / 20f * 0.7f), metrics.heightPixels * 0.17f, 0)
-            instrumentation.sendPointerSync(event); event.recycle()
+            val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, metrics.widthPixels * (0.15f + step / 20f * 0.7f), metrics.heightPixels * 0.17f, 0)
+            instrumentation.sendPointerSync(event); event.recycle(); SystemClock.sleep(16)
         }
     }
     private fun screenshot(name: String) {

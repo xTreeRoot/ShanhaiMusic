@@ -292,14 +292,16 @@ private actor OrderedModeStore: PlaybackModeStore {
     var starts = 0
     var stops = 0
     var position: Int64 = 0
+    var finished = false
+    var actuallyPlaying = false
     var errorMessage: String?
     func load(url: URL, at milliseconds: Int64) { loads += 1; position = milliseconds }
-    func play() { starts += 1 }
-    func pause() {}
-    func stop() { stops += 1 }
+    func play() { starts += 1; actuallyPlaying = true }
+    func pause() { actuallyPlaying = false }
+    func stop() { stops += 1; actuallyPlaying = false }
     func seek(to milliseconds: Int64) { position = milliseconds }
     func snapshot() -> AudioEngineSnapshot {
-        AudioEngineSnapshot(positionMilliseconds: position, durationMilliseconds: 90_000, errorMessage: errorMessage)
+        AudioEngineSnapshot(positionMilliseconds: position, durationMilliseconds: 90_000, finished: finished, errorMessage: errorMessage)
     }
 }
 
@@ -500,4 +502,36 @@ private actor RestoredSession: PlaybackSessionStore {
     video.setSystemControlled(false)
     video.sync(positionMilliseconds: 21_000, playing: true)
     #expect(engine.positions.last == 21_000 && engine.isPlaying)
+}
+
+@Test @MainActor func visibleVideoLoadingFreezesTheAudioClockAndRejectsALateFinishedSnapshot() async {
+    let source = VideoFixture(), audio = ContinuousAudio(), picture = TestVideo()
+    let playback = PlaybackModel(source: source, engine: audio, download: { _ in URL(fileURLWithPath: "/tmp/mb-video-hold.m4a") })
+    let video = VideoModel(source: source, engine: picture)
+    video.onPlaybackHoldChanged = { [weak playback] in playback?.holdForVideo($0) }
+    await source.block()
+    await video.choose(.video)
+    playback.select(videoTracks, index: 0)
+    video.handleSelection(playback.queue.current, intent: .content, positionMilliseconds: 0, playing: true)
+    await source.waitBlocked()
+    await playback.waitUntilLoaded()
+    #expect(video.isLoading && !audio.actuallyPlaying)
+    // 音频结束消息可能已在途，缓冲闸门仍必须阻止自动换片。
+    audio.position = 90_000; audio.finished = true
+    playback.tick()
+    #expect(playback.queue.index == 0 && playback.positionMilliseconds == 0)
+    audio.position = 0; audio.finished = false
+    picture.isBuffering = true
+    await source.release(); await video.waitUntilLoaded()
+    #expect(video.isBuffering && !audio.actuallyPlaying)
+    picture.isBuffering = false; picture.onUpdate?()
+    #expect(audio.actuallyPlaying)
+    picture.isBuffering = true; picture.onUpdate?()
+    #expect(!audio.actuallyPlaying)
+    playback.pause()
+    let starts = audio.starts
+    picture.isBuffering = false; picture.onUpdate?()
+    #expect(!audio.actuallyPlaying && audio.starts == starts && playback.state == .paused)
+    video.browse()
+    #expect(!audio.actuallyPlaying)
 }

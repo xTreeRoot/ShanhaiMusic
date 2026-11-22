@@ -89,7 +89,7 @@ internal fun rememberVideoFrame(track: Track, systemWindow: Boolean = false): Vi
 @Composable
 internal fun VideoStage(state: VideoFrameState?, playback: PlaybackState, toggle: () -> Unit, seek: (Long) -> Unit,
                         retry: () -> Unit, fullScreen: Boolean, setFullScreen: (Boolean) -> Unit,
-                        portrait: Boolean = false, topBar: @Composable BoxScope.() -> Unit = {}) {
+                        portrait: Boolean = false, fillPicture: Boolean = false, topBar: @Composable BoxScope.() -> Unit = {}) {
     val error = state?.error
     if (error != null && !fullScreen) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Retry(error, retry)
@@ -123,14 +123,14 @@ internal fun VideoStage(state: VideoFrameState?, playback: PlaybackState, toggle
             header()
         } else VideoFrame(state?.player, state?.loading != false, playback, toggle, seek, modifier, qualityState = state, topBar = header)
     } else VideoFrame(state?.player, state?.loading != false, playback, toggle, seek, Modifier.fillMaxSize(), qualityState = state,
-        enterFullscreen = { setFullScreen(true) }, portrait = portrait, topBar = topBar)
+        enterFullscreen = { setFullScreen(true) }, portrait = portrait, fillPicture = fillPicture, topBar = topBar)
 }
 
 @OptIn(UnstableApi::class)
 @Composable
 private fun VideoFrame(engine: Player?, loading: Boolean, playback: PlaybackState, toggle: () -> Unit,
                        seek: (Long) -> Unit, modifier: Modifier, qualityState: VideoFrameState? = null, enterFullscreen: (() -> Unit)? = null,
-                       portrait: Boolean = false, topBar: @Composable BoxScope.() -> Unit = {}) {
+                       portrait: Boolean = false, fillPicture: Boolean = false, topBar: @Composable BoxScope.() -> Unit = {}) {
     var visible by remember(playback.current?.id, playback.index) { mutableStateOf(true) }
     var revision by remember { mutableIntStateOf(0) }
     val interactions = remember { MutableInteractionSource() }
@@ -155,7 +155,11 @@ private fun VideoFrame(engine: Player?, loading: Boolean, playback: PlaybackStat
         } else PlayerView(context)).apply {
             useController = false
         } },
-            update = { view -> view.player = engine }, onRelease = { view -> view.player = null },
+            update = { view ->
+                view.resizeMode = if (fillPicture) androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    else androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                view.player = engine
+            }, onRelease = { view -> view.player = null },
             modifier = Modifier.fillMaxSize())
         if (loading) Loading()
         Box(Modifier.matchParentSize().pointerInput(playback.current?.id, playback.index) {

@@ -7,6 +7,7 @@ struct PortraitVideoView: View {
     let video: VideoModel
     let playback: PlaybackModel
     let interactionSource: (any InteractionSource)?
+    var accountRevision = 0
     var librarySource: (any LibrarySource)? = nil
     let openMusic: () -> Void
     var browse: (() -> Void)? = nil
@@ -29,17 +30,14 @@ struct PortraitVideoView: View {
             let readingComments = panel == .comments
             let pictureHeight = readingComments ? geometry.size.height * 0.35 : geometry.size.height
             ZStack {
-                VideoScreen(video: video, pictureVisible: video.isVisible)
-                    .aspectRatio(video.aspectRatio, contentMode: .fit)
+                VideoScreen(video: video, pictureVisible: video.isVisible, fillsBounds: !readingComments)
                     .frame(width: geometry.size.width, height: pictureHeight)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .contentShape(Rectangle())
                     .onTapGesture { playback.toggle() }
-                    .gesture(DragGesture(minimumDistance: 30).onEnded { value in
-                        guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                        if value.translation.height < -72 { playback.next() }
-                        else if value.translation.height > 72 { playback.previous() }
-                    })
+                    .modifier(InteractiveTrackSwipe(selection: playback.selectionRevision, vertical: true,
+                                                    previousTrack: playback.neighboringTrack(forward: false), nextTrack: playback.neighboringTrack(forward: true),
+                                                    previous: playback.previous, next: playback.next))
                     .accessibilityLabel("竖屏视频画面")
                     .accessibilityAction(named: "下一个") { playback.next() }
                     .accessibilityAction(named: "上一个") { playback.previous() }
@@ -82,8 +80,9 @@ struct PortraitVideoView: View {
             }.foregroundStyle(.white).background(.black)
         }.ignoresSafeArea(.container, edges: [.top, .bottom])
         .buttonStyle(.plain).tint(.white)
-        .task(id: track.id) {
-            saved = false; panel = nil
+        .onChange(of: track.id) { _, _ in saved = false; panel = nil }
+        .task(id: "\(track.id):\(accountRevision):\(interactionSource != nil)") {
+            interaction = nil
             guard let source = interactionSource else { interaction = nil; return }
             let model = InteractionModel(source: source, track: track); interaction = model
             await model.loadSummary()

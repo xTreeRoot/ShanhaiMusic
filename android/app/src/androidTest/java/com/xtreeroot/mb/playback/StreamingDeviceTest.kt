@@ -12,6 +12,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.video.PlaceholderSurface
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.source.ShuffleOrder
 import androidx.test.platform.app.InstrumentationRegistry
@@ -548,8 +549,8 @@ class StreamingDeviceTest {
         val coordinator = withContext(Dispatchers.Main) {
             VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { "auto" })
         }
-        val textures = SurfaceTexture(false)
-        val output = Surface(textures)
+        // 使用带 EGL 消费线程的真实输出，避免无消费者的 SurfaceTexture 切换触发模拟器 Codec2 崩溃。
+        val output = withContext(Dispatchers.Main) { PlaceholderSurface.newInstance(instrumentation.targetContext, false) }
         try {
             eventually { audio.isPlaying }
             val ticket = withContext(Dispatchers.Main) {
@@ -574,6 +575,7 @@ class StreamingDeviceTest {
             }
             eventually { coordinator.frames.value?.loading == false }
             withContext(Dispatchers.Main) {
+                assertNull(coordinator.frames.value?.error)
                 val video = checkNotNull(coordinator.frames.value?.player)
                 assertNull(coordinator.heldIntent)
                 assertEquals(310L, video.currentPosition)
@@ -589,7 +591,46 @@ class StreamingDeviceTest {
         } finally {
             withContext(Dispatchers.Main) { coordinator.close(); scope.cancel(); audio.release() }
             output.release()
-            textures.release()
+        }
+    }
+
+    @Test fun slowVisibleVideoKeepsTheAudioQueueAndClockBeforeItsFirstFrame() = runBlocking {
+        val mp4 = instrumentation.context.assets.open("video.mp4").use { it.readBytes() }
+        val wav = wave(2)
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            media(chain.request(), if (chain.request().url.encodedPath == "/video") mp4 else wav)
+        }.build()
+        val address = CompletableDeferred<MediaResource>()
+        val track = Track("fixture", "slow-video", "Slow picture", "", durationMs = 2_000)
+        val source = object : VideoSource {
+            override val id = track.sourceId
+            override suspend fun search(query: String, page: Int) = TrackPage(emptyList(), false)
+            override suspend fun video(trackId: String) = address.await()
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val audio = withContext(Dispatchers.Main) { player(client).apply {
+            setMediaItems(listOf(track, track.copy(sourceTrackId = "next")).map { it.mediaItem().buildUpon().setUri("https://fixture.invalid/audio").build() })
+            prepare(); play()
+        } }
+        val coordinator = withContext(Dispatchers.Main) { VideoPlayback(instrumentation.targetContext, client, audio, scope, { source }, { "auto" }) }
+        val textures = SurfaceTexture(false); val output = Surface(textures)
+        try {
+            eventually { audio.isPlaying }
+            val start = withContext(Dispatchers.Main) { coordinator.show(track); audio.currentPosition }
+            delay(2_400)
+            withContext(Dispatchers.Main) {
+                assertEquals(track.id, audio.currentMediaItem?.mediaId)
+                assertTrue(kotlin.math.abs(audio.currentPosition - start) < 100)
+                assertFalse(audio.isPlaying)
+                assertEquals(true, coordinator.heldIntent)
+                address.complete(MediaResource("https://fixture.invalid/video", emptyMap(), "mp4"))
+            }
+            eventually { coordinator.frames.value?.player != null }
+            withContext(Dispatchers.Main) { coordinator.frames.value!!.player!!.setVideoSurface(output) }
+            eventually { coordinator.frames.value?.loading == false && audio.isPlaying }
+        } finally {
+            withContext(Dispatchers.Main) { coordinator.close(); scope.cancel(); audio.release() }
+            output.release(); textures.release()
         }
     }
 

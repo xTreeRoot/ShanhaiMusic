@@ -15,13 +15,17 @@ import kotlinx.coroutines.flow.drop
 @Composable internal fun DiscoveryPlatforms(ids: List<String>, selected: String, select: (String) -> Unit,
     source: (String) -> PluginSource?, navigator: (PluginSource) -> PluginCatalogNavigator,
     play: (List<Track>, Track) -> Unit, playStation: (List<Track>, Track, PlaybackStation) -> Unit,
-    builtin: @Composable () -> Unit) {
+    progress: (Float) -> Unit, builtin: @Composable () -> Unit) {
     val pager = rememberPagerState(initialPage = ids.indexOf(selected).coerceAtLeast(0), pageCount = { ids.size })
     val latestIds by rememberUpdatedState(ids)
     val latestSelect by rememberUpdatedState(select)
-    LaunchedEffect(selected, ids) { val index = ids.indexOf(selected); if (index >= 0 && pager.currentPage != index) pager.scrollToPage(index) }
+    val latestProgress by rememberUpdatedState(progress)
+    LaunchedEffect(selected, ids) { val index = ids.indexOf(selected); if (index >= 0 && pager.currentPage != index) pager.animateScrollToPage(index) }
     LaunchedEffect(pager) {
         snapshotFlow { pager.settledPage }.distinctUntilChanged().drop(1).collect { page -> latestIds.getOrNull(page)?.let(latestSelect) }
+    }
+    LaunchedEffect(pager) {
+        snapshotFlow { pager.currentPage + pager.currentPageOffsetFraction }.collect { latestProgress(it) }
     }
     HorizontalPager(pager, Modifier.fillMaxSize(), key = { ids[it] }) { page ->
         val plugin = source(ids[page])

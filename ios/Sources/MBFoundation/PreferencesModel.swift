@@ -12,6 +12,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var appearance = AppAppearance.system
     public var inAppVideoWindow = true
     public var systemVideoWindow = true
+    public var pauseOtherSourcesOnSwitch = false
     public var backgroundOpacity: Double? = nil
     public var backgroundStyle = BackgroundSkinStyle()
     public var volume = 0.8
@@ -32,11 +33,12 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var automaticUpdateChecks = true
     public var nowPlayingLyrics = true
     public init() {}
-    private enum CodingKeys: String, CodingKey { case videoQuality, inAppVideoWindow, systemVideoWindow, backgroundOpacity, backgroundStyle, automaticUpdateChecks, selectedSourceID, appearance, volume, cacheMegabytes, searchHistory, playerStyle, lyricStyle, normalization, language, quality, stageSparks, lyricsStage, nowPlayingLyrics, smoke, fog, growFromCover, hotComments }
+    private enum CodingKeys: String, CodingKey { case pauseOtherSourcesOnSwitch, videoQuality, inAppVideoWindow, systemVideoWindow, backgroundOpacity, backgroundStyle, automaticUpdateChecks, selectedSourceID, appearance, volume, cacheMegabytes, searchHistory, playerStyle, lyricStyle, normalization, language, quality, stageSparks, lyricsStage, nowPlayingLyrics, smoke, fog, growFromCover, hotComments }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         inAppVideoWindow = try values.decodeIfPresent(Bool.self, forKey: .inAppVideoWindow) ?? true
         systemVideoWindow = try values.decodeIfPresent(Bool.self, forKey: .systemVideoWindow) ?? true
+        pauseOtherSourcesOnSwitch = try values.decodeIfPresent(Bool.self, forKey: .pauseOtherSourcesOnSwitch) ?? false
         backgroundOpacity = try values.decodeIfPresent(Double.self, forKey: .backgroundOpacity).map { min(1, max(0, $0)) }
         backgroundStyle = try values.decodeIfPresent(BackgroundSkinStyle.self, forKey: .backgroundStyle) ?? BackgroundSkinStyle()
         automaticUpdateChecks = try values.decodeIfPresent(Bool.self, forKey: .automaticUpdateChecks) ?? true

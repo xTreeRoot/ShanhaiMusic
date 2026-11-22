@@ -137,6 +137,8 @@ internal fun SettingsView(values: AppPreferences, update: ((AppPreferences) -> A
             }
             item {
                 MBGroupedSection(mb("播放", "Playback")) {
+                    SettingSwitch(mb("切换平台时暂停其他平台播放", "Pause Other Sources When Switching"), values.pauseOtherSourcesOnSwitch) { value -> update { it.copy(pauseOtherSourcesOnSwitch = value) } }
+                    MBFormDivider()
                     Choice(mb("音质", "Audio Quality"), values.quality, listOf(AudioQuality.Standard to mb("标准", "Standard"),
                         AudioQuality.High to mb("高品质", "High"), AudioQuality.Lossless to mb("无损", "Lossless")),
                         hint = mb("新加载时生效；无损不可用时回退", "Applies on new streams; falls back if lossless is unavailable")) { option -> update { it.copy(quality = option) } }

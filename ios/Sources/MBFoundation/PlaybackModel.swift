@@ -111,6 +111,17 @@ public final class PlaybackModel {
         if let index = queue.previousIndex() { jump(to: index, intent: .transport) }
     }
 
+    /// 预览复用真实队列顺序，不选曲、不启动解码。
+    public func neighboringTrack(forward: Bool) -> Track? {
+        if forward, station != nil, queue.index == queue.tracks.indices.last { return nil }
+        let index = forward ? queue.nextIndex(automatic: false) : queue.previousIndex()
+        return index.flatMap { queue.tracks.indices.contains($0) ? queue.tracks[$0] : nil }
+    }
+
+    public func didSwitchSource(to id: String, pauseOtherSources: Bool) {
+        if pauseOtherSources, let current = queue.current, current.sourceID != id { pause() }
+    }
+
     public func startStation(_ station: PlaybackStation, tracks: [Track], index: Int) {
         select(tracks, index: index)
         self.station = station
@@ -360,14 +371,15 @@ public final class PlaybackModel {
         audioBuffering = snapshot.buffering
         if audioBuffering { cacheTask?.cancel() }
         bassLevel = snapshot.bassLevel
-        positionMilliseconds = max(0, snapshot.positionMilliseconds)
+        // 可见视频未就绪时，迟到的音频快照不能推进进度或自动跳到下一条。
+        if !videoHold { positionMilliseconds = max(0, snapshot.positionMilliseconds) }
         if snapshot.durationMilliseconds > 0 { durationMilliseconds = snapshot.durationMilliseconds }
         if let error = snapshot.errorMessage {
             if snapshot.recoverable, recoverAudio() { return }
             if let track = queue.current { trackProblems[TrackKey(track)] = .unknown }
             fail(error); return
         }
-        if snapshot.finished && wantsPlay {
+        if snapshot.finished && wantsPlay && !videoHold {
             if station != nil, queue.index == queue.tracks.indices.last {
                 wantsPlay = false; engine.pause(); state = .paused; refillStation(advance: true); return
             }

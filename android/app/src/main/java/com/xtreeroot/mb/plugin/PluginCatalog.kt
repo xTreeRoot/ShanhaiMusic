@@ -58,7 +58,8 @@ internal data class PluginCatalogPreview(val page: PluginCatalogPage?, val error
 internal data class PluginCatalogPage(val title: String, val subtitle: String, val description: String,
                                       val sections: List<PluginCatalogSection>, val nextOffset: Int? = null,
                                       val navigationPreviews: Map<PluginCatalogRequest, PluginCatalogPreview> = emptyMap(),
-                                      val tabs: List<PluginCatalogLink> = emptyList(), val selectedTab: String? = null)
+                                      val tabs: List<PluginCatalogLink> = emptyList(), val selectedTab: String? = null,
+                                      val nextPage: PluginCatalogRequest.Browse? = null)
 
 internal class PluginCatalog(
     private val manifest: PluginManifest,
@@ -89,7 +90,7 @@ internal class PluginCatalog(
             val result = page(home, manifest.name)
             if (includePreviews) withNavigationPreviews(result) else result
         }
-        is PluginCatalogRequest.Browse -> page(cachedInvoke("browse", arguments(offset).put("page", request.page)).objectValue(), request.title, offset)
+        is PluginCatalogRequest.Browse -> page(cachedInvoke("browse", arguments(offset).put("page", request.page)).objectValue(), request.title, offset).continuing(request)
         is PluginCatalogRequest.Collection -> collection(request, offset)
         is PluginCatalogRequest.Entity -> entity(request.entity, offset)
         is PluginCatalogRequest.Search -> {
@@ -215,4 +216,13 @@ internal class PluginCatalog(
     private fun JSONObject.text(key: String): String? = (opt(key) as? String)?.takeIf(String::isNotBlank)
     private fun JSONObject.list(key: String): JSONArray = optJSONArray(key) ?: JSONArray()
     private fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull(::optJSONObject)
+}
+
+/** 旧插件的单列表 morePage 表示剩余内容，作为同页续页；首页分区入口仍由发现页展示。 */
+internal fun PluginCatalogPage.continuing(request: PluginCatalogRequest.Browse): PluginCatalogPage {
+    val result = copy(nextPage = request.takeIf { nextOffset != null })
+    val section = sections.singleOrNull() ?: return result
+    val destination = section.more?.destination as? PluginCatalogRequest.Browse
+    val next = if (nextOffset != null) request else destination?.takeUnless { it.page == request.page }
+    return result.copy(sections = listOf(section.copy(more = null)), nextPage = next)
 }

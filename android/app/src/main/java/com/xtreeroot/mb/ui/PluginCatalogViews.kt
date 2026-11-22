@@ -113,7 +113,9 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
     var edit by remember { mutableStateOf<PlaylistDialog?>(null) }
     var changing by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
-    suspend fun load(append: Boolean = false) = pager.load(append) { catalog.load(request, it) }
+    suspend fun load(append: Boolean = false) = pager.load(append) {
+        catalog.load(if (append) pager.state.value.page?.nextPage ?: request else request, it)
+    }
     LaunchedEffect(source, request, status.revision) {
         if (status.needsReload) load()
     }
@@ -203,7 +205,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                         }, leadingContent = { Artwork(item.image?.url, item.image?.headers.orEmpty(), Modifier.size(48.dp)) })
                 } }
                 section.links.forEach { link -> item(span = { GridItemSpan(maxLineSpan) }) { CatalogLinkRow(link, navigator::open) } }
-                section.more?.let { link -> item(span = { GridItemSpan(maxLineSpan) }) { CatalogLinkRow(link, navigator::open) } }
+                section.more?.takeUnless { it.destination == request }?.let { link -> item(span = { GridItemSpan(maxLineSpan) }) { CatalogLinkRow(link, navigator::open) } }
                 if (section.empty.isNotBlank() && section.tracks.isEmpty() && section.entities.isEmpty() && section.links.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) { EmptyMessage(section.empty) }
                 }
@@ -240,9 +242,8 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
         actionError?.let { error -> item(span = { GridItemSpan(maxLineSpan) }) {
             Text(error, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
         } }
-        if (!status.busy && status.error == null && page?.nextOffset != null) item(span = { GridItemSpan(maxLineSpan) }) {
-            LaunchedEffect(page.nextOffset, page.sections.size) { if (!changing) load(append = true) }
-            Loading()
+        if (!status.busy && status.error == null && (page?.nextOffset != null || page?.nextPage != null)) item(span = { GridItemSpan(maxLineSpan) }) {
+            PaginationTrigger(checkNotNull(page).nextPage ?: checkNotNull(page.nextOffset), enabled = !changing) { scope.launch { load(append = true) } }
         }
         if (!status.busy && status.error == null && page != null && page.sections.none { it.hasContent } && links.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { EmptyMessage(mb("暂无内容", "No content")) }
@@ -404,7 +405,7 @@ private fun PluginPlaylistAddDialog(source: PluginSource, playlist: PluginEntity
                     if (status.busy) item { Loading() }
                     status.error?.let { message -> item { Retry(message) { scope.launch { load(status.appendRetry) } } } }
                     if (!status.busy && status.error == null && status.page?.nextOffset != null) item {
-                        TextButton(onClick = { scope.launch { load(append = true) } }) { Text(mb("加载更多", "Load More")) }
+                        PaginationTrigger(checkNotNull(status.page?.nextOffset)) { scope.launch { load(append = true) } }
                     }
                     if (status.page != null && tracks.isEmpty() && status.error == null) item { EmptyMessage(mb("暂无内容", "No content")) }
                 }

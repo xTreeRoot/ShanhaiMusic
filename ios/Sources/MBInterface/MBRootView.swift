@@ -8,6 +8,7 @@ private enum MBTab: Hashable { case discover, search, library, account }
 /// 手机使用层级返回；平板保留发现侧栏。所有页面共用同一播放会话。
 public struct MBRootView: View {
     @State private var selectedTab = MBTab.discover
+    @State private var discoveryPagePosition: CGFloat?
     @Namespace private var playerTransition
     @State private var trackSearch: SearchModel
     @State private var showingSearchPlatforms = false
@@ -79,9 +80,11 @@ public struct MBRootView: View {
         #if DEBUG
         if demo, let fixture = DemoVideoSource.fixture() { playbackSource = fixture; videoSource = fixture }
         #endif
-        _playback = State(initialValue: PlaybackModel(source: playbackSource,
-                                                     engine: NativeAudioEngine(), store: demo ? nil : AppPersistence.shared, mediaLibrary: demo ? nil : MediaLibrary.shared))
-        _video = State(initialValue: VideoModel(source: videoSource, store: demo ? nil : AppPersistence.shared))
+        let playback = PlaybackModel(source: playbackSource, engine: NativeAudioEngine(), store: demo ? nil : AppPersistence.shared, mediaLibrary: demo ? nil : MediaLibrary.shared)
+        let video = VideoModel(source: videoSource, store: demo ? nil : AppPersistence.shared)
+        video.onPlaybackHoldChanged = { [weak playback] hold in playback?.holdForVideo(hold) }
+        _playback = State(initialValue: playback)
+        _video = State(initialValue: video)
         _source = State(initialValue: source)
         self.demo = demo
         _account = State(initialValue: AccountModel(source: source as? any AccountSource))
@@ -327,7 +330,6 @@ public struct MBRootView: View {
     private func syncVideoClock() {
         video.sync(positionMilliseconds: playback.positionMilliseconds, playing: playback.state == .playing && !playback.audioBuffering)
         if !video.isVisible && !video.isFloating { video.preloadCurrent() }
-        playback.holdForVideo((video.isVisible || video.isFloating) && (video.isLoading || video.isBuffering))
     }
 
     private var playbackSurface: some View {
@@ -436,13 +438,13 @@ public struct MBRootView: View {
         GeometryReader { geometry in
         NavigationStack(path: $path) {
             DiscoveryPager(sources: sourceTabs, providers: discoveryProviders, selected: selectedSourceID,
-                           switchSource: switchSource, videoMode: video.mode == .video, select: select, menu: trackMenu)
+                           switchSource: switchSource, pageProgress: { discoveryPagePosition = $0 }, videoMode: video.mode == .video, select: select, menu: trackMenu)
                 // 分页容器会隔开子页面的 toolbar preference，导航栏皮肤需设置在实际导航根内容上。
                 .modifier(SkinSurface(defaultColor: MBTheme.background))
                 .navigationTitle("")
                 .modifier(CompactRootNavigation())
                 .toolbar {
-                    ToolbarItem(placement: .principal) { SourceTabs(sources: sourceTabs, selected: selectedSourceID, select: switchSource).frame(width: max(100, geometry.size.width - 110)) }
+                    ToolbarItem(placement: .principal) { SourceTabs(sources: sourceTabs, selected: selectedSourceID, select: switchSource, pagePosition: discoveryPagePosition).frame(width: max(100, geometry.size.width - 110)) }
                     toolbar
                 }
                 .navigationDestination(for: MBPage.self) { destination($0) }
@@ -665,8 +667,7 @@ public struct MBRootView: View {
     private func switchSource(_ id: String) {
         guard id != selectedSourceID else { return }
         platformData.cancelProfileSync()
-        playback.clear()
-        video.updateTrack(nil)
+        playback.didSwitchSource(to: id, pauseOtherSources: preferences.values.pauseOtherSourcesOnSwitch)
         showingPlayer = false; showingQueue = false; commentTrack = nil
         inputFocused = false
         search.cancel(); request = nil

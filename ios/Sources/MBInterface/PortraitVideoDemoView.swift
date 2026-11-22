@@ -7,6 +7,7 @@ public struct PortraitVideoDemoView: View {
     @State private var playback: PlaybackModel
     @State private var video: VideoModel
     @State private var quality = "auto"
+    @State private var interactions: DemoSource?
     @State private var library = LocalLibraryModel(store: LocalLibraryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
     public init() {
         let fixture = DemoVideoSource.fixture()
@@ -21,9 +22,14 @@ public struct PortraitVideoDemoView: View {
         _playback = State(initialValue: playback)
     }
     public var body: some View {
-        VideoPageView(video: video, playback: playback, interactionSource: DemoSource(), accountRevision: 0, openMusic: {}, saveResource: { _ in }, menu: { _ in AnyView(Text("示例歌单")) })
+        VideoPageView(video: video, playback: playback, interactionSource: interactions, accountRevision: 0, openMusic: {}, saveResource: { _ in }, menu: { _ in AnyView(Text("示例歌单")) })
             .environment(\.videoQualityPreference, $quality)
-            .task { video.updateTrack(playback.queue.current); video.watchCurrent() }
+            .task {
+                video.updateTrack(playback.queue.current); video.watchCurrent()
+                // 模拟播放页先出现，路由随后才返回当前资源的互动数据源。
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                interactions = DemoSource()
+            }
             .onChange(of: playback.positionMilliseconds) { _, value in video.sync(positionMilliseconds: value, playing: playback.state == .playing) }
             .onChange(of: playback.state) { _, value in video.sync(positionMilliseconds: playback.positionMilliseconds, playing: value == .playing) }
             .onChange(of: playback.selectionRevision) { _, _ in video.updateTrack(playback.queue.current); video.watchCurrent() }

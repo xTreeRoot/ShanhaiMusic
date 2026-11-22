@@ -356,9 +356,23 @@ final class MBiOSUITests: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("android/app/src/androidTest/assets/video-portrait.mp4").path
         XCUIDevice.shared.orientation = .portrait; app.launch()
         XCTAssertTrue(app.buttons["竖屏示例一"].waitForExistence(timeout: 5))
-        app.swipeUp()
+        let like = app.buttons["点赞"]
+        XCTAssertTrue(like.waitForExistence(timeout: 5), "数据源迟到也应加载互动能力")
+        expectation(for: NSPredicate(format: "value == %@", "128"), evaluatedWith: like)
+        waitForExpectations(timeout: 5)
+        like.tap()
+        XCTAssertTrue(app.buttons["取消点赞"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["取消点赞"].value as? String, "129")
+        XCTAssertTrue(app.buttons["评论"].exists)
+        let picture = app.otherElements["native-video-surface"]
+        XCTAssertTrue(picture.waitForExistence(timeout: 5))
+        XCTAssertEqual(picture.frame.height, app.frame.height, accuracy: 2, "画面铺到上下边缘，控制浮在视频上")
+        // 按屏幕比例拖动，超过大屏的 18% 阈值，并避开进度条与互动栏。
+        let lower = app.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.65))
+        let upper = app.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.25))
+        lower.press(forDuration: 0.05, thenDragTo: upper)
         XCTAssertTrue(app.buttons["竖屏示例二"].waitForExistence(timeout: 5))
-        app.swipeDown()
+        upper.press(forDuration: 0.05, thenDragTo: lower)
         XCTAssertTrue(app.buttons["竖屏示例一"].waitForExistence(timeout: 5))
         capture("竖屏-主画面与右侧互动", app: app)
         app.buttons["评论"].tap()

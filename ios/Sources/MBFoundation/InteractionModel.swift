@@ -17,7 +17,9 @@ public final class InteractionModel {
 
     public func loadSummary() async {
         let current = generation
-        capabilities = await source.capabilities()
+        let available = await source.capabilities()
+        guard generation == current, !Task.isCancelled else { return }
+        capabilities = available
         do {
             let value = try await source.interactionSummary(trackID: track.sourceTrackID)
             try Task.checkCancellation()

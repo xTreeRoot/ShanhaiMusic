@@ -259,8 +259,8 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
                 }
             }
             val stage: @Composable (Modifier) -> Unit = { modifier ->
-                Box(modifier.padding(horizontal = 24.dp, vertical = 6.dp)
-                    .musicTrackSwipes(track.id, previous = model::previous, next = model::next), contentAlignment = Alignment.Center) {
+                TrackSwipePager(state.selectionRevision, model.neighboringTrack(false), model.neighboringTrack(true),
+                    model::previous, model::next, modifier.padding(horizontal = 24.dp, vertical = 6.dp)) {
                     when {
                         comment != null -> Column(Modifier.fillMaxWidth().clickable { openComments = true }.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -31,6 +31,7 @@ struct SettingsView: View {
                         NavigationLink("插件") { PluginsView(model: plugins) }.accessibilityIdentifier("settings-plugins")
                     } header: { Text("音源") }
                     Section("播放") {
+                        Toggle("切换平台时暂停其他平台播放", isOn: $preferences.values.pauseOtherSourcesOnSwitch)
                         Picker("音质", selection: $preferences.values.quality) {
                             ForEach(AudioQuality.allCases) { quality in Text(LocalizedStringKey(quality.title)).tag(quality) }
                         }

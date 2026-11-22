@@ -1,7 +1,6 @@
 package com.xtreeroot.mb.playback
 
 import android.content.Context
-import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -46,7 +45,6 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
         var firstFrame = false
         var recovery = MediaRecoveryBudget()
         var job: Job? = null
-        var stalledSince: Long? = null
     }
 
     private var active: Stage? = null
@@ -227,7 +225,6 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
     private fun load(stage: Stage, position: Long, wait: Long = 0) {
         retire(stage)
         stage.firstFrame = false
-        stage.stalledSince = null
         publish(stage, VideoFrameState(stage.track.id))
         stage.job = scope.launch {
             yield()
@@ -261,6 +258,10 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
             if (stage === warm) try { attachPlaceholder(stage) }
             catch (_: RuntimeException) { fail(stage, "视频预载初始化失败"); return@launch }
             engine.addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (stage.engine === engine && valid(stage)) synchronize(stage, engine)
+                }
+
                 override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                     if (stage.engine === engine && valid(stage)) synchronize(stage, engine)
                 }
@@ -329,15 +330,9 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
         val pictureReady = (video.playbackState == Player.STATE_READY || video.playbackState == Player.STATE_ENDED) && stage.firstFrame
         val ready = pictureReady && audio.playbackState == Player.STATE_READY
         if (heldIntent != null && ready) releaseHold()
-        if (heldIntent == null && audio.isPlaying && video.playbackState == Player.STATE_BUFFERING) {
-            val now = SystemClock.elapsedRealtime()
-            val since = stage.stalledSince ?: now.also { stage.stalledSince = it }
-            if (now - since >= 450) {
-                hold()
-                load(stage, audio.currentPosition)
-                return
-            }
-        } else stage.stalledSince = null
+        // 可见视频一进入缓冲就冻结音频时钟，让同一个解码器继续补缓冲。
+        // 反复销毁播放器会丢弃已有数据，短视频还可能在画面出现前播完音频。
+        if (heldIntent == null && audio.isPlaying && !pictureReady) hold()
         if (heldIntent == null && video.playbackState == Player.STATE_READY && pictureReady && abs(video.currentPosition - audio.currentPosition) > 250) {
             video.seekTo(audio.currentPosition)
         }

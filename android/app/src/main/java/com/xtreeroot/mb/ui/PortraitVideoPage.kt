@@ -2,7 +2,6 @@ package com.xtreeroot.mb.ui
 
 import android.content.Intent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,7 +14,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -42,7 +40,7 @@ private enum class PortraitPanel { More, Comments, Captions, Quality, Informatio
 @Composable
 internal fun PortraitVideoPage(track: Track, frame: VideoFrameState?, state: PlaybackState, model: PlaybackModel,
                                signedIn: Boolean, browse: () -> Unit, fullScreen: Boolean,
-                               setFullScreen: (Boolean) -> Unit, chooseMode: (PlaybackMode) -> Unit) = key(track.id, signedIn) {
+                               setFullScreen: (Boolean) -> Unit, chooseMode: (PlaybackMode) -> Unit) = key(signedIn) {
     val context = LocalContext.current
     val app = context.applicationContext as MBApplication
     val scope = rememberCoroutineScope()
@@ -53,16 +51,16 @@ internal fun PortraitVideoPage(track: Track, frame: VideoFrameState?, state: Pla
     val source = provider as? InteractionSource
     val library = provider as? LibrarySource
     val creators = remember(library) { library?.let { LibraryPages(scope, it::invalidateLibraryCache, it::library) } }
-    var panel by remember { mutableStateOf<PortraitPanel?>(null) }
-    var capabilities by remember { mutableStateOf(InteractionCapabilities(false, false, false)) }
-    var summary by remember { mutableStateOf(TrackInteractionSummary()) }
-    var liked by remember { mutableStateOf(false) }
-    var pending by remember { mutableStateOf(false) }
-    var notice by remember { mutableStateOf<String?>(null) }
+    var panel by remember(track.id) { mutableStateOf<PortraitPanel?>(null) }
+    var capabilities by remember(track.id) { mutableStateOf(InteractionCapabilities(false, false, false)) }
+    var summary by remember(track.id) { mutableStateOf(TrackInteractionSummary()) }
+    var liked by remember(track.id) { mutableStateOf(false) }
+    var pending by remember(track.id) { mutableStateOf(false) }
+    var notice by remember(track.id) { mutableStateOf<String?>(null) }
     val actions = LocalTrackActions.current
     val next by rememberUpdatedState(model::next)
     val previous by rememberUpdatedState(model::previous)
-    LaunchedEffect(source) {
+    LaunchedEffect(source, track.id) {
         if (source == null) return@LaunchedEffect
         try { capabilities = source.interactionCapabilities() }
         catch (cancelled: CancellationException) { throw cancelled }
@@ -76,19 +74,13 @@ internal fun PortraitVideoPage(track: Track, frame: VideoFrameState?, state: Pla
     }
     if (fullScreen) VideoStage(frame, state, model::toggle, { model.seekCurrent(state, it) }, model::retryVideo, true, setFullScreen)
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).testTag("portrait-video")) {
-        val ratio = frame?.aspectRatio ?: if (track.videoWidth > 0 && track.videoHeight > 0) track.videoWidth.toFloat() / track.videoHeight else 9f / 16f
         val pictureHeight = if (panel == PortraitPanel.Comments) maxHeight * 0.35f else maxHeight
-        val width = minOf(maxWidth, pictureHeight * ratio)
-        Box(Modifier.width(width).height(pictureHeight).align(if (panel == PortraitPanel.Comments) Alignment.TopCenter else Alignment.Center).pointerInput(track.id) {
-            var distance = 0f
-            detectVerticalDragGestures(onDragStart = { distance = 0f }, onDragCancel = { distance = 0f },
-                onVerticalDrag = { change, amount -> change.consume(); distance += amount },
-                onDragEnd = { if (distance < -72.dp.toPx()) next() else if (distance > 72.dp.toPx()) previous() })
-        }.semantics {
+        TrackSwipePager(state.selectionRevision, model.neighboringTrack(false), model.neighboringTrack(true), previous, next,
+            Modifier.fillMaxWidth().height(pictureHeight).align(Alignment.TopCenter).semantics {
             customActions = listOf(CustomAccessibilityAction("Next") { next(); true }, CustomAccessibilityAction("Previous") { previous(); true })
-        }) {
+        }, vertical = true) {
             if (!fullScreen) VideoStage(frame, state, model::toggle, { model.seekCurrent(state, it) }, model::retryVideo,
-                false, setFullScreen, portrait = true)
+                false, setFullScreen, portrait = true, fillPicture = panel != PortraitPanel.Comments)
         }
         Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.6f),
             0.25f to Color.Transparent, 0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.8f))))

@@ -77,6 +77,35 @@ private let fakeDownload: @Sendable (MediaResource) async throws -> URL = { _ in
     FileManager.default.temporaryDirectory.appendingPathComponent("mb-fake-\(UUID()).m4a")
 }
 
+@Test @MainActor func previewUsesRealQueueOrderWithoutSelectingOrResolvingAnotherTrack() async {
+    let source = AudioSourceFixture()
+    let model = PlaybackModel(source: source, engine: TestAudio(), download: fakeDownload)
+    model.select(audioTracks, index: 0)
+    await model.waitUntilLoaded()
+    let calls = await source.calls()
+    for _ in 0..<3 { #expect(model.neighboringTrack(forward: true)?.id == audioTracks[1].id) }
+    #expect(model.queue.index == 0)
+    #expect(await source.calls().0 == calls.0)
+    model.toggleShuffle()
+    let expected = model.queue.nextIndex(automatic: false).map { model.queue.tracks[$0].id }
+    #expect(model.neighboringTrack(forward: true)?.id == expected)
+}
+
+@Test @MainActor func switchingSourceOnlyPausesWhenEnabledAndRetainsQueueAndPosition() async {
+    let model = PlaybackModel(source: AudioSourceFixture(), engine: TestAudio(), download: fakeDownload)
+    model.select(audioTracks, index: 0)
+    await model.waitUntilLoaded()
+    model.seek(to: 8_000)
+    model.didSwitchSource(to: "other", pauseOtherSources: false)
+    #expect(model.state == .playing)
+    model.didSwitchSource(to: "test", pauseOtherSources: true)
+    #expect(model.state == .playing)
+    model.didSwitchSource(to: "other", pauseOtherSources: true)
+    #expect(model.state == .paused)
+    #expect(model.queue.tracks == audioTracks && model.queue.index == 0)
+    #expect(model.positionMilliseconds == 8_000)
+}
+
 @Test @MainActor func restoredPlaybackIsPausedAndResolvesFreshAudioOnlyOnPlay() async {
     let source = AudioSourceFixture()
     let engine = TestAudio()

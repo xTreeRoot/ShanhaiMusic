@@ -57,6 +57,7 @@ struct NowPlayingView: View {
             }.ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
         }
         .modifier(SkinSurface(defaultColor: MBTheme.background, enabled: skinStyle.appliesToPlayer))
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("music-player-root")
         .accessibilityValue(skinImage != nil && skinStyle.appliesToPlayer ? "自定义播放器背景" : "默认播放器背景")
         .overlay(alignment: .top) {
@@ -142,11 +143,12 @@ struct NowPlayingView: View {
                         }.buttonStyle(.plain).accessibilityLabel("切换到实时视频")
                             .accessibilityIdentifier("player-artwork-" + (preferences?.values.playerStyle.rawValue ?? "cover"))
                             .disabled(track.localFileID != nil)
-                            .highPriorityGesture(trackSwipe(width: region.size.width))
+
                     }
                 }.frame(width: region.size.width, height: region.size.height)
                     .contentShape(Rectangle())
-                    .simultaneousGesture(trackSwipe(width: region.size.width), including: showingCaptions ? .all : .subviews)
+                    .modifier(InteractiveTrackSwipe(selection: playback.selectionRevision, simultaneous: showingCaptions,
+                        previousTrack: playback.neighboringTrack(forward: false), nextTrack: playback.neighboringTrack(forward: true), previous: playback.previous, next: playback.next))
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("music-player-swipe-stage")
             }.frame(minHeight: 130)
@@ -159,15 +161,6 @@ struct NowPlayingView: View {
                 controls
                 playerActions(track: track)
             }.frame(maxWidth: 540).frame(maxWidth: .infinity).accessibilityElement(children: .contain).accessibilityIdentifier("player-controls")
-        }
-    }
-
-    private func trackSwipe(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 28).onEnded { value in
-            guard value.startLocation.x >= 24,
-                  abs(value.translation.width) >= max(64, width * 0.18),
-                  abs(value.translation.width) > abs(value.translation.height) * 1.4 else { return }
-            if value.translation.width < 0 { playback.next() } else { playback.previous() }
         }
     }
 
@@ -255,7 +248,8 @@ struct NowPlayingView: View {
                         ArtworkView(track: track, size: side).frame(maxWidth: .infinity, maxHeight: .infinity)
                     }.frame(maxWidth: 280)
                         .contentShape(Rectangle())
-                        .simultaneousGesture(trackSwipe(width: 280))
+                        .modifier(InteractiveTrackSwipe(selection: playback.selectionRevision,
+                            previousTrack: playback.neighboringTrack(forward: false), nextTrack: playback.neighboringTrack(forward: true), previous: playback.previous, next: playback.next))
                 }
                 WidePlayerStage(playback: playback, demo: demo, section: wideSection, interactionSource: interactionSource,
                                 accountRevision: accountRevision, position: demo ? Int64(previewMilliseconds) : playback.positionMilliseconds)

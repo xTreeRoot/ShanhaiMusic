@@ -77,7 +77,7 @@ class LoginChoicesAndPlayerDeviceTest {
   try {
    withContext(Dispatchers.Main) {screen.setContent {MaterialTheme {Surface(Modifier.fillMaxSize()) {
     Column(Modifier.padding(24.dp)) {
-     Column(Modifier.fillMaxWidth().height(320.dp).musicTrackSwipes(index.intValue,{index.intValue--},{index.intValue++})
+     Column(Modifier.fillMaxWidth().height(320.dp).trackSwipeMotion(index.intValue, previous = {index.intValue--}, next = {index.intValue++})
       .semantics {contentDescription="Player swipe stage"}.verticalScroll(rememberScrollState())) {
        repeat(20) {Text("Lyric $it",Modifier.padding(10.dp))}
      }
@@ -85,12 +85,67 @@ class LoginChoicesAndPlayerDeviceTest {
     }
    }}}}
    val area=Rect().also {awaitNode("Player swipe stage").getBoundsInScreen(it)}
-   drag(area,0.85f,0.5f,0.15f,0.5f);await {index.intValue==2}
-   drag(area,0.2f,0.5f,0.85f,0.5f);await {index.intValue==1}
-   drag(area,0.5f,0.8f,0.5f,0.2f);assertEquals(1,index.intValue)
-   drag(area,0.5f,0.5f,0.55f,0.5f);assertEquals(1,index.intValue)
+   suspend fun resting() {await {
+    val node=find("Player swipe stage")
+    node!=null && androidx.core.view.accessibility.AccessibilityNodeInfoCompat.wrap(node).stateDescription.isNullOrEmpty()
+   }}
+   resting();drag(area,0.85f,0.5f,0.15f,0.5f);await {index.intValue==2}
+   resting();drag(area,0.2f,0.5f,0.85f,0.5f);await {index.intValue==1}
+   resting();drag(area,0.5f,0.8f,0.5f,0.2f);assertEquals(1,index.intValue)
+   resting();drag(area,0.5f,0.5f,0.55f,0.5f);assertEquals(1,index.intValue)
+   resting()
    val seek=Rect().also {awaitNode("Seek progress").getBoundsInScreen(it)}
    drag(seek,0.25f,0.5f,0.8f,0.5f);await {progress.floatValue>0.6f};assertEquals(1,index.intValue)
+  } finally {withContext(Dispatchers.Main) {screen.finish()}}
+ }
+ @Test fun draggingTheVideoStageMovesBeforeReleaseAndCancelsWithoutChangingResource()=runBlocking {
+  val screen=start();val index=mutableIntStateOf(0)
+  try {
+   withContext(Dispatchers.Main) {screen.setContent {MaterialTheme {Surface(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize()) {
+     Spacer(Modifier.height(100.dp))
+     TrackSwipePager(index.intValue, Track("fixture","previous","Video -1","Fixture",durationMs=1000),
+       Track("fixture","next","Video 1","Fixture",durationMs=1000), {index.intValue--}, {index.intValue++},
+       Modifier.fillMaxWidth().height(320.dp), vertical=true) {
+       Column(Modifier.fillMaxSize().semantics {contentDescription="Video swipe stage"}) {Text("Video ${index.intValue}")}
+     }
+    }
+   }}}}
+   val original=Rect().also {awaitNode("Video swipe stage").getBoundsInScreen(it)}
+   instrumentation.waitForIdleSync()
+   instrumentation.uiAutomation.waitForIdle(100,5_000)
+   val down=SystemClock.uptimeMillis()
+   fun send(action:Int,y:Float) {
+    val event=MotionEvent.obtain(down,SystemClock.uptimeMillis(),action,original.centerX().toFloat(),y,0)
+    event.source=InputDevice.SOURCE_TOUCHSCREEN
+    try {assertTrue(instrumentation.uiAutomation.injectInputEvent(event,true))} finally {event.recycle()}
+   }
+   send(MotionEvent.ACTION_DOWN,original.centerY().toFloat())
+   for(step in 1..10) {send(MotionEvent.ACTION_MOVE,original.centerY()-original.height()*.025f*step);SystemClock.sleep(16)}
+   assertEquals(0,index.intValue)
+   val preview = awaitNode("下一条预览 Video 1 · Fixture")
+   val previewFrame = Rect().also {preview.getBoundsInScreen(it)}
+   assertTrue("拖动未松手就应露出真实下一条", !previewFrame.isEmpty && previewFrame.intersect(original))
+   instrumentation.waitForIdleSync()
+   val image=checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+   try {java.io.File(app.cacheDir,"android-video-drag-in-progress.png").outputStream().use {image.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)}} finally {image.recycle()}
+   send(MotionEvent.ACTION_CANCEL,original.centerY()-original.height()*.25f)
+   try {
+    await {
+     val node=find("Video swipe stage")
+     val restored=Rect().also {node?.getBoundsInScreen(it)}
+     // 位移状态属于外层 pager，子舞台经过零点时不能提前当成已结束。
+     restored.top==original.top && node!=null && find("下一条预览 Video 1 · Fixture")==null && generateSequence(node) { it.parent }.all {
+      androidx.core.view.accessibility.AccessibilityNodeInfoCompat.wrap(it).stateDescription.isNullOrEmpty()
+     }
+    }
+   } catch(failure:TimeoutCancellationException) {
+    val node=find("Video swipe stage");val actual=Rect().also {node?.getBoundsInScreen(it)}
+    throw AssertionError("取消后应回弹：original=$original actual=$actual index=${index.intValue}",failure)
+   }
+   assertEquals(0,index.intValue)
+   drag(original,.5f,.8f,.5f,.2f)
+   try {await {index.intValue==1}} catch(failure:TimeoutCancellationException) {throw AssertionError("回弹后应接受新滑动：index=${index.intValue}",failure)}
   } finally {withContext(Dispatchers.Main) {screen.finish()}}
  }
  private fun start()=instrumentation.startActivitySync(Intent(app,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity

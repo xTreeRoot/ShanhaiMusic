@@ -77,6 +77,38 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class PlaybackReportingDeviceTest {
+    @Test fun neighboringPreviewAndSourceSwitchKeepQueuePositionAndRespectPauseOptIn() = runBlocking {
+        withFixture { player ->
+            val store = ViewModelStore()
+            val model = withContext(Dispatchers.Main) {
+                ViewModelProvider(store, ViewModelProvider.AndroidViewModelFactory.getInstance(app))[PlaybackModel::class.java]
+            }
+            try {
+                eventually { model.playback.value.connected }
+                withContext(Dispatchers.Main) { model.play(listOf(first, second), first) }
+                eventually { player.isPlaying && model.playback.value.current?.id == first.id }
+                withContext(Dispatchers.Main) {
+                    repeat(3) { assertEquals(second.id, model.neighboringTrack(true)?.id) }
+                    assertEquals(first.id, model.playback.value.current?.id)
+                    model.didSwitchSource("another", false)
+                    assertTrue(player.playWhenReady)
+                    model.didSwitchSource(first.sourceId, true)
+                    assertTrue(player.playWhenReady)
+                    model.didSwitchSource("another", true)
+                    assertEquals(2, player.mediaItemCount)
+                    assertEquals(first.id, player.currentMediaItem?.mediaId)
+                }
+                eventually { !player.playWhenReady }
+                withContext(Dispatchers.Main) {
+                    assertEquals(2, player.mediaItemCount)
+                    assertEquals(first.id, player.currentMediaItem?.mediaId)
+                    player.shuffleModeEnabled = true
+                    assertEquals(player.getMediaItemAt(player.manualNeighbor(true)).mediaId, model.neighboringTrack(true)?.id)
+                }
+            } finally { withContext(Dispatchers.Main) { store.clear() } }
+        }
+    }
+
     @Test fun signInRequiredIsReportedWithoutReissuingTheAudioRequest() = runBlocking {
         withFixture { player ->
             val restricted = first.copy(sourceTrackId = "restricted", title = "Restricted")

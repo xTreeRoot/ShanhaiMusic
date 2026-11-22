@@ -82,14 +82,16 @@ internal class PluginCatalogPager {
     private val mutable = MutableStateFlow(PluginCatalogStatus())
     val state = mutable.asStateFlow()
     private var generation = 0L
+    private val visitedPages = mutableSetOf<Pair<String, Int>>()
 
     fun invalidate(clear: Boolean = false) {
-        generation++
+        generation++; visitedPages.clear()
         mutable.update { if (clear) PluginCatalogStatus(revision = generation) else it.copy(busy = false, appending = false, needsReload = true, revision = generation) }
     }
 
     suspend fun refresh(invalidateCache: suspend () -> Unit, fetch: suspend (Int) -> PluginCatalogPage) {
         val previous = mutable.value
+        visitedPages.clear()
         val ticket = ++generation
         mutable.value = previous.copy(busy = true, error = null, appending = false, needsReload = false, revision = ticket)
         replace(previous, false, ticket) { offset -> invalidateCache(); fetch(offset) }
@@ -97,20 +99,22 @@ internal class PluginCatalogPager {
 
     suspend fun load(append: Boolean = false, fetch: suspend (Int) -> PluginCatalogPage) {
         val previous = mutable.value
-        if (previous.busy || append && previous.page?.nextOffset == null) return
+        if (previous.busy || append && previous.page?.nextOffset == null && previous.page?.nextPage == null) return
         val ticket = generation
         mutable.value = previous.copy(busy = true, error = null, appending = append, needsReload = false)
         replace(previous, append, ticket, fetch)
     }
 
     private suspend fun replace(previous: PluginCatalogStatus, append: Boolean, ticket: Long, fetch: suspend (Int) -> PluginCatalogPage) {
-        val offset = if (append) previous.page?.nextOffset ?: return else 0
+        val offset = if (append) previous.page?.nextOffset ?: previous.page?.nextPage?.let { 0 } ?: return else 0
         try {
-            val next = fetch(offset)
+            var next = fetch(offset)
             currentCoroutineContext().ensureActive()
             if (ticket != generation) return
+            if (append) previous.page?.nextPage?.page?.let { visitedPages.add(it to offset) }
+            if (next.nextPage?.page?.let { it to (next.nextOffset ?: 0) } in visitedPages) next = next.copy(nextPage = null, nextOffset = null)
             val page = previous.page?.takeIf { append }?.let { existing ->
-                existing.copy(sections = existing.sections + next.sections, nextOffset = next.nextOffset)
+                existing.copy(sections = appendCatalogSections(existing.sections, next.sections), nextOffset = next.nextOffset, nextPage = next.nextPage)
             } ?: next
             mutable.value = PluginCatalogStatus(page.copy(nextOffset = page.nextOffset?.takeIf { it > offset }), needsReload = false, revision = ticket)
         } catch (cancelled: CancellationException) {
@@ -121,4 +125,13 @@ internal class PluginCatalogPager {
                 error = error.message ?: "Plugin catalog request failed", appendRetry = append, needsReload = false, revision = ticket)
         }
     }
+}
+
+/** 旧 morePage 可能包含首屏摘要，按真实资源标识去重后原地追加。 */
+private fun appendCatalogSections(existing: List<com.xtreeroot.mb.plugin.PluginCatalogSection>, next: List<com.xtreeroot.mb.plugin.PluginCatalogSection>): List<com.xtreeroot.mb.plugin.PluginCatalogSection> {
+    val tracks = existing.flatMap { it.tracks }.mapTo(mutableSetOf()) { it.id }
+    val entities = existing.flatMap { it.entities }.mapTo(mutableSetOf()) { it.kind to it.id }
+    val links = existing.flatMap { it.links }.mapTo(mutableSetOf()) { it.destination }
+    return existing + next.map { section -> section.copy(tracks = section.tracks.filter { tracks.add(it.id) },
+        entities = section.entities.filter { entities.add(it.kind to it.id) }, links = section.links.filter { links.add(it.destination) }) }
 }

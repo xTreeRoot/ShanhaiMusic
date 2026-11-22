@@ -17,11 +17,11 @@ import androidx.compose.ui.unit.dp
 
 /** 与 iOS 分组列表对应的卡片容器，供资料库入口和设置表单共用。 */
 @Composable
-internal fun MBGroupedSection(title: String? = null, footer: String? = null, content: @Composable ColumnScope.() -> Unit) {
+internal fun MBGroupedSection(title: String? = null, footer: String? = null, containerColor: Color = com.xtreeroot.mb.ui.skinSurface(), content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 16.dp)) {
         if (title != null) Text(title, Modifier.padding(start = 16.dp, bottom = 6.dp).semantics { heading() },
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Surface(shape = RoundedCornerShape(14.dp), color = com.xtreeroot.mb.ui.skinSurface()) {
+        Surface(shape = RoundedCornerShape(14.dp), color = containerColor) {
             Column(Modifier.fillMaxWidth(), content = content)
         }
         if (footer != null) Text(footer, Modifier.padding(horizontal = 16.dp, vertical = 6.dp),

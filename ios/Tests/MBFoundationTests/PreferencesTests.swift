@@ -73,6 +73,14 @@ import Testing
     #expect(!restored.nowPlayingLyrics)
 }
 
+@Test func sourceSwitchPausePreferenceMigratesAndPersistsWithoutLosingSavedSettings() throws {
+    let old = try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"volume":0.27,"selectedSourceID":"saved"}"#.utf8))
+    #expect(!old.pauseOtherSourcesOnSwitch)
+    var changed = old; changed.pauseOtherSourcesOnSwitch = true
+    let restored = try JSONDecoder().decode(AppPreferences.self, from: JSONEncoder().encode(changed))
+    #expect(restored == changed)
+}
+
 @MainActor private final class EventAudio: AudioEngine, AudioEngineEvents, AudioEngineVolume {
     var onUpdate: (() -> Void)?
     var volume: Double = 0

@@ -18,7 +18,7 @@ struct VideoPageView: View {
     var body: some View {
         Group {
         if video.aspectRatio < 1, let track = playback.queue.current {
-            PortraitVideoView(track: track, video: video, playback: playback, interactionSource: interactionSource, librarySource: librarySource, openMusic: openMusic, browse: browse, saveResource: saveResource, menu: menu)
+            PortraitVideoView(track: track, video: video, playback: playback, interactionSource: interactionSource, accountRevision: accountRevision, librarySource: librarySource, openMusic: openMusic, browse: browse, saveResource: saveResource, menu: menu)
         } else {
         GeometryReader { geometry in
             let sideBySide = geometry.size.width >= 800 && geometry.size.width > geometry.size.height
@@ -267,6 +267,7 @@ private struct VideoTransport: View {
 struct VideoScreen: View {
     let video: VideoModel
     var pictureVisible = true
+    var fillsBounds = false
     var body: some View {
         Color.black.overlay {
             if video.track == nil { message("先从首页或搜索选择视频") }
@@ -276,7 +277,7 @@ struct VideoScreen: View {
             } else {
                 ZStack {
                     if video.isReady, let player = video.player, pictureVisible {
-                        NativeVideoSurface(player: player).accessibilityLabel("视频画面")
+                        NativeVideoSurface(player: player, fillsBounds: fillsBounds).accessibilityLabel("视频画面")
                     }
                     if video.isLoading || video.isBuffering {
                         ProgressView(LocalizedStringKey(video.isLoading ? "正在加载视频" : "正在缓冲"))
@@ -307,9 +308,11 @@ private final class PlayerSurface: UIView {
 }
 private struct NativeVideoSurface: UIViewRepresentable {
     let player: AVPlayer
+    let fillsBounds: Bool
     @Environment(\.videoPictureInPicture) private var pictureInPicture
     func makeUIView(context: Context) -> PlayerSurface {
         let view = PlayerSurface()
+        view.clipsToBounds = true
         view.playerLayer.videoGravity = .resizeAspect
         view.isAccessibilityElement = true
         view.accessibilityIdentifier = "native-video-surface"
@@ -320,6 +323,7 @@ private struct NativeVideoSurface: UIViewRepresentable {
         return view
     }
     func updateUIView(_ view: PlayerSurface, context: Context) {
+        view.playerLayer.videoGravity = fillsBounds ? .resizeAspectFill : .resizeAspect
         if view.playerLayer.player !== player { view.playerLayer.player = player }
         if view.pictureInPicture !== pictureInPicture {
             view.pictureInPicture?.detach(view.playerLayer)
@@ -336,15 +340,20 @@ private struct NativeVideoSurface: UIViewRepresentable {
 #else
 private struct NativeVideoSurface: NSViewRepresentable {
     let player: AVPlayer
+    let fillsBounds: Bool
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         view.wantsLayer = true
         let layer = AVPlayerLayer()
         layer.videoGravity = .resizeAspect
+        layer.masksToBounds = true
         view.layer = layer
         return view
     }
-    func updateNSView(_ view: NSView, context: Context) { (view.layer as? AVPlayerLayer)?.player = player }
+    func updateNSView(_ view: NSView, context: Context) {
+        (view.layer as? AVPlayerLayer)?.player = player
+        (view.layer as? AVPlayerLayer)?.videoGravity = fillsBounds ? .resizeAspectFill : .resizeAspect
+    }
     static func dismantleNSView(_ view: NSView, coordinator: ()) { (view.layer as? AVPlayerLayer)?.player = nil }
 }
 #endif

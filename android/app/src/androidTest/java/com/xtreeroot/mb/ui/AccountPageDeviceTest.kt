@@ -6,6 +6,8 @@ import android.graphics.Bitmap
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -13,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -24,6 +27,7 @@ import com.xtreeroot.mb.music.LibraryRoute
 import com.xtreeroot.mb.music.SignInPrompt
 import com.xtreeroot.mb.music.SourceAccount
 import com.xtreeroot.mb.music.TrackPage
+import com.xtreeroot.mb.music.Track
 import com.xtreeroot.mb.plugin.PluginCatalogRequest
 import com.xtreeroot.mb.plugin.PluginCollection
 import com.xtreeroot.mb.plugin.PluginSource
@@ -36,6 +40,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -49,12 +54,64 @@ class AccountPageDeviceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app = instrumentation.targetContext.applicationContext as MBApplication
 
+    @Test fun catalogFooterLoadsOnlyWhenVisibleAndSurvivesLoadingIndicatorReplacement() = runBlocking {
+        val pager = PluginCatalogPager()
+        fun page(count: Int, next: Int?) = com.xtreeroot.mb.plugin.PluginCatalogPage("Fixture", "", "",
+            listOf(com.xtreeroot.mb.plugin.PluginCatalogSection("Items", (0 until count).map {
+                Track("fixture", "$it", "Item $it", "", durationMs = 1000)
+            }, emptyList(), emptyList(), null, "", false)), next)
+        pager.load { page(40, 40) }
+        val requests = java.util.concurrent.atomic.AtomicInteger()
+        val source = object : AccountSource {
+            override val id = "pagination-fixture"
+            override suspend fun search(query: String, page: Int) = TrackPage(emptyList(), false)
+            override suspend fun account(): SourceAccount? = null
+            override suspend fun signIn(prompt: suspend (SignInPrompt) -> Unit): SourceAccount = error("unused")
+            override suspend fun signOut() {}
+        }
+        withPage(source, dark = false, content = {
+            val state by pager.state.collectAsStateWithLifecycle()
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            androidx.compose.foundation.lazy.LazyColumn {
+                state.page?.sections?.flatMap { it.tracks }?.forEach { track -> item {
+                    androidx.compose.material3.Text(track.title, Modifier.fillMaxWidth().padding(20.dp))
+                } }
+                if (state.busy) item { Loading() }
+                else state.page?.nextOffset?.let { next -> item {
+                    PaginationTrigger(next) { scope.launch { pager.load(true) { offset ->
+                        assertEquals(40, offset); requests.incrementAndGet(); delay(350)
+                        page(1, null).copy(sections = listOf(page(1, null).sections.single().copy(tracks = listOf(Track("fixture", "next", "Next item", "", durationMs = 1000)))))
+                    } } }
+                } }
+            }
+        }) {
+            awaitNode("Item 0")
+            instrumentation.waitForIdleSync()
+            assertEquals("No eager request before reaching the end", 0, requests.get())
+            scrollTo("Item 39")
+            // 末项仍可能只露出一部分，继续滚动到页尾哨兵真正进入可见范围。
+            val root = instrumentation.uiAutomation.rootInActiveWindow
+            fun list(node: AccessibilityNodeInfo): AccessibilityNodeInfo? = node.takeIf { it.isScrollable }
+                ?: (0 until node.childCount).firstNotNullOfOrNull { node.getChild(it)?.let(::list) }
+            root?.let(::list)?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            awaitNode("Next item")
+            assertEquals(1, requests.get())
+            assertEquals(null, pager.state.value.page?.nextOffset)
+            capture("android-pagination-loaded-in-place")
+        }
+    }
+
     @Test fun pluginReviewShowsNotesCollapsesPermissionsAndOpensGroupedSettings() = runBlocking {
         val id = "manager-ui-${UUID.randomUUID()}"
         val archive = File(app.cacheDir, "$id.zip").apply { writeBytes(pluginZip(id)) }
         val store = ViewModelStore()
         val manager = withContext(Dispatchers.Main) {
             ViewModelProvider(store, ViewModelProvider.AndroidViewModelFactory.getInstance(app))[PluginManagerModel::class.java]
+        }
+        suspend fun awaitState(description: String, ready: suspend () -> Boolean) {
+            val completed = withTimeoutOrNull(5_000) { while (!ready()) delay(25); true }
+            if (completed != true) capture("android-plugin-state-failure")
+            assertEquals("$description: ${manager.state.value}", true, completed)
         }
         val source = object : AccountSource {
             override val id = "manager-fixture"
@@ -64,7 +121,7 @@ class AccountPageDeviceTest {
             override suspend fun signOut() {}
         }
         try {
-            withPage(source, dark = false, content = {
+            withPage(source, dark = false, skin = true, content = {
                 val state by manager.state.collectAsStateWithLifecycle()
                 PluginsView(manager, state.copy(pending = state.pending?.copy(releaseNotes = "Fixed recommendation refresh")), {}, {})
             }) {
@@ -75,9 +132,11 @@ class AccountPageDeviceTest {
                 awaitNode("Fixed recommendation refresh")
                 assertNull(node("api.example.test"))
                 tap("Network permissions"); awaitNode("api.example.test")
-                tap("Network permissions"); withTimeout(5_000) { while (node("api.example.test") != null) delay(25) }
+                tap("Network permissions"); awaitState("Permissions collapse") { node("api.example.test") == null }
                 capture("android-plugin-review-notes-collapsed-permissions")
-                tap("Install"); awaitNode("Fixture Music")
+                tap("Install")
+                awaitState("Installation completes") { manager.state.value.pending == null }
+                awaitNode("Fixture Music")
                 capture("android-plugin-grouped-overview")
                 tap("Fixture Music"); awaitNode("Local Name")
                 capture("android-plugin-grouped-settings")
@@ -97,7 +156,7 @@ class AccountPageDeviceTest {
                     putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "Local Fixture")
                 }))
                 tap("Save")
-                withTimeout(5_000) { while (app.plugins.installed().single { it.id == id }.displayName != "Local Fixture") delay(25) }
+                awaitState("Rename persists") { app.plugins.installed().single { it.id == id }.displayName == "Local Fixture" }
                 awaitNode("Local Fixture")
                 assertEquals("Local Fixture", app.plugins.installed().single { it.id == id }.displayName)
             }
@@ -251,7 +310,7 @@ class AccountPageDeviceTest {
         assertEquals(expected, actual)
     }
 
-    private suspend fun withPage(source: AccountSource, dark: Boolean, content: @Composable (AccountModel) -> Unit,
+    private suspend fun withPage(source: AccountSource, dark: Boolean, skin: Boolean = false, content: @Composable (AccountModel) -> Unit,
                                  run: suspend () -> Unit) {
         instrumentation.uiAutomation.serviceInfo = instrumentation.uiAutomation.serviceInfo.apply {
             flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
@@ -259,6 +318,13 @@ class AccountPageDeviceTest {
         val activity = instrumentation.startActivitySync(Intent(app, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
         val store = ViewModelStore()
+        val background = if (skin) Bitmap.createBitmap(320, 640, Bitmap.Config.ARGB_8888).also { bitmap ->
+            val paint = android.graphics.Paint().apply {
+                shader = android.graphics.LinearGradient(0f, 0f, 320f, 640f,
+                    intArrayOf(0xffe3efe1.toInt(), 0xffb4d5e8.toInt(), 0xffedcbb9.toInt()), null, android.graphics.Shader.TileMode.CLAMP)
+            }
+            android.graphics.Canvas(bitmap).drawRect(0f, 0f, 320f, 640f, paint)
+        } else null
         try {
             withContext(Dispatchers.Main) {
                 val model = ViewModelProvider(store, ViewModelProvider.AndroidViewModelFactory.getInstance(app))[AccountModel::class.java]
@@ -266,7 +332,9 @@ class AccountPageDeviceTest {
                 activity.setContent {
                     com.xtreeroot.mb.ui.components.MBTheme(dark) {
                         CompositionLocalProvider(LocalMBEnglish provides true) {
-                            Surface(Modifier.fillMaxSize().safeDrawingPadding()) { content(model) }
+                            AppearanceBackdrop(background, dark, opacity = 1f) { color ->
+                                Surface(Modifier.fillMaxSize().safeDrawingPadding(), color = color) { content(model) }
+                            }
                         }
                     }
                 }

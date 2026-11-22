@@ -173,6 +173,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         var showSettings by rememberSaveable { mutableStateOf(false) }
         var showPlugins by rememberSaveable { mutableStateOf(false) }
         val pluginState by plugins.state.collectAsStateWithLifecycle()
+        var discoveryPagePosition by remember { mutableStateOf<Float?>(null) }
         val sourceNames = buildMap {
             pluginState.installed.filter { it.enabled }.forEach { put(it.id, it.displayName) }
         }
@@ -345,8 +346,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         }
         val switchSource: (String) -> Unit = { id ->
             if (id != sourceId) {
-                player.clear()
-                player.closeVideo()
+                player.didSwitchSource(id, preferences.pauseOtherSourcesOnSwitch)
                 showPlayer = false
                 showVideo = false
                 showQueue = false
@@ -415,7 +415,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                         else category?.title() ?: accountRoute?.let { libraryPage.value.title ?: it.title() } ?: mb(tab.chinese, tab.english)
                     TopAppBar(title = {
                         if (!atRoot) Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        else if (discoverRoot && sourceId != null) MusicTabs(sourceNames, sourceId, switchSource)
+                        else if (discoverRoot && sourceId != null) MusicTabs(sourceNames, sourceId, discoveryPagePosition, switchSource)
                     },
                         largeTitle = false, expandedHeight = if (atRoot) 48.dp else 64.dp,
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = surface),
@@ -481,7 +481,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                                             category != null -> CategoryView(browser, checkNotNull(category), select)
                                             else -> when (tab) {
                                                 Tab.Discover -> DiscoveryPlatforms(sourceNames.keys.toList(), sourceId.orEmpty(), switchSource,
-                                                    { app.musicSource(it) as? PluginSource }, navigator, select, player::play) { Discover(browser, select, openCategory) }
+                                                    { app.musicSource(it) as? PluginSource }, navigator, select, player::play, { discoveryPagePosition = it }) { Discover(browser, select, openCategory) }
                                                 Tab.Search -> Search(browser, searchIdentity, app.musicSource(target) as? PluginSource, null,
                                                     null, { tracks, track ->
                                                         choosePlaybackMode(if (track.resourceType == "video") PlaybackMode.Video else PlaybackMode.Music)

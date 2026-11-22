@@ -15,6 +15,7 @@ internal data class AppPreferences(
     val language: AppLanguage = AppLanguage.System,
     val inAppVideoWindow: Boolean = true,
     val systemVideoWindow: Boolean = true,
+    val pauseOtherSourcesOnSwitch: Boolean = false,
     val backgroundOpacity: Float? = null,
     val backgroundStyle: BackgroundSkinStyle = BackgroundSkinStyle(),
     val volume: Float = 0.8f,
@@ -37,6 +38,7 @@ internal data class AppPreferences(
 ) {
     fun toJson(): JSONObject = JSONObject().put("appearance", appearance.name).put("language", language.name)
         .put("inAppVideoWindow", inAppVideoWindow).put("systemVideoWindow", systemVideoWindow)
+        .put("pauseOtherSourcesOnSwitch", pauseOtherSourcesOnSwitch)
         .put("backgroundStyle", backgroundStyle.toJson()).put("videoQuality", videoQuality)
         .put("backgroundOpacity", backgroundOpacity?.toDouble()).put("volume", volume.toDouble()).put("quality", quality.name).put("normalization", normalization.name)
         .put("playbackMode", playbackMode.name).put("automaticUpdateChecks", automaticUpdateChecks)
@@ -52,6 +54,7 @@ internal data class AppPreferences(
             language = json.choice("language", AppLanguage.System),
             inAppVideoWindow = json.optBoolean("inAppVideoWindow", true),
             systemVideoWindow = json.optBoolean("systemVideoWindow", true),
+            pauseOtherSourcesOnSwitch = json.optBoolean("pauseOtherSourcesOnSwitch", false),
             backgroundOpacity = json.optDouble("backgroundOpacity").takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)?.toFloat(),
             backgroundStyle = BackgroundSkinStyle.parse(json.optJSONObject("backgroundStyle")),
             volume = json.optDouble("volume", 0.8).takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)?.toFloat() ?: 0.8f,

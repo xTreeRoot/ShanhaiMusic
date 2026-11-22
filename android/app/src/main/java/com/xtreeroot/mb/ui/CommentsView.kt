@@ -156,9 +156,7 @@ internal fun TrackComments(source: InteractionSource, track: Track, signedIn: Bo
                 state.loading -> if (!refreshing) item { Loading() }
                 state.error != null -> if (state.appending) item { Retry(checkNotNull(state.error)) { request(pages::retry) } }
                 page.nextCursor != null -> item {
-                    TextButton(enabled = canLoad, onClick = { request(pages::loadMore) }) {
-                        Text(mb("更多评论", "More comments"))
-                    }
+                    PaginationTrigger(page.nextCursor, enabled = canLoad) { request(pages::loadMore) }
                 }
                 page.comments.isEmpty() && capabilities != null -> item { EmptyMessage(mb("暂无评论", "No comments")) }
             }

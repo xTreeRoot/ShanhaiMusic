@@ -5,6 +5,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackgroundPreferencesTest {
+    @Test fun sourceSwitchPreferenceMigratesWithoutChangingOtherSavedSettings() {
+        val old = AppPreferences.parse(JSONObject().put("selectedSourceId", "saved").put("volume", .27))
+        assertFalse(old.pauseOtherSourcesOnSwitch)
+        val changed = old.copy(pauseOtherSourcesOnSwitch = true)
+        assertEquals(changed, AppPreferences.parse(changed.toJson()))
+    }
     @Test fun missingOpacityKeepsThemeDefaultWhileChosenOpacityPersists() {
         val old = AppPreferences.parse(JSONObject().put("volume", 0.27))
         assertNull(old.backgroundOpacity)

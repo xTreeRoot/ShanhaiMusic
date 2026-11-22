@@ -100,7 +100,9 @@ internal fun AccountLibraryView(model: LibraryPages, open: (LibraryRoute) -> Uni
         when {
             state.loading -> if (!refreshing) item { Loading() }
             state.error != null -> if (state.retryingAppend) item { Retry(checkNotNull(state.error), model::retry) }
-            page.nextCursor != null -> item { TextButton(onClick = model::loadMore) { Text(mb("加载更多", "Load More")) } }
+            page.nextCursor != null -> item {
+                PaginationTrigger(page.nextCursor, load = model::loadMore)
+            }
             page.tracks.isEmpty() && page.links.isEmpty() -> item { EmptyMessage(mb("暂无内容", "No Content")) }
         }
     }

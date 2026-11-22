@@ -51,7 +51,8 @@ internal fun PluginsOverview(state: PluginManagerState, reordering: Boolean, ope
             }
         }
         if (state.installed.isNotEmpty()) item {
-            MBGroupedSection {
+            MBGroupedSection(containerColor = if (LocalSkinEnabled.current) MaterialTheme.colorScheme.onSurface.copy(alpha = .035f)
+                else MaterialTheme.colorScheme.surface) {
                 state.installed.forEachIndexed { index, plugin ->
                     if (index > 0) MBFormDivider()
                     key(plugin.id) { PluginManagerRow(plugin, reordering, state.busy, index, state.installed.lastIndex,
@@ -89,11 +90,13 @@ private fun PluginManagerRow(plugin: InstalledPlugin, editing: Boolean, busy: Bo
     val moveDown = mb("下移", "Move Down")
     SwipeToDismissBox(dismiss, enableDismissFromStartToEnd = false, enableDismissFromEndToStart = !editing && !busy,
         backgroundContent = {
-            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.error), contentAlignment = Alignment.CenterEnd) {
-                Icon(Icons.Default.Delete, mb("删除", "Delete"), Modifier.padding(16.dp), tint = MaterialTheme.colorScheme.onError)
+            if (dismiss.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.error), contentAlignment = Alignment.CenterEnd) {
+                    Icon(Icons.Default.Delete, mb("删除", "Delete"), Modifier.padding(16.dp), tint = MaterialTheme.colorScheme.onError)
+                }
             }
         }) {
-        Row(Modifier.fillMaxWidth().background(skinSurface()).onSizeChanged { height = it.height }
+        Row(Modifier.fillMaxWidth().onSizeChanged { height = it.height }
             .combinedClickable(enabled = !busy && !editing, onClick = open, onLongClick = rename)
             .semantics {
                 customActions = buildList {

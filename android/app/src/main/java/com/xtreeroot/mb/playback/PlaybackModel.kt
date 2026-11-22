@@ -373,6 +373,18 @@ internal class PlaybackModel(application: Application) : AndroidViewModel(applic
     fun previous() = step(forward = false)
     fun next() = step(forward = true)
 
+    /** 与手动切歌共用 Media3 的实际随机顺序；预览不会改变播放状态。 */
+    fun neighboringTrack(forward: Boolean): Track? {
+        val player = controller ?: return null
+        if (forward && atStationTail(player)) return null
+        val index = player.manualNeighbor(forward)
+        return if (index in 0 until player.mediaItemCount) player.getMediaItemAt(index).track() else null
+    }
+
+    fun didSwitchSource(id: String, pauseOtherSources: Boolean) {
+        if (pauseOtherSources && state.value.current?.sourceId?.let { it != id } == true) controller?.pause()
+    }
+
     private fun step(forward: Boolean) {
         val player = controller ?: return
         if (forward && atStationTail(player)) { requestStationNext(player); return }
