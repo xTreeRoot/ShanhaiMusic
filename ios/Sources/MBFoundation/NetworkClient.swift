@@ -137,6 +137,17 @@ public actor NetworkClient {
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         let ext = ["m4a", "aac", "mp4", "mp3", "flac", "wav", "aiff", "aif", "caf", "ogg"].contains(resource.fileExtension) ? resource.fileExtension : "m4a"
         let temporaryDirectory = FileManager.default.temporaryDirectory
+        if resource.url.isFileURL {
+            return try await Task.detached(priority: .utility) {
+                try Task.checkCancellation()
+                let size = try resource.url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                guard size.isRegularFile == true, let bytes = size.fileSize, bytes > 0,
+                      maximumBytes.map({ bytes <= $0 }) ?? true else { throw MediaStreamingFailure.fileBudget }
+                let target = temporaryDirectory.appendingPathComponent("mb-media-\(UUID()).\(ext)")
+                try FileManager.default.copyItem(at: resource.url, to: target)
+                return target
+            }.value
+        }
         for _ in 0..<10 {
             try Task.checkCancellation()
             let session = policy.usesSystemProxy(for: try Self.url(request)) ? system : direct

@@ -85,11 +85,19 @@ public struct AudioEngineSnapshot: Sendable {
     }
 
     public func prepare(resource: MediaResource) async throws -> any PreparedAudio {
+        if resource.url.isFileURL {
+            guard try await AVURLAsset(url: resource.url).load(.isPlayable) else { throw MediaStreamingFailure.unplayable }
+            try Task.checkCancellation()
+            return NativePreparedLocalAudio(resource.url)
+        }
         let loader = try RemoteMediaAsset(resource: resource)
         do { try await loader.prime(); return NativePreparedAudio(loader) }
         catch { loader.cancel(); throw error }
     }
     public func load(prepared: any PreparedAudio, at milliseconds: Int64) async throws {
+        if let local = prepared as? NativePreparedLocalAudio, let url = local.take() {
+            try await load(url: url, at: milliseconds); return
+        }
         guard let token = prepared as? NativePreparedAudio, let loader = token.take() else { throw MediaStreamingFailure.unplayable }
         remote?.cancel(); remote = loader
         do { try await prepare(loader.asset, at: milliseconds) }
@@ -202,4 +210,11 @@ public struct AudioEngineSnapshot: Sendable {
     init(_ loader: RemoteMediaAsset) { self.loader = loader }
     func take() -> RemoteMediaAsset? { defer { loader = nil }; return loader }
     func cancel() { loader?.cancel(); loader = nil }
+}
+
+@MainActor private final class NativePreparedLocalAudio: PreparedAudio {
+    private var url: URL?
+    init(_ url: URL) { self.url = url }
+    func take() -> URL? { defer { url = nil }; return url }
+    func cancel() { url = nil }
 }

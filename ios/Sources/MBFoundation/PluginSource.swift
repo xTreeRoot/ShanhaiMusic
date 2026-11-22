@@ -245,6 +245,11 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
             return option
         }
         let actual = value["videoQuality"].string.flatMap { VideoQualityOption.valid($0) ? $0 : nil }
+        if value["encryption"] != .null {
+            guard value["type"] == .string("m4a") else { throw PluginFailure.execution("Unsupported encrypted audio container") }
+            let local = try await runtime.prepareCENCAudio(url: url, headers: headers, encryption: value["encryption"])
+            return MediaResource(url: local, headers: [:], fileExtension: "m4a")
+        }
         return MediaResource(url: url, headers: headers, fileExtension: value["type"].string ?? "m4a", videoQuality: actual, videoQualities: qualities)
     }
     func browseResult(_ value: PluginJSON) async throws -> PluginBrowse {

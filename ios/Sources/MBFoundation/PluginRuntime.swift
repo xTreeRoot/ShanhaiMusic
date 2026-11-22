@@ -52,6 +52,33 @@ public actor PluginRuntime {
         self.transport = transport; self.webSignIn = webSignIn; self.oauthSignIn = oauthSignIn; self.openURL = openURL
     }
     public func headers(for url: URL, kind: String) throws -> [String: String] { try host.headers(for: url, kind: kind) }
+    /// 信息源只交付授权资源与明文内容密钥，宿主仅处理通用 CENC 容器。
+    func prepareCENCAudio(url: URL, headers: [String: String], encryption: PluginJSON) async throws -> URL {
+        guard encryption["scheme"] == .string("cenc"), let hex = encryption["key"].string,
+              let permissions = host.manifest.permissions else { throw PluginFailure.execution("Unsupported media encryption") }
+        let key = try CENCAudio.key(hex), transport = transport
+        // 命中缓存前同样核对权限，停用网络权限不能继续准备新资源。
+        guard url.scheme == "https", url.user == nil, url.password == nil, permissions.reaches(url.host ?? "") else { throw PluginFailure.invalid("Media outside plugin network permissions") }
+        return try await PreparedCENCAudio.shared.prepare(url: url, headers: headers, key: key) {
+            var request = URLRequest(url: url); request.allHTTPHeaderFields = headers
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+            request.setValue(nil, forHTTPHeaderField: "Range"); request.setValue(nil, forHTTPHeaderField: "If-Range")
+            for _ in 0..<10 {
+                try Task.checkCancellation()
+                guard let destination = request.url, destination.scheme == "https", destination.user == nil, destination.password == nil,
+                      permissions.reaches(destination.host ?? "") else { throw PluginFailure.invalid("Media outside plugin network permissions") }
+                let (data, response) = try await transport(request, permissions)
+                guard data.count <= 16 << 20 else { throw PluginFailure.invalid("Encrypted audio exceeds preparation budget") }
+                if [301, 302, 303, 307, 308].contains(response.statusCode) {
+                    guard let next = try NetworkClient.redirect(request, response: response) else { throw NetworkFailure.redirect }
+                    request = next; continue
+                }
+                guard response.statusCode == 200 else { throw NetworkFailure.http(response.statusCode) }
+                return data
+            }
+            throw NetworkFailure.redirect
+        }
+    }
     public func updateSettings(_ settings: [String: String]) async {
         reset(playback)
         host.settings = settings

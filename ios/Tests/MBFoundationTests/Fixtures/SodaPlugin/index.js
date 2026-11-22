@@ -1,4 +1,5 @@
 import { loginHTML } from './login-page.js';
+import { playbackResource } from './playback.js';
 
 const API = 'https://beta-luna.douyin.com';
 const WEB_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36';
@@ -372,6 +373,16 @@ export function signOut() {
   if (saved) host.storage.set(SESSION_KEY, { ...saved, active: false });
 }
 
+/** 用户主动重新扫码时清除本插件会话和设备注册，不触碰其他设置或资料。 */
+export function signOutAndClearCache() {
+  signOut();
+  host.storage.remove(SESSION_KEY);
+  host.storage.remove(DEVICE_KEY);
+  pendingDetails.clear();
+  lyricsCache.clear();
+  artistCursors.clear();
+}
+
 async function withLibrary(load) {
   const saved = storedAccount();
   if (!saved?.active || !sessionPresent(saved.cookies)) throw loginRequired();
@@ -610,32 +621,19 @@ async function detail(id) {
 }
 
 export async function stream({ id, quality }) {
-  const data = await detail(id);
-  let model;
-  try { model = JSON.parse(data.track_player?.video_model || '{}') || {}; }
-  catch (_) { throw fail('汽水音乐返回了无效的播放信息'); }
-  const fullDuration = Number(data.seo_track?.track?.duration || 0);
-  const availableDuration = Number(model.video_duration || 0) * 1000;
-  if (fullDuration > 0 && availableDuration + 2000 < fullDuration) {
-    throw fail('这首歌当前只提供试听片段，请在汽水音乐客户端中播放');
+  id = String(id);
+  if (!/^\d+$/.test(id)) throw fail('歌曲 ID 无效');
+  const data = storedAccount()?.active && globalThis.host?.capabilities?.cencAudio === true ? await withLibrary(async (_, jar) => {
+    // 已核对的官方 GetTrack 合同；会员会话必须参与本次播放授权。
+    const result = await accountRequest('/luna/track', { aid: APP_ID, track_id: id, media_type: 'track', device_platform: 'web' }, jar);
+    if (String(result.track?.id) !== id) throw fail('汽水音乐返回的歌曲与请求不一致');
+    return result;
+  }) : await detail(id);
+  if (data.lyric?.content) {
+    if (lyricsCache.size >= 32 && !lyricsCache.has(id)) lyricsCache.delete(lyricsCache.keys().next().value);
+    lyricsCache.set(id, { content: data.lyric.content, until: Date.now() + 60000 });
   }
-  const variants = Object.values(model.video_list || {}).filter(v => {
-    const meta = v?.video_meta || {};
-    const url = v?.main_url;
-    return meta.codec_type === 'aac' && ['aac', 'm4a'].includes(meta.vtype) &&
-      typeof url === 'string' && /^https:\/\/(?:[a-z0-9-]+\.)+douyinvod\.com\//i.test(url) && !/[\x00-\x20\x7f\\]/.test(url);
-  });
-  variants.sort((a, b) => Number(a.video_meta.bitrate || 0) - Number(b.video_meta.bitrate || 0));
-  if (!variants.length) throw fail('这首歌暂时没有可用的 AAC 音频');
-  const selected = quality === 'standard' ? variants[0] : variants[variants.length - 1];
-  return {
-    url: selected.main_url,
-    type: selected.video_meta.vtype === 'aac' ? 'aac' : 'm4a',
-    size: Number(selected.video_meta.size || 0),
-    bitRate: Number(selected.video_meta.bitrate || 0),
-    quality: quality === 'standard' ? 'standard' : 'high',
-    headers: { 'User-Agent': WEB_UA },
-  };
+  return playbackResource(data, quality, WEB_UA);
 }
 
 export async function lyrics({ id }) {
@@ -720,4 +718,48 @@ export async function browse({ page }) {
     return { title: category?.title || '分类音乐', subtitle: category?.subtitle || '', sections: [{ tracks }] };
   }
   throw fail('没有这个页面');
+}
+
+// 歌手目录沿用 PC 客户端公开合同；游标按账号代次隔离，避免切换账号后续页串用。
+const artistCursors = new Map();
+async function artistRequest(path, query) {
+  const device = host.storage.get(DEVICE_KEY);
+  if (!accountID(device?.id) || !accountID(device?.install)) throw loginRequired();
+  // 作者元数据是公开请求，不携带账号 Cookie；客户端参数复用已验证的 PC 合同。
+  return accountRequest(path, {
+    aid: APP_ID, app_name: 'luna_pc', region: 'cn', geo_region: 'cn', os_region: 'cn', sim_region: '',
+    device_id: device.id, iid: device.install, cdid: '', fp: device.id, version_name: CLIENT_VERSION, version_code: '30070000',
+    channel: 'official', build_mode: 'master', network_carrier: '', ac: 'wifi', tz_name: 'Asia/Shanghai', resolution: '',
+    device_platform: 'windows', device_type: 'Windows', os_version: 'Windows 10', ...query,
+  }, [], { headers: { 'User-Agent': 'LunaPC/3.7.0(452316191)', 'Accept-Encoding': 'identity',
+    'X-Luna-Background-Type': 'foreground', 'X-Luna-Is-Background-Req': '0', 'X-Luna-Is-Local-User': '0' } });
+}
+export async function artist({ id, offset = 0 }) {
+  id = accountID(id);
+  if (!id || !Number.isSafeInteger(offset) || offset < 0) throw fail('无效的歌手或分页位置');
+  return withLibrary(async () => {
+    const key = `${accountRevision}:${id}`;
+    const cursor = offset ? artistCursors.get(`${key}:${offset}`) : '';
+    if (cursor == null) throw fail('歌手分页已过期，请重新打开主页');
+    const path = `/luna/pc/artists/${id}`;
+    const detail = await artistRequest(path, { locate_item_id: '' });
+    if (accountID(detail.artist_info?.id) !== id || !detail.artist_info.name) throw fail('汽水音乐歌手资料无效');
+    const listed = await artistRequest(path + '/tracks', { cursor, count: '50', sort_type: '0' });
+    if (!Array.isArray(listed.tracks)) throw fail('汽水音乐歌手作品响应无效');
+    const tracks = listed.tracks.map(song);
+    const next = String(listed.next_cursor ?? '');
+    const more = listed.has_more === true;
+    if (more && (!tracks.length || !next || next === '0' || next === cursor)) throw fail('汽水音乐歌手分页未前进');
+    if (artistCursors.size > 256) artistCursors.clear();
+    if (more) artistCursors.set(`${key}:${offset + tracks.length}`, next);
+    let albums = [];
+    if (offset === 0) {
+      try {
+        const list = await artistRequest(path + '/albums', { cursor: '', count: '50' });
+        if (Array.isArray(list.albums)) albums = list.albums.map(a => ({ id: String(a.id), name: a.name || '', imageUrl: image(a.url_cover) }));
+      } catch (error) { if (['signIn', 'verify', 'cancelled'].includes(error.code)) throw error; }
+    }
+    const info = detail.artist_info;
+    return { artist: { id, name: info.name, imageUrl: image(info.url_avatar), description: info.description || info.intro || '' }, tracks, albums, more };
+  });
 }
