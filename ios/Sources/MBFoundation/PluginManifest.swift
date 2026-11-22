@@ -43,6 +43,7 @@ public struct PluginManifest: Codable, Sendable {
         public let placement: Placement?
     }
     public struct HeaderRule: Codable, Sendable { public let hosts: [String]; public let kinds: [String]?; public let headers: [String: String] }
+    public let discovery: [Discovery]?
     public let id: String
     public let name: String?
     public let version: String?
@@ -63,6 +64,7 @@ public struct PluginManifest: Codable, Sendable {
             guard let required = Self.version(minAppVersion), let host = Self.version(hostVersion) else { throw PluginFailure.invalid("Invalid compatibility version") }
             if host.lexicographicallyPrecedes(required) { throw PluginFailure.invalid("Requires host \(minAppVersion)") }
         }
+        try Self.validateDiscovery(discovery ?? [])
         let methods = signInMethods ?? []
         guard methods.count <= 16, Set(methods.map(\.id)).count == methods.count,
               methods.allSatisfy({ !$0.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.id.range(of: "^[A-Za-z0-9][A-Za-z0-9_.-]*$", options: .regularExpression) != nil }) else { throw PluginFailure.invalid("Invalid sign-in methods") }

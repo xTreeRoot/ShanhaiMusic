@@ -42,6 +42,30 @@ class PluginRuntimeTest {
     private val app = InstrumentationRegistry.getInstrumentation().targetContext
     private val manifest = PluginManifest.parse(JSONObject("""{"id":"fixture","permissions":{"network":["api.example.test"]}}"""))
 
+    @Test fun discoveryOnlyRequestsEnabledSectionsInSavedOrder() {
+        val plugin = PluginManifest.parse(JSONObject("""{"id":"fixture","discovery":[{"id":"one","title":"One","page":"one"},{"id":"two","title":"Two","page":"two"},{"id":"three","title":"Three","page":"three"}]}"""))
+        fixture("""
+            let calls = [];
+            export function home() { throw Error('aggregate home must not execute'); }
+            export function browse({page,refresh}) { calls.push(page); return {sections:[{tracks:[{id:page,name:page}],morePage:'next:'+page}]}; }
+            export function probe() { return calls; }
+        """.trimIndent(), plugin = plugin) { runtime, _, _ ->
+            val source = PluginSource(plugin, runtime)
+            val empty = DiscoveryPreferences()
+            val before = empty.resolve(plugin.id, plugin.discoverySections.map { it.preferenceSection })
+            val draft = before.copy(order = listOf("three", "two", "one"), enabled = before.enabled + ("two" to false))
+            val doc = empty.edited(plugin.id, before, draft, PluginPreferences.newWriter())
+            val page = source.catalog.discoveryHome(plugin, doc, refresh = true)
+            assertEquals(listOf("Three", "One"), page.sections.map { it.title })
+            assertEquals(listOf("three", "one"), page.sections.flatMap { it.tracks }.map { it.sourceTrackId })
+            assertEquals("next:three", (page.sections[0].more?.destination as PluginCatalogRequest.Browse).page)
+            val disabled = draft.copy(enabled = draft.enabled.mapValues { false })
+            val off = doc.edited(plugin.id, draft, disabled, PluginPreferences.newWriter())
+            assertTrue(source.catalog.discoveryHome(plugin, off, refresh = true).sections.isEmpty())
+            assertEquals("[\"three\",\"one\"]", runtime.invoke("probe").toString())
+        }
+    }
+
     @Test fun videoQualityForwardsIndependentPreferenceAndReadsActualFallbackAndRealChoices() = fixture(
         """
         export function video({quality}) { return {url:'https://api.example.test/video.mp4',type:'mp4',videoQuality:quality==='1080p'?'720p':quality,

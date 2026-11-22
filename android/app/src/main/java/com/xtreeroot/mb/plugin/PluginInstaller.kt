@@ -56,7 +56,23 @@ internal class PluginInstaller(private val root: File) {
     val changes = mutations.asStateFlow()
 
     private val presentationFile = File(root, "presentation.json")
-    private val preferenceCache = PluginPreferenceCache(root)
+    private val preferenceCache = PreferenceCache(root, PluginPreferences::parse)
+    private val discoveryCache = PreferenceCache(File(root, "discovery"), DiscoveryPreferences::parse)
+    private val discoveryState = MutableStateFlow(DiscoveryPreferences())
+    val discoveryPreferences = discoveryState.asStateFlow()
+    suspend fun loadDiscoveryPreferences(): DiscoveryPreferences = locked {
+        discoveryCache.load { DiscoveryPreferences() }.also { discoveryState.value = it }
+    }
+    suspend fun mergeDiscoveryPreferences(remote: DiscoveryPreferences): DiscoveryPreferences {
+        val task = coroutineContext
+        return locked {
+            task.ensureActive()
+            discoveryCache.update({ DiscoveryPreferences() }) { current, _ -> current.merged(remote) }.also { discoveryState.value = it }
+        }
+    }
+    suspend fun saveDiscovery(plugin: String, before: DiscoveryPreferences.Selection, draft: DiscoveryPreferences.Selection) = locked {
+        discoveryCache.update({ DiscoveryPreferences() }) { current, writer -> current.edited(plugin, before, draft, writer) }.also { discoveryState.value = it }
+    }
     private fun migratePreferences(writer: String): PluginPreferences {
         val old = if (presentationFile.isFile) PluginPresentation.read(presentationFile.readText()) else PluginPresentation()
         var document = PluginPreferences()

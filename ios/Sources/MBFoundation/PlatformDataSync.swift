@@ -267,6 +267,15 @@ struct PlatformDataClient: Sendable {
         catch { if generation == revision, !Task.isCancelled { message = error.localizedDescription } }
     }
 
+    public func syncDiscoveryPreferences(load: @MainActor () async throws -> DiscoveryPreferences,
+                                         merge: @MainActor (DiscoveryPreferences) async throws -> DiscoveryPreferences) async {
+        guard !busy, let node, node.active else { return }
+        let generation = revision
+        do { try await client.syncDiscoveryPreferences(node, load: load, merge: merge, stillCurrent: { generation == self.revision && !self.busy }) }
+        catch is CancellationError { }
+        catch { if generation == revision, !Task.isCancelled { message = error.localizedDescription } }
+    }
+
     public func sync(_ account: SourceAccount?, platform: String, publish: Bool = false) {
         cancelProfileSync()
         guard !busy, let node, node.active, let account, PlatformDataCodec.identifier(platform) else { return }

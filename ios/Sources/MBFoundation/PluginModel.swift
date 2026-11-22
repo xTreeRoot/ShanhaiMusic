@@ -10,6 +10,8 @@ public enum PluginPreparation: Equatable {
     public let ui = PluginUIService()
     public private(set) var installed: [InstalledPlugin] = []
     public private(set) var presentation = PluginPresentation()
+    public private(set) var discoveryPreferences = DiscoveryPreferences()
+    public private(set) var discoveryRevision = 0
     public private(set) var sources: [String: PluginSource] = [:]
     public private(set) var pending: PendingPlugin?
     public private(set) var preparation: PluginPreparation?
@@ -43,6 +45,7 @@ public enum PluginPreparation: Equatable {
     public func reportError(_ error: any Error) { errorMessage = error.localizedDescription }
     public func restore() async {
         do {
+            discoveryPreferences = try await installer.discoveryPreferences()
             presentation = try await installer.presentation()
             installed = presentation.sorted(try await installer.installed())
             disabled = try await installer.disabled()
@@ -50,6 +53,15 @@ public enum PluginPreparation: Equatable {
             for plugin in installed where sources[plugin.id] == nil && !disabled.contains(plugin.id) { sources[plugin.id] = try await source(plugin) }
             revision += 1
         } catch { errorMessage = error.localizedDescription }
+    }
+    public func loadDiscoveryPreferences() async throws -> DiscoveryPreferences { try await installer.discoveryPreferences() }
+    public func mergeDiscoveryPreferences(_ remote: DiscoveryPreferences) async throws -> DiscoveryPreferences {
+        let result = try await installer.mergeDiscoveryPreferences(remote)
+        if result != discoveryPreferences { discoveryPreferences = result; discoveryRevision += 1 }
+        return result
+    }
+    public func saveDiscovery(_ plugin: String, before: DiscoveryPreferences.Selection, draft: DiscoveryPreferences.Selection) async throws {
+        discoveryPreferences = try await installer.saveDiscovery(plugin, before: before, draft: draft); discoveryRevision += 1
     }
     public func pluginPreferences() async throws -> PluginPreferences { try await installer.pluginPreferences() }
     public func mergePluginPreferences(_ remote: PluginPreferences) async throws -> PluginPreferences {

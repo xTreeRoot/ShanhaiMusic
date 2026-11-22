@@ -1,0 +1,92 @@
+[
+  {
+    "number": 1,
+    "file": "images/001.png",
+    "sha256": "596437a7ae1f823f3ed8aa20d736868ddf6d1af4f7900a7d9671846cf04f1576",
+    "name": "下拉刷新-拉动前",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPullRefreshReplacesPluginHomeAndIndependentShelf()",
+    "captured": 1795336611.328,
+    "origin": "ipad-attachments"
+  },
+  {
+    "number": 2,
+    "file": "images/002.png",
+    "sha256": "00569c79d2788fa1c0c42c7d0decb1f847c001828e11f56b3cdaa976c88d98a4",
+    "name": "下拉刷新-拉动后",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPullRefreshReplacesPluginHomeAndIndependentShelf()",
+    "captured": 1795336617.871,
+    "origin": "ipad-attachments"
+  },
+  {
+    "number": 3,
+    "file": "images/003.png",
+    "sha256": "1761a3e597232ccff02546d9e2cf26370e58002f86f9af54c73798f3995dad77",
+    "name": "下拉刷新-首页和独立栏目更新",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPullRefreshReplacesPluginHomeAndIndependentShelf()",
+    "captured": 1795336620.614,
+    "origin": "ipad-attachments"
+  },
+  {
+    "number": 4,
+    "file": "images/004.png",
+    "sha256": "4f61a76a09deee497e2e003e901cdcc75b84bedd0dc201f72de9b2132fdca34c",
+    "name": "发现栏目-保存后的两行卡片",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795336576.976,
+    "origin": "ipad-attachments"
+  },
+  {
+    "number": 5,
+    "file": "images/005.png",
+    "sha256": "c10dbb1a8727022bcc56e209a58e085aa9cce098783e3351fe9df5cb034b0557",
+    "name": "栏目设置-开关与拖动手柄",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795336566.472,
+    "origin": "ipad-attachments"
+  },
+  {
+    "number": 6,
+    "file": "images/006.png",
+    "sha256": "d70f9f7dd4d4ae634abc3688deb46f9bcaeba7fb3d169a7893582365543b5363",
+    "name": "栏目设置-重开保留排序",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795336578.636,
+    "origin": "ipad-attachments"
+  },
+  {
+    "number": 7,
+    "file": "images/007.png",
+    "sha256": "84f75f63a5e79b065a083ef68b556e7ff4bb7d2f21aa7099a5faf74e939015d6",
+    "name": "发现栏目-保存后的两行卡片",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795336459.248,
+    "origin": "iphone-five-attachments"
+  },
+  {
+    "number": 8,
+    "file": "images/008.png",
+    "sha256": "9669c2f51c44b67a9a851440ca519a5588dd341364a4c2103ae558efbaf61923",
+    "name": "栏目设置-开关与拖动手柄",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795336448.726,
+    "origin": "iphone-five-attachments"
+  },
+  {
+    "number": 9,
+    "file": "images/009.png",
+    "sha256": "12a75765add16fc7dcc0081fb6fc65d57e1ae6e286a0d6dd779c028631447d9b",
+    "name": "栏目设置-重开保留排序",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testDiscoverySectionsCancelSaveReorderAndReopen()",
+    "captured": 1795336461.198,
+    "origin": "iphone-five-attachments"
+  }
+]

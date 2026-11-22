@@ -197,6 +197,13 @@ public struct MBRootView: View {
         tabs
             .task { await skin.restore() }
             .task { if !demo { await platformData.restore() } }
+            .environment(\.discoveryPreferencesModel, plugins)
+            .task(id: "discovery:\(plugins.discoveryRevision):\(platformData.revision):\(scenePhase)") {
+                if !demo, scenePhase == .active {
+                    await platformData.syncDiscoveryPreferences(load: { try await plugins.loadDiscoveryPreferences() },
+                        merge: { try await plugins.mergeDiscoveryPreferences($0) })
+                }
+            }
             .task(id: "plugins:\(plugins.revision):\(platformData.revision):\(scenePhase)") {
                 if !demo, scenePhase == .active {
                     await platformData.syncPluginPreferences(load: { try await plugins.pluginPreferences() },

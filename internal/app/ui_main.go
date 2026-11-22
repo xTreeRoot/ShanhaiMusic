@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"runtime"
 	"time"
 
@@ -28,6 +29,7 @@ func (a *app) view(c *ui.Context) {
 	active := c.WindowActive()
 	if active && a.wasBehind {
 		a.syncPluginPreferences()
+		a.syncDiscoveryPreferences()
 		a.freshen()
 	}
 	a.wasBehind = !active
@@ -84,6 +86,7 @@ func (a *app) view(c *ui.Context) {
 		a.nowPlayingLayer(c, npOpen, npSettled)
 	})
 	a.signInDialog(c, a.pal, false)
+	a.discoveryEditorView(c)
 	a.playlistNameDialog(c)
 	a.deletePlaylistDialog(c)
 	if a.toast != "" {
@@ -183,6 +186,8 @@ func (a *app) load(r route) {
 		if !lib.savedAlbumsPaged.loaded {
 			a.loadSavedAlbums(lib)
 		}
+	case pageDiscoveryCollection:
+		a.loadDiscoveryCollection(lib, r.id)
 	case pageBrowse:
 		a.loadBrowse(lib, r.id, false)
 	case pageSection:
@@ -418,6 +423,8 @@ func (a *app) content(c *ui.Context) {
 		a.likedPage(c)
 	case pageSavedAlbums:
 		a.savedAlbumsPage(c)
+	case pageDiscoveryCollection:
+		a.browsePage(c)
 	case pageBrowse:
 		a.browsePage(c)
 	case pageSection:
@@ -472,14 +479,24 @@ func (a *app) loadHome(lib *library) {
 	lib.homeLoading, lib.homeErr = true, ""
 	at := time.Now()
 	gen := lib.accountGen
+	lib.homeRevision++
+	revision := lib.homeRevision
+	selection := a.discoverySelection(lib)
+	if lib.homeCancel != nil {
+		lib.homeCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	lib.homeCancel = cancel
 	go func() {
 		var home *music.Browse
 		var recent []music.Track
 		var homeErr, recentErr error
-		if lib.can("home") {
+		if len(lib.src.Info().Discovery) > 0 || len(discoveryDefinitions(lib.src)) > 1 {
+			home, homeErr = loadDiscovery(ctx, lib.src, selection)
+		} else if selection.Enabled["home"] && lib.can("home") {
 			home, homeErr = lib.src.Home()
 		}
-		if home == nil || len(home.Sections) == 0 {
+		if len(lib.src.Info().Discovery) == 0 && len(discoveryDefinitions(lib.src)) == 1 && selection.Enabled["home"] && (home == nil || len(home.Sections) == 0) {
 			home = nil
 			if lib.can("recent") {
 				recent, recentErr = lib.src.Recent()
@@ -487,6 +504,9 @@ func (a *app) loadHome(lib *library) {
 		}
 		a.post(func() {
 			if lib.accountGen != gen {
+				return
+			}
+			if lib.homeRevision != revision {
 				return
 			}
 			lib.homeLoading = false

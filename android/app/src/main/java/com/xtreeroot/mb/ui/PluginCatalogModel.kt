@@ -8,6 +8,7 @@ import com.xtreeroot.mb.plugin.PluginCatalogPage
 import com.xtreeroot.mb.plugin.PluginCatalogRequest
 import com.xtreeroot.mb.plugin.PluginSearchKind
 import com.xtreeroot.mb.plugin.PluginSource
+import com.xtreeroot.mb.plugin.discoveryHome
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -48,11 +49,12 @@ internal sealed interface CatalogDestination {
             if (filter == selected) return
             filter = selected; pager.invalidate(clear = true)
         }
-        suspend fun refresh(source: PluginSource) {
+        suspend fun refresh(source: PluginSource, preferences: com.xtreeroot.mb.plugin.DiscoveryPreferences = com.xtreeroot.mb.plugin.DiscoveryPreferences()) {
             val request = currentRequest
             val previews = filter == null
             pager.refresh({ source.catalog.invalidate() }) {
-                source.catalog.load(request, includePreviews = previews, refresh = true)
+                if (request == PluginCatalogRequest.Home) source.catalog.discoveryHome(source.manifest, preferences, refresh = true)
+                else source.catalog.load(request, includePreviews = previews, refresh = true)
             }
         }
     }

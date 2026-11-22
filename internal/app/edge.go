@@ -67,6 +67,7 @@ func (a *app) activateNode(node *edge.Node) {
 	panel.stop = cancel
 	panel.profileContext = ctx
 	a.syncPluginPreferences()
+	a.syncDiscoveryPreferences()
 	for _, lib := range a.libs {
 		a.syncEdgeProfile(lib, false)
 	}
@@ -79,6 +80,7 @@ func (a *app) activateNode(node *edge.Node) {
 			a.post(func() {
 				if a.edge.service == service && ctx.Err() == nil {
 					a.syncPluginPreferences()
+					a.syncDiscoveryPreferences()
 				}
 			})
 			select {

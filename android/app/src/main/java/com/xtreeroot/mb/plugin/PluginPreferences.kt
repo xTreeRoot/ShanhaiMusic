@@ -17,10 +17,10 @@ internal data class PluginPreference<T>(val value: T, val clock: Long, val write
 
 /** 保留未安装插件的偏好，名称、开关逐插件合并，排序独立合并。 */
 internal data class PluginPreferences(val version: Int = 1, val names: Map<String, PluginPreference<String>> = emptyMap(),
-    val enabled: Map<String, PluginPreference<Boolean>> = emptyMap(), val order: PluginPreference<List<String>>? = null) {
+    val enabled: Map<String, PluginPreference<Boolean>> = emptyMap(), val order: PluginPreference<List<String>>? = null) : PortablePreferences<PluginPreferences> {
     val isEmpty: Boolean get() = names.isEmpty() && enabled.isEmpty() && order == null
     val maxObservedClock: Long get() = (names.values.map { it.clock } + enabled.values.map { it.clock } + listOfNotNull(order?.clock)).maxOrNull() ?: 0L
-    fun validated(): PluginPreferences = apply {
+    override fun validated(): PluginPreferences = apply {
         require(version == 1 && names.size <= 512 && enabled.size <= 512)
         val ids = mutableSetOf<String>()
         names.forEach { (id, entry) ->
@@ -36,7 +36,7 @@ internal data class PluginPreferences(val version: Int = 1, val names: Map<Strin
         }
         require(ids.size <= 512)
     }
-    fun merged(other: PluginPreferences): PluginPreferences {
+    override fun merged(other: PluginPreferences): PluginPreferences {
         validated(); other.validated()
         fun <T> merge(left: Map<String, PluginPreference<T>>, right: Map<String, PluginPreference<T>>) =
             left.toMutableMap().apply { right.forEach { (id, entry) -> this[id] = this[id]?.merged(entry) ?: entry } }.toMap()
@@ -49,7 +49,7 @@ internal data class PluginPreferences(val version: Int = 1, val names: Map<Strin
         copy(enabled = enabled + (id to PluginPreference(value, maxObservedClock + 1, writer))).validated()
     fun withOrder(ids: List<String>, writer: String): PluginPreferences =
         copy(order = PluginPreference(ids.toList(), maxObservedClock + 1, writer)).validated()
-    fun toJson(): JSONObject {
+    override fun toJson(): JSONObject {
         validated()
         fun <T> register(entry: PluginPreference<T>, value: Any) = JSONObject().put("value", value).put("clock", entry.clock).put("writer", entry.writer)
         return JSONObject().put("version", version)

@@ -40,6 +40,8 @@ enum PluginPageRequest {
 }
 
 struct PluginCatalogPage: View {
+    @Environment(\.discoveryPreferencesModel) private var discoveryModel
+    @State private var editingSections = false
     @Environment(\.skinAccent) private var skinAccent
     let source: PluginSource
     let request: PluginPageRequest
@@ -71,6 +73,10 @@ struct PluginCatalogPage: View {
     @Environment(\.sourceNames) private var sourceNames
     var body: some View {
         VStack(spacing: 0) {
+            if request.isHome, let discoveryModel {
+                HStack { Spacer(); Button("栏目", systemImage: "slider.horizontal.3") { editingSections = true }.buttonStyle(.plain).padding(.horizontal, 20).padding(.vertical, 8) }
+                    .sheet(isPresented: $editingSections) { DiscoverySectionsEditor(source: source, model: discoveryModel) }
+            }
             if !filterTabs.isEmpty {
                 SourceTabs(sources: filterTabs.map { SourceTab(id: $0.page, name: $0.title) },
                            selected: filterPage ?? content?.selectedTab ?? filterTabs[0].page,
@@ -79,13 +85,17 @@ struct PluginCatalogPage: View {
             if request.isHome {
                 PluginDiscoveryHome(source: source, capabilities: capabilities, content: content, loading: loading, error: error,
                                     retry: { Task { await load(refresh: true) } }, select: select, menu: menu, previews: navigationPreviews, refresh: { await load(refresh: true) },
-                                    showNavigation: filterPage == nil, nextOffset: more ? offset : nil, loadMore: { await load(append: true) })
+                                    showNavigation: false, nextOffset: more ? offset : nil, loadMore: { await load(append: true) })
             } else {
                 catalogList
             }
         }
         .modifier(SkinSurface(defaultColor: MBTheme.background))
         .navigationTitle(title)
+        .onChange(of: discoveryModel?.discoveryPreferences) { _, _ in
+            guard request.isHome else { return }; initialLoad?.cancel(); artworkPrefetch?.cancel(); content = nil
+            initialLoad = Task { await load(refresh: true) }
+        }
         .onAppear { startLoading() }
         .onDisappear { initialLoad?.cancel(); initialLoad = nil; artworkPrefetch?.cancel() }
     }
@@ -244,11 +254,8 @@ struct PluginCatalogPage: View {
             if refresh && (!request.isHome || filterPage != nil) { await source.invalidateCatalog() }
             switch filterPage.map(PluginPageRequest.browse) ?? request {
             case .home:
-                if refresh {
-                    let snapshot = try await source.refreshDiscovery()
-                    guard revision == loadRevision, !Task.isCancelled else { return }
-                    page = snapshot.home; navigationPreviews = snapshot.previews
-                } else { page = try await source.home() }
+                page = try await source.discoveryHome(preferences: discoveryModel?.discoveryPreferences ?? DiscoveryPreferences(), refresh: refresh)
+                navigationPreviews = [:]
                 hasMore = false; count = 0
             case .browse(let value): (page, hasMore, count) = try await source.browsePage(value, offset: append ? offset : 0, refresh: refresh)
             case .collection(let method, _): (page, hasMore, count) = try await source.collection(method, offset: append ? offset : 0)

@@ -39,7 +39,7 @@ private val rowShape = RoundedCornerShape(12.dp)
 internal fun QueueTracks(model: PlaybackModel, state: PlaybackState, modifier: Modifier = Modifier, onSelect: () -> Unit = {}) {
     val tracks = state.tracks
     if (tracks.isEmpty()) return EmptyMessage(mb("队列为空", "Your queue is empty"))
-    TrackReorderList(tracks, state.connected, { from, to -> model.move(from, to, tracks) },
+    ReorderList(tracks, Track::id, state.connected, { from, to -> model.move(from, to, tracks) },
         modifier.padding(horizontal = 8.dp)) { index, placement, lifted, dragging ->
         val track = tracks[index]
         val current = index == state.index

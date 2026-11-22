@@ -35,7 +35,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.xtreeroot.mb.R
-import com.xtreeroot.mb.music.Track
 import kotlin.math.abs
 
 internal val trackReorderHandleSize = 48.dp
@@ -47,7 +46,7 @@ private data class TrackDrag(val index: Int, val size: Int, val finger: Float, v
 private val LazyListItemInfo.center get() = offset + size / 2f
 
 @Composable
-internal fun TrackReorderList(tracks: List<Track>, enabled: Boolean, onMove: (Int, Int) -> Unit,
+internal fun <T> ReorderList(items: List<T>, itemKey: (T) -> String, enabled: Boolean, onMove: (Int, Int) -> Unit,
                               modifier: Modifier = Modifier, header: (@Composable () -> Unit)? = null,
                               row: @Composable (Int, Modifier, Boolean, Boolean) -> Unit) {
     val list = rememberLazyListState()
@@ -84,8 +83,8 @@ internal fun TrackReorderList(tracks: List<Track>, enabled: Boolean, onMove: (In
         }
     }
     Box(modifier.fillMaxWidth().clipToBounds()) {
-        LazyColumn(Modifier.fillMaxWidth().pointerInput(tracks, enabled, rtl, firstTrack) {
-            if (!enabled || tracks.size < 2) return@pointerInput
+        LazyColumn(Modifier.fillMaxWidth().pointerInput(items, enabled, rtl, firstTrack) {
+            if (!enabled || items.size < 2) return@pointerInput
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 val distanceFromEnd = if (rtl) down.position.x else size.width - down.position.x
@@ -118,7 +117,7 @@ internal fun TrackReorderList(tracks: List<Track>, enabled: Boolean, onMove: (In
             }
         }, state = list, contentPadding = PaddingValues(bottom = 14.dp)) {
             if (header != null) item(content = { header() })
-            itemsIndexed(tracks, key = { index, track -> "$index:${track.id}" }) { index, _ ->
+            itemsIndexed(items, key = { index, item -> "$index:${itemKey(item)}" }) { index, _ ->
                 val active = drag
                 val hidden = active?.index == index
                 val place = Modifier.offset {
@@ -136,7 +135,7 @@ internal fun TrackReorderList(tracks: List<Track>, enabled: Boolean, onMove: (In
                 row(index, if (dragging) visibility.clearAndSetSemantics {} else visibility, false, dragging)
             }
         }
-        drag?.takeIf { it.index in tracks.indices }?.let { active ->
+        drag?.takeIf { it.index in items.indices }?.let { active ->
             row(active.index, Modifier.graphicsLayer { translationY = active.center - active.size / 2f }
                 .clearAndSetSemantics {}, true, true)
         }

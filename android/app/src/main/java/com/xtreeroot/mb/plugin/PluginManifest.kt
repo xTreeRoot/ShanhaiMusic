@@ -15,6 +15,7 @@ internal data class PluginManifest(
     val settings: List<PluginSetting> = emptyList(),
     val navigation: List<PluginNavigation> = emptyList(),
     val signInMethods: List<com.xtreeroot.mb.music.SignInMethod> = emptyList(),
+    val discovery: List<PluginDiscoverySection> = emptyList(),
 ) {
     fun reaches(host: String): Boolean = host.isNotEmpty() && network.any { it == "*" || hostMatches(it, host) }
 
@@ -69,7 +70,7 @@ internal data class PluginManifest(
             if (signInMethods.size > 16 || signInMethods.any { !idPattern.matches(it.id) || it.label.isBlank() } ||
                 signInMethods.distinctBy { it.id }.size != signInMethods.size) throw PluginException("Invalid sign-in methods")
             val manifest = PluginManifest(id, json.optionalText("name") ?: id, entry, permissions.textList("network"), emptyList(),
-                json.optionalText("version"), minAppVersion, values, destinations, signInMethods)
+                json.optionalText("version"), minAppVersion, values, destinations, signInMethods, parseDiscovery(json))
             val rules = if (json.isNull("requestHeaders")) null else json.getJSONArray("requestHeaders")
             return manifest.copy(requestHeaders = List(rules?.length() ?: 0) { index ->
                 val rule = checkNotNull(rules).getJSONObject(index)

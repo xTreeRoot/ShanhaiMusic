@@ -250,7 +250,7 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, SignInMet
 
 public struct PluginBrowse: Sendable {
     public struct Link: Identifiable, Sendable { public let title: String; public let subtitle: String; public let page: String; public var imageURL: URL? = nil; public var artworkHeaders: [String: String] = [:]; public var id: String { page } }
-    public struct Section: Identifiable, Sendable { public let id: String; public var entities: [PluginEntity] = []; public var empty = ""; public var trackLayout = ""; public let title: String; public let tracks: [Track]; public let links: [Link]; public let morePage: String? }
+    public struct Section: Identifiable, Sendable { public let id: String; public var entities: [PluginEntity] = []; public var empty = ""; public var trackLayout = ""; public let title: String; public let tracks: [Track]; public let links: [Link]; public let morePage: String?; public var moreCollection: String? = nil }
     public let title: String
     public var subtitle = ""
     public var description = ""
@@ -260,7 +260,7 @@ public struct PluginBrowse: Sendable {
 }
 
 public extension PluginBrowse.Section {
-    func reidentified(_ value: String) -> Self { Self(id: value, entities: entities, empty: empty, trackLayout: trackLayout, title: title, tracks: tracks, links: links, morePage: morePage) }
+    func reidentified(_ value: String) -> Self { Self(id: value, entities: entities, empty: empty, trackLayout: trackLayout, title: title, tracks: tracks, links: links, morePage: morePage, moreCollection: moreCollection) }
 }
 
 public extension PluginBrowse {

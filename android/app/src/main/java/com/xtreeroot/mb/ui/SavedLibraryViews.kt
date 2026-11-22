@@ -241,7 +241,7 @@ internal fun PlaylistsPage(saved: SavedLibraryModel, library: LocalMusicIndex,
         val matching = library.filter(tracks, trackQuery)
         val canSort = trackQuery.isBlank() && tracks.size > 1
         val editing = canSort && sorting
-        TrackReorderList(matching, editing, { from, to -> saved.reorder(current.id, from, to, matching.map(Track::id)) },
+        ReorderList(matching, Track::id, editing, { from, to -> saved.reorder(current.id, from, to, matching.map(Track::id)) },
             Modifier.fillMaxSize(), header = {
                 Column {
                     LibraryPageHeader(null, back = ::closePlaylist) {

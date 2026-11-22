@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"log"
 	"time"
@@ -81,11 +82,13 @@ type library struct {
 	likedAt    time.Time // when the liked songs' first page was asked for
 	likedFresh bool      // it's being asked for anew
 
-	recent      []music.Track
-	home        *music.Browse // the source's own Home
-	homeErr     string
-	homeLoading bool
-	homeAt      time.Time // when what the home page shows was asked for
+	recent       []music.Track
+	home         *music.Browse // the source's own Home
+	homeErr      string
+	homeCancel   context.CancelFunc
+	homeRevision uint64
+	homeLoading  bool
+	homeAt       time.Time // when what the home page shows was asked for
 
 	playlists map[string]*music.Playlist
 	loadingPl map[string]bool

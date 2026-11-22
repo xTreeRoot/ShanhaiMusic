@@ -51,6 +51,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.xtreeroot.mb.MBApplication
+import com.xtreeroot.mb.plugin.discoveryHome
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -101,6 +104,10 @@ internal fun catalogTitle(destination: CatalogDestination, source: PluginSource)
 private fun PluginCatalogContent(source: PluginSource, destination: CatalogDestination.Content, navigator: PluginCatalogNavigator,
                                  play: (List<Track>, Track) -> Unit,
                                  playStation: ((List<Track>, Track, PlaybackStation) -> Unit)? = null) {
+    val app = LocalContext.current.applicationContext as MBApplication
+    val discovery by app.plugins.discoveryPreferences.collectAsStateWithLifecycle()
+    var editingSections by remember { mutableStateOf(false) }
+    var displayedPreferences by remember(source) { mutableStateOf<com.xtreeroot.mb.plugin.DiscoveryPreferences?>(null) }
     val request = destination.currentRequest
     val pager = destination.pager
     val status by pager.state.collectAsStateWithLifecycle()
@@ -114,7 +121,15 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
     var changing by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
     suspend fun load(append: Boolean = false) = pager.load(append) {
-        catalog.load(if (append) pager.state.value.page?.nextPage ?: request else request, it)
+        if (request == PluginCatalogRequest.Home) {
+            val preferences = app.plugins.loadDiscoveryPreferences()
+            displayedPreferences = preferences
+            catalog.discoveryHome(source.manifest, preferences, refresh = false)
+        }
+        else catalog.load(if (append) pager.state.value.page?.nextPage ?: request else request, it)
+    }
+    LaunchedEffect(discovery) {
+        if (request == PluginCatalogRequest.Home && displayedPreferences != null && displayedPreferences != discovery) pager.invalidate(clear = true)
     }
     LaunchedEffect(source, request, status.revision) {
         if (status.needsReload) load()
@@ -234,9 +249,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                 }
             }
         }
-        if (destination.request == PluginCatalogRequest.Home && destination.filter == null && page != null) links.filter { link ->
-            page.sections.none { section -> section.more?.destination == link.destination || link.title.isNotBlank() && section.title == link.title }
-        }.forEach { link -> item(span = { GridItemSpan(maxLineSpan) }) { PluginNavigationShelf(source, link, navigator::open, select, page.navigationPreviews[link.destination]) } }
+
         if (status.busy && (page == null || status.appending)) item(span = { GridItemSpan(maxLineSpan) }) { Loading() }
         status.error?.let { error -> item(span = { GridItemSpan(maxLineSpan) }) { Retry(error) { scope.launch { load(status.appendRetry) } } } }
         actionError?.let { error -> item(span = { GridItemSpan(maxLineSpan) }) {
@@ -249,7 +262,11 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
             item(span = { GridItemSpan(maxLineSpan) }) { EmptyMessage(mb("暂无内容", "No content")) }
         }
     }
+    if (editingSections) DiscoverySectionsEditor(source, app.plugins) { editingSections = false }
     Column(Modifier.fillMaxSize()) {
+        if (destination.request == PluginCatalogRequest.Home) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = { editingSections = true }) { Text(mb("栏目", "Sections")) }
+        }
         if (destination.tabs.isNotEmpty()) {
             val options = destination.tabs.mapNotNull { link -> (link.destination as? PluginCatalogRequest.Browse)?.let { it.page to link.title } }.toMap()
             MusicTabs(options, destination.filter?.page ?: page?.selectedTab ?: options.keys.first()) { selected ->
@@ -258,7 +275,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
             }
         }
     PullToRefreshBox(isRefreshing = status.busy && !status.appending && page != null,
-        onRefresh = { if (!changing) scope.launch { destination.refresh(source) } }, modifier = Modifier.fillMaxWidth().weight(1f)) {
+        onRefresh = { if (!changing) scope.launch { destination.refresh(source, discovery) } }, modifier = Modifier.fillMaxWidth().weight(1f)) {
         LazyVerticalGrid(columns = GridCells.Adaptive(155.dp), modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 12.dp), content = content)
     }

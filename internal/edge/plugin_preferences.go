@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"mygo-music/internal/discoveryprefs"
 	"mygo-music/internal/pluginprefs"
 )
 
@@ -13,6 +14,20 @@ import (
 // the latest local document and durably save it before returning that merged document.
 // The callbacks must not call Sync methods: commit runs under the binding guard.
 func (service *Sync) SyncPluginPreferences(ctx context.Context, load func() (pluginprefs.Document, error), commit func(pluginprefs.Document) (pluginprefs.Document, error)) error {
+	return syncPreferences(service, ctx, "plugins", pluginprefs.Empty, load, commit)
+}
+
+// SyncDiscoveryPreferences uses its own encrypted record and the same guarded CAS cycle.
+func (service *Sync) SyncDiscoveryPreferences(ctx context.Context, load func() (discoveryprefs.Document, error), commit func(discoveryprefs.Document) (discoveryprefs.Document, error)) error {
+	return syncPreferences(service, ctx, "discovery", discoveryprefs.Empty, load, commit)
+}
+
+type preferencesDocument[T any] interface {
+	Validate() error
+	Equal(T) bool
+}
+
+func syncPreferences[T preferencesDocument[T]](service *Sync, ctx context.Context, key string, empty func() T, load func() (T, error), commit func(T) (T, error)) error {
 	service.mu.Lock()
 	op := service.snapshot("app")
 	service.mu.Unlock()
@@ -28,10 +43,10 @@ func (service *Sync) SyncPluginPreferences(ctx context.Context, load func() (plu
 		if !current() {
 			return context.Canceled
 		}
-		remote := pluginprefs.Empty()
-		envelope, tag, err := service.client.getData(ctx, op.grant, "app", "plugins")
+		remote := empty()
+		envelope, tag, err := service.client.getData(ctx, op.grant, "app", key)
 		if err == nil {
-			if envelope.Format != 1 || openData(op.recovery, op.grant.SpaceID, "app", "plugins", envelope, &remote) != nil || remote.Validate() != nil {
+			if envelope.Format != 1 || openData(op.recovery, op.grant.SpaceID, "app", key, envelope, &remote) != nil || remote.Validate() != nil {
 				return pluginprefs.ErrInvalid
 			}
 		} else if dataStatus(err, http.StatusNotFound, "not_found") {
@@ -68,14 +83,14 @@ func (service *Sync) SyncPluginPreferences(ctx context.Context, load func() (plu
 			}
 			continue
 		}
-		sealed, err := sealData(op.recovery, op.grant.SpaceID, "app", "plugins", 1, merged)
+		sealed, err := sealData(op.recovery, op.grant.SpaceID, "app", key, 1, merged)
 		if err != nil {
 			return err
 		}
 		if !current() {
 			return context.Canceled
 		}
-		err = service.client.changeData(ctx, op.grant, "app", "plugins", tag, &sealed)
+		err = service.client.changeData(ctx, op.grant, "app", key, tag, &sealed)
 		if err != nil {
 			if dataStatus(err, http.StatusPreconditionFailed, "") || retryData(err) {
 				continue

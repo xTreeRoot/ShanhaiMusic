@@ -1,5 +1,6 @@
 package com.xtreeroot.mb.edge
 
+import com.xtreeroot.mb.plugin.DiscoveryPreferences
 import com.xtreeroot.mb.plugin.PluginPreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
@@ -69,6 +70,24 @@ class PluginPreferencesSyncTest {
             assertEquals(NodeFailure.Protocol, (runCatching { sync() }.exceptionOrNull() as NodeException).failure)
             assertTrue(runCatching { sync { false } }.exceptionOrNull() is CancellationException)
             assertEquals(0, commits); assertEquals(2, server.requestCount)
+        }
+    }
+    @Test fun discoveryRestoresMissingLocalFromItsOwnEncryptedRecord() = runBlocking {
+        withServer { server, client, binding ->
+            val empty = DiscoveryPreferences()
+            val sections = listOf(DiscoveryPreferences.Section("one", true))
+            val before = empty.resolve("fixture", sections)
+            val remote = empty.edited("fixture", before, before.copy(enabled = mapOf("one" to false)), writer)
+            val discoveryKey = PlatformDataKey("app", "discovery")
+            server.enqueue(MockResponse().setHeader("ETag", "\"first\"")
+                .setBody(codec.seal(discoveryKey, 1, JSONObject().put("value", remote.toJson())).encode()))
+            var local = empty
+            client.syncDiscoveryPreferences(binding, { local }, { local = local.merged(it); local })
+            assertEquals(remote, local)
+            assertFalse(local.resolve("fixture", sections).enabled["one"]!!)
+            val request = server.takeRequest()
+            assertEquals("GET", request.method); assertEquals("/v1/data/app/discovery", request.path)
+            assertEquals(1, server.requestCount)
         }
     }
     private fun missing() = MockResponse().setResponseCode(404).setBody("""{"error":"not_found"}""")

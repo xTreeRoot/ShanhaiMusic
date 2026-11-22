@@ -27,7 +27,9 @@ struct PluginDiscoveryHome: View {
                         VStack(alignment: .leading, spacing: 14) {
                             HStack {
                                 MusicSectionHeading(title: section.title)
-                                if let page = section.morePage {
+                                if let collection = section.moreCollection {
+                                    NavigationLink { PluginCatalogPage(source: source, request: .collection(collection, section.title), select: select, menu: menu) } label: { Label("更多", systemImage: "chevron.right").font(.subheadline) }
+                                } else if let page = section.morePage {
                                     NavigationLink {
                                         PluginBrowseView(source: source, page: page, select: select, menu: menu)
                                     } label: { Label("更多", systemImage: "chevron.right").font(.subheadline) }

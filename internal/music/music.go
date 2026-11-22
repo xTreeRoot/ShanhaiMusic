@@ -230,6 +230,8 @@ type Section struct {
 	Links       []Link      `json:"links,omitempty"`
 	// MorePage is the Browse page with the rest of it, if there is one.
 	MorePage string `json:"morePage,omitempty"`
+	// MoreBuiltin opens a generic host collection without inventing a plugin route.
+	MoreBuiltin string `json:"moreBuiltin,omitempty"`
 	// Empty is what the section says while it holds nothing, such as "No
 	// public playlists". Without it, an empty section shows only its title.
 	Empty string `json:"empty,omitempty"`
@@ -253,8 +255,10 @@ type Link struct {
 // NavItem is an entry of the sidebar: a Browse page of the source's own, by
 // Page, or one of the app's, by Builtin.
 type NavItem struct {
-	Title string `json:"title"`
-	Page  string `json:"page,omitempty"`
+	// Placement keeps personal navigation out of discovery fallbacks.
+	Placement string `json:"placement,omitempty"`
+	Title     string `json:"title"`
+	Page      string `json:"page,omitempty"`
 	// Builtin is home, liked, savedAlbums, stations or shows. One the source
 	// can't do doesn't show.
 	Builtin string `json:"builtin,omitempty"`
@@ -371,6 +375,8 @@ type Info struct {
 	// Navigation is the sidebar while the source is active, in this order. With
 	// none, the sidebar has an entry for each of the app's pages the source can do.
 	Navigation []NavItem `json:"navigation,omitempty"`
+	// Discovery is static metadata for independently scheduled home sections.
+	Discovery []DiscoverySection `json:"discovery,omitempty"`
 }
 
 var (

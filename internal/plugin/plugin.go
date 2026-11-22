@@ -200,6 +200,9 @@ func Load(dir, dataDir string) (*Plugin, error) {
 	if !pluginName.MatchString(m.ID) {
 		return nil, fmt.Errorf("%s: a plugin can't be called %q", dir, m.ID)
 	}
+	if err := music.ValidateDiscovery(m.Discovery); err != nil {
+		return nil, err
+	}
 	if m.Name == "" {
 		m.Name = m.ID
 	}
@@ -654,6 +657,11 @@ func (p *Plugin) Info() music.Info {
 	if len(p.locales[i18n.Language()]) == 0 {
 		return info
 	}
+	info.Discovery = slices.Clone(info.Discovery)
+	for i, section := range info.Discovery {
+		info.Discovery[i].Title = p.t(section.Title)
+	}
+
 	info.Name = p.t(info.Name)
 	info.Settings = slices.Clone(info.Settings)
 	for i, st := range info.Settings {

@@ -1,6 +1,6 @@
 import Foundation
 
-private struct PluginPreferencesPayload: Codable { let value: PluginPreferences }
+private struct PreferencesPayload<Document: Codable>: Codable { let value: Document }
 
 extension PlatformDataClient {
     /// 拉取、在本地合并落盘，再以 ETag 写回。冲突或写入回执丢失时重新读取合并。
@@ -8,17 +8,29 @@ extension PlatformDataClient {
         load: () async throws -> PluginPreferences,
         merge: (PluginPreferences) async throws -> PluginPreferences,
         stillCurrent: () -> Bool = { true }) async throws {
+        try await syncPreferences(node, key: "plugins", empty: PluginPreferences(), load: load, merge: merge, stillCurrent: stillCurrent)
+    }
+    @MainActor func syncDiscoveryPreferences(_ node: PlatformNode,
+        load: () async throws -> DiscoveryPreferences,
+        merge: (DiscoveryPreferences) async throws -> DiscoveryPreferences,
+        stillCurrent: () -> Bool = { true }) async throws {
+        try await syncPreferences(node, key: "discovery", empty: DiscoveryPreferences(), load: load, merge: merge, stillCurrent: stillCurrent)
+    }
+    @MainActor private func syncPreferences<Document: PortablePreferences>(_ node: PlatformNode, key: String, empty: Document,
+        load: () async throws -> Document,
+        merge: (Document) async throws -> Document,
+        stillCurrent: () -> Bool) async throws {
         func check() throws { try Task.checkCancellation(); guard stillCurrent() else { throw CancellationError() } }
         for _ in 0..<6 {
             try check()
-            var remote = PluginPreferences()
+            var remote = empty
             let revision: String
             do {
-                let (envelope, tag) = try await get(node, platform: "app", key: "plugins")
+                let (envelope, tag) = try await get(node, platform: "app", key: key)
                 try check()
                 guard envelope.format == 1 else { throw PlatformDataFailure.invalid }
-                let plain = try PlatformDataCodec.open(envelope, recovery: node.grant.recovery, space: node.grant.space, platform: "app", key: "plugins")
-                remote = try JSONDecoder().decode(PluginPreferencesPayload.self, from: plain).value.validated()
+                let plain = try PlatformDataCodec.open(envelope, recovery: node.grant.recovery, space: node.grant.space, platform: "app", key: key)
+                remote = try JSONDecoder().decode(PreferencesPayload<Document>.self, from: plain).value.validated()
                 revision = tag
             } catch PlatformDataFailure.http(404, "not_found") { revision = "*" }
             catch where Self.preferencesRetryable(error) { continue }
@@ -29,10 +41,10 @@ extension PlatformDataClient {
                 let latest = try await load(); try check()
                 if latest == merged { return }; continue
             }
-            let plain = try JSONEncoder().encode(PluginPreferencesPayload(value: merged))
-            let sealed = try PlatformDataCodec.seal(plain, recovery: node.grant.recovery, space: node.grant.space, platform: "app", key: "plugins")
+            let plain = try JSONEncoder().encode(PreferencesPayload(value: merged))
+            let sealed = try PlatformDataCodec.seal(plain, recovery: node.grant.recovery, space: node.grant.space, platform: "app", key: key)
             try check()
-            do { try await change(node, platform: "app", key: "plugins", revision: revision, envelope: sealed) }
+            do { try await change(node, platform: "app", key: key, revision: revision, envelope: sealed) }
             catch PlatformDataFailure.http(412, _) { continue }
             catch where Self.preferencesRetryable(error) { continue }
             let latest = try await load(); try check()

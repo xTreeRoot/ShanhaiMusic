@@ -14,6 +14,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"mygo-music/internal/discoveryprefs"
 	"mygo-music/internal/i18n"
 	"mygo-music/internal/local"
 	"mygo-music/internal/music"
@@ -38,6 +39,7 @@ const (
 	pageSavedAlbums
 	pageBrowse
 	pageSection
+	pageDiscoveryCollection
 )
 
 type route struct {
@@ -86,6 +88,10 @@ type app struct {
 	pluginPrefs                         *pluginprefs.Store
 	pluginPrefsBusy, pluginPrefsSyncing bool
 	pluginPrefsDocument                 pluginprefs.Document
+	discoveryPrefs                      *discoveryprefs.Store
+	discoveryDocument                   discoveryprefs.Document
+	discoveryEditor                     discoveryEditor
+	discoverySyncing                    bool
 	edge                                edgePanel
 	// links are the app's links opened before its window was made, macOS
 	// handing over the one it was started with first.
@@ -271,6 +277,7 @@ func (a *app) makeSources() {
 	}
 	a.enabledChanged()
 	a.startPluginPreferences()
+	a.startDiscoveryPreferences()
 	a.library = a.libs[0]
 	if lib := a.libOf(a.settings.Source); lib != nil {
 		a.library = lib

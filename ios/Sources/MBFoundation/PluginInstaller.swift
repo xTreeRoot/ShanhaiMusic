@@ -27,6 +27,7 @@ public actor PluginInstaller {
         let notes: String?
     }
     private lazy var preferenceCache = PluginPreferenceCache(root: root)
+    private lazy var discoveryCache = DiscoveryPreferenceCache(root: root.appendingPathComponent("discovery"))
     private let root: URL
     private let fetch: @Sendable (URLRequest, Int) async throws -> (Data, URLResponse)
     public init(directory: URL? = nil) {
@@ -55,6 +56,14 @@ public actor PluginInstaller {
     public func mergePluginPreferences(_ remote: PluginPreferences) throws -> PluginPreferences {
         try Task.checkCancellation()
         return try preferenceCache.update(migrate: migratePreferences) { current, _ in try current.merged(with: remote) }
+    }
+    public func discoveryPreferences() throws -> DiscoveryPreferences { try discoveryCache.load { _ in DiscoveryPreferences() } }
+    public func mergeDiscoveryPreferences(_ remote: DiscoveryPreferences) throws -> DiscoveryPreferences {
+        try Task.checkCancellation()
+        return try discoveryCache.update(migrate: { _ in DiscoveryPreferences() }) { current, _ in try current.merged(with: remote) }
+    }
+    public func saveDiscovery(_ plugin: String, before: DiscoveryPreferences.Selection, draft: DiscoveryPreferences.Selection) throws -> DiscoveryPreferences {
+        try discoveryCache.update(migrate: { _ in DiscoveryPreferences() }) { current, writer in try current.edited(plugin: plugin, before: before, draft: draft, writer: writer) }
     }
     public func presentation() throws -> PluginPresentation {
         let preferences = try pluginPreferences()

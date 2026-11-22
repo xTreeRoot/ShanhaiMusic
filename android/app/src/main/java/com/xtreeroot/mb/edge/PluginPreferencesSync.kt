@@ -1,6 +1,8 @@
 package com.xtreeroot.mb.edge
 
 import com.xtreeroot.mb.plugin.PluginPreferences
+import com.xtreeroot.mb.plugin.DiscoveryPreferences
+import com.xtreeroot.mb.plugin.PortablePreferences
 import java.security.GeneralSecurityException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -12,7 +14,19 @@ internal suspend fun NodeClient.syncPluginPreferences(binding: NodeBinding,
     load: suspend () -> PluginPreferences,
     merge: suspend (PluginPreferences) -> PluginPreferences,
     stillCurrent: () -> Boolean = { true }) {
-    val key = PlatformDataKey("app", "plugins")
+    syncPreferences(binding, "plugins", PluginPreferences(), PluginPreferences::parse, load, merge, stillCurrent)
+}
+
+internal suspend fun NodeClient.syncDiscoveryPreferences(binding: NodeBinding,
+    load: suspend () -> DiscoveryPreferences,
+    merge: suspend (DiscoveryPreferences) -> DiscoveryPreferences,
+    stillCurrent: () -> Boolean = { true }) {
+    syncPreferences(binding, "discovery", DiscoveryPreferences(), DiscoveryPreferences::parse, load, merge, stillCurrent)
+}
+
+private suspend fun <T : PortablePreferences<T>> NodeClient.syncPreferences(binding: NodeBinding, recordKey: String, empty: T,
+    parse: (JSONObject) -> T, load: suspend () -> T, merge: suspend (T) -> T, stillCurrent: () -> Boolean) {
+    val key = PlatformDataKey("app", recordKey)
     val codec = PlatformDataCodec(binding.recoveryKey, binding.space)
     suspend fun check() { currentCoroutineContext().ensureActive(); if (!stillCurrent()) throw CancellationException() }
     repeat(6) {
@@ -21,9 +35,9 @@ internal suspend fun NodeClient.syncPluginPreferences(binding: NodeBinding,
         catch (failure: NodeException) { if (failure.failure == NodeFailure.Retryable) return@repeat else throw failure }
         check()
         val remote = when (record) {
-            PlatformRecord.Missing -> PluginPreferences()
+            PlatformRecord.Missing -> empty
             is PlatformRecord.Deleted -> throw NodeException(NodeFailure.Deleted, 410)
-            is PlatformRecord.Present -> decodePreferences(codec, key, record.envelope)
+            is PlatformRecord.Present -> decodePreferences(codec, key, record.envelope, parse)
         }
         val merged = merge(remote).validated()
         check()
@@ -40,8 +54,8 @@ internal suspend fun NodeClient.syncPluginPreferences(binding: NodeBinding,
     throw NodeException(NodeFailure.Conflict, 412)
 }
 
-private fun decodePreferences(codec: PlatformDataCodec, key: PlatformDataKey, envelope: PlatformEnvelope): PluginPreferences = try {
-    PluginPreferences.parse(codec.open(key, 1, envelope).getJSONObject("value"))
+private fun <T> decodePreferences(codec: PlatformDataCodec, key: PlatformDataKey, envelope: PlatformEnvelope, parse: (JSONObject) -> T): T = try {
+    parse(codec.open(key, 1, envelope).getJSONObject("value"))
 } catch (_: GeneralSecurityException) { throw NodeException(NodeFailure.Protocol) }
 catch (_: IllegalArgumentException) { throw NodeException(NodeFailure.Protocol) }
 catch (_: IllegalStateException) { throw NodeException(NodeFailure.Protocol) }

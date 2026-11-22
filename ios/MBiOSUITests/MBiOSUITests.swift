@@ -1629,6 +1629,47 @@ extension MBiOSUITests {
         XCTAssertTrue(app.buttons["简介"].waitForExistence(timeout: 8))
     }
 
+    @MainActor func testDiscoverySectionsCancelSaveReorderAndReopen() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--plugin-demo", "--discovery-sections-fixture", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch(); selectTab("设置", app: app); app.buttons["settings-plugins"].tap()
+        XCTAssertTrue(app.buttons["安装"].waitForExistence(timeout: 8)); app.buttons["安装"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "示例插件")).firstMatch.waitForExistence(timeout: 8))
+        selectTab("发现", app: app); app.buttons["source-tab-fixture"].tap()
+        XCTAssertTrue(app.buttons["播放 one资源0"].waitForExistence(timeout: 8))
+        app.buttons["栏目"].tap()
+        let first = app.switches["discovery-section-one"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        first.tap()
+        XCTAssertEqual(first.value as? String, "0")
+        app.buttons["取消"].tap()
+        XCTAssertTrue(app.buttons["播放 one资源0"].exists)
+        app.buttons["栏目"].tap()
+        first.tap()
+        XCTAssertEqual(first.value as? String, "0")
+        capture("栏目设置-开关与拖动手柄", app: app)
+        app.buttons["保存"].tap()
+        XCTAssertTrue(app.buttons["播放 two资源0"].waitForExistence(timeout: 8))
+        XCTAssertTrue(NSPredicate(format: "exists == false").evaluate(with: app.buttons["播放 one资源0"]) ||
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["播放 one资源0"])], timeout: 8) == .completed)
+        app.buttons["栏目"].tap()
+        XCTAssertEqual(first.value as? String, "0")
+        let thirdCell = app.cells.containing(.switch, identifier: "discovery-section-three").firstMatch
+        let firstCell = app.cells.containing(.switch, identifier: "discovery-section-one").firstMatch
+        XCTAssertTrue(thirdCell.exists); XCTAssertTrue(firstCell.exists)
+        thirdCell.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5))
+            .press(forDuration: 0.5, thenDragTo: firstCell.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.1)))
+        XCTAssertLessThan(app.switches["discovery-section-three"].frame.minY, first.frame.minY)
+        app.buttons["保存"].tap()
+        XCTAssertTrue(app.buttons["播放 three资源0"].waitForExistence(timeout: 8))
+        capture("发现栏目-保存后的两行卡片", app: app)
+        app.buttons["栏目"].tap()
+        XCTAssertLessThan(app.switches["discovery-section-three"].frame.minY, first.frame.minY)
+        XCTAssertEqual(first.value as? String, "0")
+        capture("栏目设置-重开保留排序", app: app)
+    }
+
     @MainActor func testPullRefreshReplacesPluginHomeAndIndependentShelf() {
         continueAfterFailure = false
         let app = XCUIApplication()

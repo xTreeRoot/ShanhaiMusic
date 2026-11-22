@@ -1035,7 +1035,7 @@ class PlaybackReportingDeviceTest {
                 eventually { player.isPlaying && player.currentPosition >= 8_000 }
                 automation.press(automation.queueNode("播放队列", "Queue"))
                 automation.queueNode("关闭队列", "Close Queue")
-                automation.waitForIdle(250, 5_000)
+                instrumentation.waitForIdleSync()
                 val firstHandle = automation.queueNode("编辑 First", "Edit First")
                 val secondHandle = automation.queueNode("编辑 Second", "Edit Second")
                 automation.drag(firstHandle, secondHandle, cancel = true)
@@ -1057,10 +1057,13 @@ class PlaybackReportingDeviceTest {
                 }
 
                 automation.press(automation.queueNode("关闭队列", "Close Queue"))
-                automation.press(automation.queueNode("First"))
+                // 播放进度持续发出无障碍事件，不等待全局空闲；队列退出后通过真实点击动作展开播放器。
+                eventually { automation.findQueueNode(setOf("关闭队列", "Close Queue")) == null }
+                val miniPlayer = generateSequence(automation.queueNode("First")) { it.parent }.first { it.isClickable && it.isEnabled }
+                assertTrue(miniPlayer.performAction(AccessibilityNodeInfo.ACTION_CLICK))
                 automation.press(automation.queueNode("横屏播放", "Landscape Player"))
                 automation.press(automation.queueNode("待播清单", "Up Next"))
-                automation.waitForIdle(250, 5_000)
+                instrumentation.waitForIdleSync()
                 automation.drag(automation.queueNode("编辑 First", "Edit First"), automation.queueNode("编辑 Second", "Edit Second"))
                 eventually { player.queueIds() == startingOrder && player.currentMediaItem?.mediaId == first.id && player.isPlaying }
 

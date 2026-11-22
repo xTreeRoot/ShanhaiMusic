@@ -60,10 +60,16 @@ func (a *app) loadBrowse(lib *library, page string, again bool) {
 func (a *app) browsePage(c *ui.Context) {
 	lib := a.library
 	id := a.route.id
-	d := lib.browses[id]
+	key := id
+	retry := func() { a.loadBrowse(lib, id, true) }
+	if a.route.page == pageDiscoveryCollection {
+		key = discoveryCollectionKey(id)
+		retry = func() { a.loadDiscoveryCollection(lib, id) }
+	}
+	d := lib.browses[key]
 	if d == nil || d.page == nil {
 		if d != nil && !d.loading {
-			a.centered(c, d.err, func() { a.loadBrowse(lib, id, true) })
+			a.centered(c, d.err, retry)
 			return
 		}
 		a.trackSkeleton(c, a.pageShimmer(c), true, func(c *ui.Context) {})
@@ -244,14 +250,22 @@ func (a *app) browseTitle(c *ui.Context, sec *music.Section, first bool) {
 	}
 	ui.Row(c).Margin(margin, 12, 14, 12).AlignItems(ui.Baseline).Children(func() {
 		ui.Text(c, sec.Title).FontSize(19).FontWeight(700).LetterSpacing(-0.3).Grow(1).Shrink(1).MinWidth(0)
-		if sec.MorePage != "" {
+		if sec.MorePage != "" || sec.MoreBuiltin != "" {
 			more := ui.ButtonBase(c.Key("more")).Padding(2, 8).Radius(6).FocusRing(false).Label(T("See All"))
 			if more.Hovered() {
 				more.Background(a.pal.hover)
 			}
 			more.Children(func() { ui.Text(c, T("See All")).FontSize(13).TextColor(a.pal.muted) })
 			if more.Clicked() {
-				a.open(route{page: pageBrowse, id: sec.MorePage})
+				if sec.MoreBuiltin != "" {
+					if builtin, ok := builtinPages[sec.MoreBuiltin]; ok {
+						a.open(route{page: builtin.page})
+					} else {
+						a.open(route{page: pageDiscoveryCollection, id: sec.MoreBuiltin})
+					}
+				} else {
+					a.open(route{page: pageBrowse, id: sec.MorePage})
+				}
 			}
 		}
 	})
