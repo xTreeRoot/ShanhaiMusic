@@ -290,7 +290,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
 internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalogNavigator, model: AccountModel, state: AccountState,
                                    openSettings: () -> Unit = {}, openPlugins: () -> Unit = {}, openService: () -> Unit = {}) {
     val account = state.account
-    var signOut by remember(source) { mutableStateOf(false) }
+    var signOut by remember(source) { mutableStateOf<Boolean?>(null) }
     var collections by remember(source) { mutableStateOf(emptyList<PluginCollection>()) }
     var personal by remember(source) { mutableStateOf(emptyList<PluginCatalogLink>()) }
     var error by remember(source) { mutableStateOf<String?>(null) }
@@ -345,13 +345,15 @@ internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalo
             AccountDestinations(destinations)
         }
         item { AccountTools(openSettings, openPlugins, openService) }
-        if (account != null && state.canSignOut) item { AccountSignOutRow(state.loading) { signOut = true } }
+        if (account != null && state.canSignOut) item {
+            AccountSignOutRow(state.loading, { signOut = false }, if (state.canClearLoginCache) {{ signOut = true }} else null)
+        }
         if (!refreshing && (loading || state.loading && !state.signingIn)) item { Loading() }
         state.error?.takeUnless { state.signingIn }?.let { message -> item { Retry(message, model::refresh) } }
         error?.let { message -> item { Retry(message) { scope.launch { refresh() } } } }
 
     }
-    if (signOut) AccountSignOutDialog({ signOut = false }, model::signOut)
+    signOut?.let { clearCache -> AccountSignOutDialog({ signOut = null }, { model.signOut(clearCache) }, clearCache) }
 }
 
 @Composable

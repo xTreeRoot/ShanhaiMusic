@@ -158,7 +158,8 @@ internal class MBApplication : Application(), ImageLoaderFactory {
             val source = if (current == null) {
                 PluginSource(plugin.manifest, PluginRuntime(assets, plugin.directory, plugin.dataDirectory,
                     plugin.manifest, values, language, PluginHttpTransport(network.proxySelector), pluginWebSignIn::show,
-                    openURL = { link -> webLink.value = link }, oauthSignIn = pluginOAuth::authorize))
+                    openURL = { link -> webLink.value = link }, oauthSignIn = pluginOAuth::authorize,
+                    audioCacheDirectory = File(cacheDir, "cenc-audio")))
             } else current.source.also {
                 if (current.language != language || current.values != values) it.configure(values, language)
             }

@@ -29,6 +29,7 @@ internal data class AccountState(
     val error: String? = null,
     val canSignIn: Boolean = false,
     val canSignOut: Boolean = false,
+    val canClearLoginCache: Boolean = false,
     val verifiedSource: AccountSource? = null,
 ) {
     fun verifiedFor(source: AccountSource?): SourceAccount? = account.takeIf {
@@ -55,7 +56,8 @@ internal class AccountModel(application: Application) : AndroidViewModel(applica
     fun refresh() = launch(false) { active, generation ->
         val canSignIn = active.supportsSignIn()
         val canSignOut = active.supportsSignOut()
-        if (generation == operation) state.update { it.copy(canSignIn = canSignIn, canSignOut = canSignOut) }
+        val canClearLoginCache = (active as? com.xtreeroot.mb.music.AccountCacheResetSource)?.supportsAccountCacheReset() == true
+        if (generation == operation) state.update { it.copy(canSignIn = canSignIn, canSignOut = canSignOut, canClearLoginCache = canClearLoginCache) }
         active.account()
     }
 
@@ -102,8 +104,13 @@ internal class AccountModel(application: Application) : AndroidViewModel(applica
         state.update { it.copy(loading = false, signingIn = false, prompt = null, error = null, choosingSignInMethod = false) }
     }
 
-    fun signOut() {
-        if (state.value.canSignOut) launch(false) { active, _ -> active.signOut(); null }
+    fun signOut(clearCache: Boolean = false) {
+        if (state.value.loading || !state.value.canSignOut || clearCache && !state.value.canClearLoginCache) return
+        launch(false) { active, _ ->
+            if (clearCache) (active as com.xtreeroot.mb.music.AccountCacheResetSource).signOutAndClearCache()
+            else active.signOut()
+            null
+        }
     }
 
     private fun stop() {

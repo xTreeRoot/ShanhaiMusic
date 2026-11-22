@@ -50,8 +50,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun AccountSignOutDialog(close: () -> Unit, signOut: () -> Unit) {
-    AlertDialog(onDismissRequest = close, title = { Text(mb("退出登录？", "Sign out?")) },
+internal fun AccountSignOutDialog(close: () -> Unit, signOut: () -> Unit, clearCache: Boolean = false) {
+    AlertDialog(onDismissRequest = close, title = { Text(if (clearCache) mb("退出并清理登录缓存？", "Clear this sign-in session?") else mb("退出登录？", "Sign out?")) },
+        text = if (clearCache) {{ Text(mb("将清理此插件的登录会话，下次登录需要重新授权。资料库、下载和插件设置会保留。", "Clear this plugin's sign-in session and sign in again. Your library, downloads and plugin settings will be kept.")) }} else null,
         confirmButton = { TextButton(onClick = { close(); signOut() }) { Text(mb("退出", "Sign Out")) } },
         dismissButton = { TextButton(onClick = close) { Text(mb("取消", "Cancel")) } })
 }

@@ -86,6 +86,27 @@ internal class OfflineTransfers(
     private suspend fun transfer(resource: MediaResource, destination: File, maximum: Long,
                                   progress: (Long, Long) -> Unit) {
         val context = currentCoroutineContext()
+        if (java.net.URI(resource.url).scheme == "file") {
+            val source = File(java.net.URI(resource.url))
+            val size = source.length()
+            if (!source.isFile || size <= 0 || size > maximum) throw IOException("本地音频超过保存上限或不可用")
+            var copied = 0L
+            source.inputStream().use { input -> destination.outputStream().use { output ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    context.ensureActive()
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    copied += count
+                    if (copied > maximum) throw IOException("本地音频超过保存上限")
+                    output.write(buffer, 0, count)
+                }
+                output.fd.sync()
+            } }
+            if (copied != size) throw EOFException("本地音频不完整")
+            progress(copied, size)
+            return
+        }
         val addresses = listOf(resource.url) + resource.backupUrls.take(maxMediaBackupAddresses)
         for ((index, address) in addresses.withIndex()) {
             try {

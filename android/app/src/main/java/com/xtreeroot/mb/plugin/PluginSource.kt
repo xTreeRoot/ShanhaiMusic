@@ -1,7 +1,6 @@
 package com.xtreeroot.mb.plugin
 
 import com.xtreeroot.mb.local.parseLrc
-import com.xtreeroot.mb.music.AccountSource
 import com.xtreeroot.mb.music.AudioQuality
 import com.xtreeroot.mb.music.CaptionLine
 import com.xtreeroot.mb.music.CaptionWord
@@ -39,7 +38,7 @@ import org.json.JSONObject
 internal class PluginSource(
     val manifest: PluginManifest,
     private val runtime: PluginRuntime,
-) : PlaybackSource, VideoSource, AccountSource, com.xtreeroot.mb.music.SignInMethodSource, InteractionSource, PlaybackRecorder, StationPlaybackSource, SuggestionSource {
+) : PlaybackSource, VideoSource, com.xtreeroot.mb.music.AccountCacheResetSource, com.xtreeroot.mb.music.SignInMethodSource, InteractionSource, PlaybackRecorder, StationPlaybackSource, SuggestionSource {
     override val id: String get() = manifest.id
     val catalog = PluginCatalog(manifest, runtime, ::tracks, ::image, ::catalogInvoke)
     private val accountCacheLock = Any()
@@ -150,6 +149,16 @@ internal class PluginSource(
     }
 
     override suspend fun signOut() { runtime.invoke("signOut"); rememberAccount(null, force = true) }
+
+    override suspend fun supportsAccountCacheReset(): Boolean = runtime.supports("signOutAndClearCache")
+    override suspend fun signOutAndClearCache() {
+        if (!supportsAccountCacheReset()) throw PluginException("插件不支持清理登录缓存")
+        synchronized(accountCacheLock) { accountGeneration++; cacheAccount = null }
+        runtime.invoke("signOutAndClearCache")
+        rememberAccount(null, force = true)
+        searchLock.withLock { offsets.clear(); searchTerm = "" }
+        catalog.invalidate()
+    }
 
     override suspend fun interactionCapabilities() = InteractionCapabilities(
         likes = runtime.supports("like"), comments = runtime.supports("comments"),
@@ -269,6 +278,12 @@ internal class PluginSource(
             else com.xtreeroot.mb.music.VideoQualityOption(id, label)
         }.distinctBy { it.id }
         val actual = (value.opt("videoQuality") as? String)?.takeIf(com.xtreeroot.mb.music.VideoQualityOption::valid)
+        if (!value.isNull("encryption")) {
+            if (method != "stream" || extension != "m4a") throw PluginException("不支持的加密音频容器")
+            val encryption = value.optJSONObject("encryption") ?: throw PluginException("无效的音频授权")
+            val local = runtime.prepareCencAudio(parsed, headers, encryption)
+            return MediaResource(local.toURI().toASCIIString(), emptyMap(), "m4a")
+        }
         return MediaResource(parsed.toASCIIString(), headers, extension, videoQuality = actual, videoQualities = qualities)
     }
 

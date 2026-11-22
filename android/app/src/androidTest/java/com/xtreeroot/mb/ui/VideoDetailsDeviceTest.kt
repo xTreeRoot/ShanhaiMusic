@@ -229,11 +229,12 @@ class VideoDetailsDeviceTest {
             withContext(Dispatchers.Main) {
                 val player = ViewModelProvider(screen)[PlaybackModel::class.java]
                 val saved = ViewModelProvider(screen)[SavedLibraryModel::class.java]
+                val playbackSettings = app.settings.values.value.copy(playerStyle = com.xtreeroot.mb.preferences.PlayerStyle.Vinyl)
                 screen.setContent { com.xtreeroot.mb.ui.components.MBTheme(true) {
                     CompositionLocalProvider(LocalMBEnglish provides true) {
                         val artist = androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
                         NowPlaying(player, PlaybackState(tracks = listOf(track), index = 0, positionMs = 6_000),
-                            app.settings.values.value.copy(playerStyle = com.xtreeroot.mb.preferences.PlayerStyle.Vinyl),
+                            playbackSettings,
                             saved, false, {}, {}, { creator.set(it); artist.value = it }, null, null)
                         artist.value?.let { id -> PluginCreatorDialog(app.playbackSource(track.sourceId) as com.xtreeroot.mb.plugin.PluginSource,
                             com.xtreeroot.mb.plugin.PluginEntity(com.xtreeroot.mb.plugin.PluginEntityKind.Artist, id, "Fixture Artist"),
@@ -300,8 +301,9 @@ class VideoDetailsDeviceTest {
                 screen.setContent { com.xtreeroot.mb.ui.components.MBTheme(true) {
                     CompositionLocalProvider(LocalMBEnglish provides true) {
                         val state by model.playback.collectAsStateWithLifecycle()
+                        val preferences by app.settings.values.collectAsStateWithLifecycle()
                         VideoDetailsScreen(model, if (state.current == null) state.copy(tracks = tracks, index = 0) else state,
-                            app.settings.values.value, accountId = null, fullScreen = false, setFullScreen = {}, browse = {}, chooseMode = {}, sharedFrame = frame, ownsVideoFrame = false)
+                            preferences, accountId = null, fullScreen = false, setFullScreen = {}, browse = {}, chooseMode = {}, sharedFrame = frame, ownsVideoFrame = false)
                     }
                 } }
             }

@@ -22,3 +22,9 @@ interface AccountSource : MusicSource {
     suspend fun signIn(prompt: suspend (SignInPrompt) -> Unit): SourceAccount
     suspend fun signOut()
 }
+
+/** 显式清理当前插件登录会话；普通退出仍保留可复用凭据。 */
+interface AccountCacheResetSource : AccountSource {
+    suspend fun supportsAccountCacheReset(): Boolean
+    suspend fun signOutAndClearCache()
+}

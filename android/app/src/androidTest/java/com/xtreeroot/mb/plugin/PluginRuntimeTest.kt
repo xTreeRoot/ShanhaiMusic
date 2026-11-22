@@ -661,6 +661,34 @@ class PluginRuntimeTest {
         }
     }
 
+    @Test fun clearingLoginCacheResetsBothMachinesAndPreservesUnrelatedPluginStorage() {
+        fixture("""
+            const cached = host.storage.get('session');
+            export function account() { return host.storage.get('disabled') ? null : {id:'me',name:'Fixture'}; }
+            export function seed() { host.storage.set('session','fixture-session'); host.storage.set('keep','fixture-setting'); }
+            export function signOut() { host.storage.set('disabled',true); }
+            export function signOutAndClearCache() { host.storage.remove('session'); host.storage.set('disabled',true); }
+            export function session() { return cached || ''; }
+            export function keep() { return host.storage.get('keep'); }
+            export function stream() { return {url:'https://api.example.test/'+(cached || 'guest'),type:'m4a'}; }
+        """.trimIndent()) { runtime, _, _ ->
+            val source = PluginSource(manifest, runtime)
+            assertTrue(source.supportsAccountCacheReset())
+            runtime.invoke("seed")
+            assertTrue(source.audio("fixture").url.endsWith("fixture-session"))
+            val revision = source.mediaRevision
+            source.signOut()
+            assertEquals(null, source.account())
+            assertTrue(source.audio("fixture").url.endsWith("fixture-session"))
+            source.signOutAndClearCache()
+            assertTrue(source.mediaRevision > revision)
+            assertEquals(null, source.account())
+            assertEquals("", runtime.invoke("session"))
+            assertTrue(source.audio("fixture").url.endsWith("guest"))
+            assertEquals("fixture-setting", runtime.invoke("keep"))
+        }
+    }
+
     @Test fun androidCallbackCompletesOnlyTheActiveQuickJsSignIn() {
         val broker = (app.applicationContext as MBApplication).pluginOAuth
         val exchangeSeen = CompletableDeferred<PluginFetchRequest>()

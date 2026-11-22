@@ -405,6 +405,36 @@ class AccountPageDeviceTest {
         }
     }
 
+    @Test fun clearLoginCacheRequiresConfirmationAndNextLoginRequestsANewQr() = runBlocking {
+        val id = "account-reset-${UUID.randomUUID()}"
+        val plugin = app.plugins.install(app.plugins.prepareZip { pluginZip(id, accountReset = true).inputStream() })
+        try {
+            app.plugins.setEnabled(plugin, true); app.refreshPlugins()
+            val source = app.playbackSource(id) as PluginSource
+            withPage(source, dark = true, content = { model ->
+                val state by model.account.collectAsStateWithLifecycle()
+                PluginPersonalContent(source, PluginCatalogNavigator(), model, state)
+                if (state.signingIn) SignInDialog(state, model)
+            }) {
+                awaitNode("Fixture Listener")
+                tap("Sign Out and Clear Cache"); awaitNode("Clear this sign-in session?")
+                tap("Cancel"); awaitNode("Fixture Listener")
+                assertEquals("listener", source.account()?.id)
+                tap("Sign Out"); awaitNode("Sign out?"); tap("Sign Out")
+                awaitNode("Sign In to Source"); tap("Sign In to Source"); awaitNode("Fixture Listener")
+                tap("Sign Out and Clear Cache"); awaitNode("Clear this sign-in session?")
+                capture("android-account-reset-actions")
+                tap("Sign Out"); awaitNode("Sign In to Source"); tap("Sign In to Source")
+                awaitNode("Sign In QR Code")
+                assertNull(source.account())
+                capture("android-account-reset-qr")
+                tap("Cancel")
+            }
+        } finally {
+            app.plugins.remove(plugin); app.refreshPlugins(); plugin.dataDirectory.deleteRecursively()
+        }
+    }
+
     private suspend fun assertRequest(expected: PluginCatalogRequest, navigator: PluginCatalogNavigator) {
         val actual = withTimeoutOrNull(5_000) {
             var request: PluginCatalogRequest?
@@ -504,17 +534,29 @@ class AccountPageDeviceTest {
         finally { frame.recycle() }
     }
 
-    private fun pluginZip(id: String) = ByteArrayOutputStream().apply {
+    private fun pluginZip(id: String, accountReset: Boolean = false) = ByteArrayOutputStream().apply {
         ZipOutputStream(this).use { zip ->
             zip.putNextEntry(ZipEntry("plugin.json"))
             zip.write("""{"id":"$id","name":"Fixture Music","permissions":{"network":["api.example.test"]},"navigation":[{"page":"subscriptions","title":"Subscriptions","placement":"personal"},{"page":"personal","title":"Channel","placement":"personal"},{"builtin":"liked","title":"Liked Videos","placement":"personal"},{"page":"music","title":"Music Hub","placement":"personal"}]}""".encodeToByteArray())
             zip.closeEntry()
             zip.putNextEntry(ZipEntry("index.js"))
-            zip.write("""
+            val script = if (accountReset) """
+                export function account() { return host.storage.get('disabled') ? null : {id:'listener',name:'Fixture Listener'}; }
+                export function signOut() { host.storage.set('disabled',true); }
+                export function signOutAndClearCache() { signOut(); host.storage.set('cleared',true); }
+                export async function signIn() {
+                    if (host.storage.get('cleared')) {
+                        host.signInPrompt({qr:'https://api.example.test/scan',text:'Scan again'});
+                        await new Promise(resolve => setTimeout(resolve, 300000));
+                    }
+                    host.storage.remove('disabled'); return account();
+                }
+            """ else """
                 export function account() { return {id:'listener', name:'Fixture Listener', page:'personal'}; }
                 export function playlists() { return [{id:'pl',name:'List',mine:true}]; }
                 export function liked() { return []; }
-            """.trimIndent().encodeToByteArray())
+            """
+            zip.write(script.trimIndent().encodeToByteArray())
             zip.closeEntry()
         }
     }.toByteArray()

@@ -82,8 +82,13 @@ internal fun AccountTools(openSettings: () -> Unit, openPlugins: () -> Unit, ope
 }
 
 @Composable
-internal fun AccountSignOutRow(loading: Boolean, signOut: () -> Unit) {
+internal fun AccountSignOutRow(loading: Boolean, signOut: () -> Unit, clearCache: (() -> Unit)? = null) {
     MBGroupedSection {
-        MBFormRow(mb("退出登录", "Sign Out"), enabled = !loading, color = MaterialTheme.colorScheme.error, onClick = signOut)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = signOut, enabled = !loading) { Text(mb("退出登录", "Sign Out"), color = MaterialTheme.colorScheme.error) }
+            if (clearCache != null) TextButton(onClick = clearCache, enabled = !loading) {
+                Text(mb("退出并清理缓存", "Sign Out and Clear Cache"), color = MaterialTheme.colorScheme.error)
+            }
+        }
     }
 }

@@ -5,6 +5,8 @@ import com.xtreeroot.mb.cache.DiskResponseCache
 import com.xtreeroot.mb.music.PlaybackIssue
 import com.xtreeroot.mb.music.PlaybackIssueException
 import com.xtreeroot.mb.music.TrackUnavailableReason
+import com.xtreeroot.mb.playback.CencAudio
+import com.xtreeroot.mb.playback.PreparedCencAudio
 import java.io.File
 import java.net.URI
 import kotlinx.coroutines.CancellationException
@@ -38,7 +40,9 @@ internal class PluginRuntime(
     private val webSignIn: suspend (PluginWebSignIn) -> String = { throw PluginException("Web sign-in is unavailable") },
     private val openURL: suspend (PluginWebLink) -> Unit = { throw PluginException("Opening web links is unavailable") },
     private val oauthSignIn: suspend (PluginOAuthRequest) -> PluginFetchRequest = { throw PluginException("OAuth is unavailable") },
+    audioCacheDirectory: File? = null,
 ) {
+    private val preparedAudio = audioCacheDirectory?.let(::PreparedCencAudio)
     val catalogCache = DiskResponseCache(File(dataDirectory, "catalog-cache"))
     private val dispatcher = Dispatchers.IO.limitedParallelism(1)
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -67,9 +71,46 @@ internal class PluginRuntime(
         hostState().headers(address, manifest, kind)
     }
 
+    /** 平台只交付本次授权，宿主检查每跳网络权限并在后台准备通用 AAC 容器。 */
+    suspend fun prepareCencAudio(address: URI, headers: Map<String, String>, encryption: JSONObject): File {
+        val cache = preparedAudio ?: throw PluginException("当前宿主未启用授权音频播放")
+        if (encryption.opt("scheme") != "cenc") throw PluginException("不支持的音频加密格式")
+        val key = CencAudio.key(encryption.optString("key"))
+        fun validate(target: URI, redirect: Boolean) {
+            if (target.scheme != "https" || target.rawUserInfo != null) throw PluginException("音频地址必须使用 HTTPS，且不能包含账号密码")
+            if (!manifest.reaches(target.host.orEmpty())) {
+                val label = if (redirect) "音频重定向域名不在插件网络权限内" else "音频域名不在插件网络权限内"
+                throw PluginException("$label：${target.host.orEmpty()}")
+            }
+        }
+        validate(address, false)
+        return cache.prepare(address.toASCIIString(), headers, key) {
+            var request = PluginFetchRequest(address, "GET", headers.filterKeys { !it.equals("Range", true) && !it.equals("If-Range", true) } +
+                ("Accept-Encoding" to "identity"), null, PluginRedirectMode.Manual)
+            repeat(10) {
+                coroutineContext.ensureActive()
+                validate(request.url, request.url != address)
+                val response = transport.fetch(request, manifest)
+                if (response.bytes.size > 16 shl 20) throw PluginException("授权音频超过准备上限")
+                val next = request.copy(redirectMode = PluginRedirectMode.Follow).redirect(response.status, response.headers.entries.firstOrNull {
+                    it.key.equals("location", true)
+                }?.value)
+                if (next != null) request = next.copy(redirectMode = PluginRedirectMode.Manual)
+                else {
+                    if (response.status != 200) throw PluginException("音频请求失败（HTTP ${response.status}）")
+                    return@prepare response.bytes
+                }
+            }
+            throw PluginException("音频重定向次数过多")
+        }
+    }
+
     suspend fun invoke(name: String, arguments: JSONObject = JSONObject(), timeoutMs: Long = 30_000): Any = useMachine(lane(name)) { runtime ->
         try { invoke(runtime, name, arguments, timeoutMs) }
-        finally { if (name == "signOut") reset(playback) }
+        finally {
+            if (name == "signOut" || name == "signOutAndClearCache") reset(playback)
+            if (name == "signOutAndClearCache") reset(catalog)
+        }
     }
 
     suspend fun stream(arguments: JSONObject): Any = useMachine(playback) { runtime ->
@@ -154,9 +195,9 @@ internal class PluginRuntime(
             else -> "unknown"
         }
         withTimeout(10_000) {
-            val android = """platform: "android", arch: "$arch", capabilities: Object.freeze({ webSignInHTML: true }),
+            val android = """platform: "android", arch: "$arch",
                 oauthSignIn: options => request({ kind: "oauthSignIn", options })"""
-            runtime.status = runtime.context.evaluate(bootstrap.replace(platform, android), "host.js", false, 100)
+            runtime.status = runtime.context.evaluate(bootstrap.replace(platform, android).replace("cencAudio: true", "cencAudio: ${preparedAudio != null}"), "host.js", false, 100)
             finish(runtime)
             val entry = JSONObject.quote("./${manifest.entry}")
             runtime.status = runtime.context.evaluate("export * from $entry;", ".mb-android-entry.js", true, 500)
