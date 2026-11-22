@@ -242,7 +242,7 @@
   "internal/app/daily_test.go": "e507349bd0fa59099b4f4626968d8b0b4491157143c7421a0f7a0d6bd2068ba2",
   "internal/app/debug_shots.go": "ddcb57219ecc71aef1d1fe266a9cbf0250faf41ff9c00d749f94f63e80cb23e1",
   "internal/app/discovery_preferences.go": "b9a0ccb158a4a4a644b192fcc67c766ab1973c572c786da40ddc1e99ffe344c6",
-  "internal/app/discovery_preferences_test.go": "58c693e0bdfa89e64cd814a4586c0f274e7768b8bb6ae92b5604de39d5b998e9",
+  "internal/app/discovery_preferences_test.go": "5a14969ee059abcb23b344873afe3d5ae4adda4eaed2b161fedcace2e26b4784",
   "internal/app/download.go": "74539adacf739e165ce82e834ca44fb5d936f3e41a4563c24b6c66a3db23d545",
   "internal/app/edge.go": "2619d22f4ea2b7bd3432b04d3fdbd62f70d64f2752c76b64b253511434353527",
   "internal/app/edge_test.go": "ae4109ff70905a794b36a215a038fa1843d0446d39e79c2d42aadb1fe466f379",
