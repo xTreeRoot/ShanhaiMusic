@@ -11,7 +11,6 @@ struct SourceTabs: View {
     let select: (String) -> Void
     var namespace = "source"
     var pagePosition: CGFloat? = nil
-    @Environment(\.backgroundSkinImage) private var skinImage
     @Environment(\.skinAccent) private var skinAccent
 
     var body: some View {
@@ -26,7 +25,7 @@ struct SourceTabs: View {
                         let active = source.id == selected
                         Button { select(source.id) } label: {
                             Text(source.name)
-                                .font(.subheadline.weight(active ? .bold : .medium))
+                                .font(.subheadline.weight(active ? .semibold : .medium))
                                 .foregroundStyle(active ? skinAccent : Color.primary.opacity(0.85))
                                 .scaleEffect(1 + weight * 0.02)
                                 .anchorPreference(key: SourceTabBoundsKey.self, value: .bounds) { [source.id: $0] }
@@ -65,7 +64,18 @@ struct SourceTabs: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 48)
-        .background { if skinImage == nil { Rectangle().fill(.bar) } }
+    }
+}
+
+/// 发现页的文字标签与模式图标使用同一透明层，避免系统工具栏另加玻璃色块。
+extension ToolbarContent {
+    @ToolbarContentBuilder var discoveryBackground: some ToolbarContent {
+        #if os(iOS)
+        if #available(iOS 26.0, *) { sharedBackgroundVisibility(.hidden) }
+        else { self }
+        #else
+        self
+        #endif
     }
 }
 

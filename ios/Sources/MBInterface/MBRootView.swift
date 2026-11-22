@@ -444,7 +444,7 @@ public struct MBRootView: View {
                 .navigationTitle("")
                 .modifier(CompactRootNavigation())
                 .toolbar {
-                    ToolbarItem(placement: .principal) { SourceTabs(sources: sourceTabs, selected: selectedSourceID, select: switchSource, pagePosition: discoveryPagePosition).frame(width: max(100, geometry.size.width - 110)) }
+                    ToolbarItem(placement: .principal) { SourceTabs(sources: sourceTabs, selected: selectedSourceID, select: switchSource, pagePosition: discoveryPagePosition).frame(width: max(100, geometry.size.width - 110)) }.discoveryBackground
                     toolbar
                 }
                 .navigationDestination(for: MBPage.self) { destination($0) }
@@ -563,8 +563,8 @@ public struct MBRootView: View {
                 modeNotice = next == .music ? "听歌模式" : "视频模式"; modeNoticeID = UUID()
             } label: {
                 Label(LocalizedStringKey(video.mode == .music ? "听歌模式" : "视频模式"), systemImage: video.mode == .music ? "music.note" : "play.rectangle")
-            }.accessibilityLabel("切换播放模式").accessibilityValue(LocalizedStringKey(video.mode == .music ? "听歌模式" : "视频模式"))
-        }
+            }.buttonStyle(.plain).accessibilityLabel("切换播放模式").accessibilityValue(LocalizedStringKey(video.mode == .music ? "听歌模式" : "视频模式"))
+        }.discoveryBackground
         }
     }
 
