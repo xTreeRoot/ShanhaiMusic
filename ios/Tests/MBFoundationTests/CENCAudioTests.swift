@@ -105,6 +105,38 @@ private func cencBox(_ type: String, _ body: Data) -> Data { cencWord(body.count
     #expect(FileManager.default.fileExists(atPath: file.path))
 }
 
+@Test func cencAudioChecksEveryRedirectAgainstPluginPermissions() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let manifest = try JSONDecoder().decode(PluginManifest.self, from: Data(#"{"id":"redirect-fixture","permissions":{"network":["audio.example.test","*.edge.example.test"]}}"#.utf8))
+    let fixture = try cencFixture()
+    let runtime = try PluginRuntime(directory: root, dataDirectory: root.appendingPathComponent("data"), manifest: manifest, transport: { request, _ in
+        let url = try #require(request.url)
+        if url.host == "audio.example.test" {
+            let host = url.path == "/denied" ? "outside.example.test" : "one.edge.example.test"
+            return (Data(), HTTPURLResponse(url: url, statusCode: 302, httpVersion: nil, headerFields: ["Location": "https://" + host + "/" + UUID().uuidString + "?auth=private-fixture-value"])!)
+        }
+        #expect(url.host == "one.edge.example.test")
+        return (fixture, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    })
+    let encryption = PluginJSON.object(["scheme": .string("cenc"), "key": .string("00112233445566778899aabbccddeeff")])
+    do {
+        _ = try await runtime.prepareCENCAudio(url: URL(string: "https://audio.example.test/denied")!, headers: [:], encryption: encryption)
+        Issue.record("Undeclared redirect host was accepted")
+    } catch PluginFailure.invalid(let reason) {
+        #expect(reason.contains("outside.example.test"))
+        #expect(!reason.contains("private-fixture-value"))
+        #expect(!reason.contains("https://"))
+    }
+    await #expect(throws: PluginFailure.self) {
+        try await runtime.prepareCENCAudio(url: URL(string: "https://user:private-fixture-value@audio.example.test/audio")!, headers: [:], encryption: encryption)
+    }
+    let resource = try await runtime.prepareCENCAudio(url: URL(string: "https://audio.example.test/" + UUID().uuidString)!, headers: [:], encryption: encryption)
+    #expect(resource.isFileURL)
+    #expect(try Data(contentsOf: resource) == CENCAudio.decode(fixture, key: CENCAudio.key("00112233445566778899aabbccddeeff")))
+}
+
 /// 仅显式传入本地授权样本时运行；样本、密钥和解码结果都不进入仓库。
 @Test(.enabled(if: ProcessInfo.processInfo.environment["MB_CENC_INPUT"] != nil))
 func cencAuthorizedLocalSampleCanDecodeThroughItsEnd() async throws {
@@ -126,4 +158,33 @@ func cencAuthorizedLocalSampleCanDecodeThroughItsEnd() async throws {
     while let buffer = output.copyNextSampleBuffer() { samples += CMSampleBufferGetNumSamples(buffer) }
     #expect(reader.status == .completed)
     #expect(samples > 100_000)
+}
+
+/// 显式提供本地授权资源时，覆盖真实宿主的权限、网络、容器准备与原生解码链路。
+@Test(.enabled(if: ProcessInfo.processInfo.environment["MB_CENC_RESOURCE"] != nil || ProcessInfo.processInfo.environment["MB_CENC_PLUGIN"] != nil))
+func cencAuthorizedResourceCanLoadThroughProductionTransport() async throws {
+    let env = ProcessInfo.processInfo.environment
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let directory: URL, trackID: String
+    if let plugin = env["MB_CENC_PLUGIN"] {
+        directory = URL(fileURLWithPath: plugin)
+        let target = try JSONDecoder().decode(PluginJSON.self, from: Data(contentsOf: URL(fileURLWithPath: #require(env["MB_CENC_TRACK"]))))
+        trackID = try #require(target["sourceTrackID"].string)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("data"), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: #require(env["MB_CENC_STORAGE"])), to: root.appendingPathComponent("data/storage.json"))
+    } else {
+        directory = root; trackID = "authorized-fixture"
+        let bytes = try Data(contentsOf: URL(fileURLWithPath: #require(env["MB_CENC_RESOURCE"])))
+        let value = try JSONDecoder().decode(PluginJSON.self, from: bytes)
+        try ("export function stream() { return " + value.encoded() + "; }").write(to: root.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
+    }
+    let manifest = try JSONDecoder().decode(PluginManifest.self, from: Data(contentsOf: URL(fileURLWithPath: #require(env["MB_CENC_MANIFEST"]))))
+    let runtime = try PluginRuntime(directory: directory, dataDirectory: root.appendingPathComponent("data"), manifest: manifest)
+    let resource = try await PluginSource(manifest: manifest, runtime: runtime).audio(trackID: trackID)
+    #expect(resource.url.isFileURL)
+    let asset = AVURLAsset(url: resource.url)
+    #expect(try await asset.load(.isPlayable))
+    #expect(try await asset.load(.duration).seconds > 0)
 }

@@ -403,3 +403,7 @@
 "查看来源" = "View Source";
 
 "切换平台时暂停其他平台播放" = "Pause Other Sources When Switching";
+
+"音频地址必须使用 HTTPS，且不能包含账号密码" = "Audio URLs must use HTTPS and cannot contain credentials";
+"音频重定向域名不在插件网络权限内：%@" = "Audio redirect host is outside plugin network permissions: %@";
+"音频域名不在插件网络权限内：%@" = "Audio host is outside plugin network permissions: %@";

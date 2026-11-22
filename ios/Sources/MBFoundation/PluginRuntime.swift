@@ -58,15 +58,15 @@ public actor PluginRuntime {
               let permissions = host.manifest.permissions else { throw PluginFailure.execution("Unsupported media encryption") }
         let key = try CENCAudio.key(hex), transport = transport
         // 命中缓存前同样核对权限，停用网络权限不能继续准备新资源。
-        guard url.scheme == "https", url.user == nil, url.password == nil, permissions.reaches(url.host ?? "") else { throw PluginFailure.invalid("Media outside plugin network permissions") }
+        try Self.checkCENCMediaURL(url, permissions: permissions, redirect: false)
         return try await PreparedCENCAudio.shared.prepare(url: url, headers: headers, key: key) {
             var request = URLRequest(url: url); request.allHTTPHeaderFields = headers
             request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
             request.setValue(nil, forHTTPHeaderField: "Range"); request.setValue(nil, forHTTPHeaderField: "If-Range")
             for _ in 0..<10 {
                 try Task.checkCancellation()
-                guard let destination = request.url, destination.scheme == "https", destination.user == nil, destination.password == nil,
-                      permissions.reaches(destination.host ?? "") else { throw PluginFailure.invalid("Media outside plugin network permissions") }
+                guard let destination = request.url else { throw NetworkFailure.response }
+                try Self.checkCENCMediaURL(destination, permissions: permissions, redirect: destination != url)
                 let (data, response) = try await transport(request, permissions)
                 guard data.count <= 16 << 20 else { throw PluginFailure.invalid("Encrypted audio exceeds preparation budget") }
                 if [301, 302, 303, 307, 308].contains(response.statusCode) {
@@ -77,6 +77,17 @@ public actor PluginRuntime {
                 return data
             }
             throw NetworkFailure.redirect
+        }
+    }
+    private nonisolated static func checkCENCMediaURL(_ url: URL, permissions: PluginManifest.Permissions, redirect: Bool) throws {
+        guard url.scheme == "https", url.user == nil, url.password == nil else {
+            throw PluginFailure.invalid(AppLocalization.text("音频地址必须使用 HTTPS，且不能包含账号密码"))
+        }
+        let host = url.host?.lowercased() ?? ""
+        guard !host.isEmpty, permissions.reaches(host) else {
+            // 只报告主机与阶段，不输出带授权参数的 URL、Cookie 或内容密钥。
+            let label = redirect ? AppLocalization.text("音频重定向域名不在插件网络权限内：%@", arguments: [host]) : AppLocalization.text("音频域名不在插件网络权限内：%@", arguments: [host])
+            throw PluginFailure.invalid(label)
         }
     }
     public func updateSettings(_ settings: [String: String]) async {
