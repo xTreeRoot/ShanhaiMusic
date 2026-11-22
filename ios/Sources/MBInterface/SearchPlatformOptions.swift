@@ -8,14 +8,12 @@ struct SearchPlatformOptions: View {
     let selected: String
     let choose: (String) -> Void
     private var options: [SourceTab] {
-        [SourceTab(id: "all", name: AppLocalization.text("全平台搜索"))] + sources +
-        [SourceTab(id: "torrent", name: AppLocalization.text("磁力链搜索"))]
+        [SourceTab(id: "all", name: AppLocalization.text("全平台搜索"))] + sources
     }
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
                 ForEach(options) { option in
-                    if option.id == "torrent" { Divider().padding(.horizontal, 12) }
                     Button { choose(option.id) } label: {
                         HStack(spacing: 10) {
                             Text(option.name).frame(maxWidth: .infinity, alignment: .leading)

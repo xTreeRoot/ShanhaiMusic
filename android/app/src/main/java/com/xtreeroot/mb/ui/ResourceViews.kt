@@ -55,7 +55,7 @@ internal val LocalSourceNames = staticCompositionLocalOf<Map<String, String>> { 
                     }
                 }
             }, play = open)
-            Text("${names[track.sourceId] ?: if (track.sourceId == "magnet") mb("磁力链接", "Magnet") else track.sourceId} · $type${if (track.resourceUrl != null) " · BT" else ""}",
+            Text("${names[track.sourceId] ?: track.sourceId} · $type",
                 Modifier.padding(start = 20.dp, bottom = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -67,13 +67,13 @@ internal val LocalSourceNames = staticCompositionLocalOf<Map<String, String>> { 
     var error by remember { mutableStateOf<String?>(null) }
     fun open(url: String) {
         try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-        catch (_: android.content.ActivityNotFoundException) { error = "未找到可打开此链接的应用，请分享给下载工具" }
+        catch (_: android.content.ActivityNotFoundException) { error = "未找到可打开此链接的应用，请分享资源链接" }
     }
     AlertDialog(onDismissRequest = close, title = { Text(track.title) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Knaben · ${resourceTypeName(track.resourceType)}")
+            Text("${LocalSourceNames.current[track.sourceId] ?: track.sourceId} · ${resourceTypeName(track.resourceType)}")
             Text(track.artist, style = MaterialTheme.typography.bodySmall)
-            track.resourceUrl?.let { url -> TextButton(onClick = { open(url) }) { Text(mb("用下载工具打开", "Open in Download App")) } }
+            track.resourceUrl?.let { url -> TextButton(onClick = { open(url) }) { Text(mb("打开资源链接", "Open Resource Link")) } }
             track.pageUrl?.let { url -> TextButton(onClick = { open(url) }) { Text(mb("查看来源", "View Source")) } }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }

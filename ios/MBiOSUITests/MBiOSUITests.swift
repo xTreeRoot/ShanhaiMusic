@@ -323,18 +323,13 @@ final class MBiOSUITests: XCTestCase {
         capture("点击资源-自动展开播放器", app: app)
     }
 
-    @MainActor func testMagnetDirectImportAndRecentSearchRemoval() {
+    @MainActor func testRecentSearchRemoval() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
         XCUIDevice.shared.orientation = .portrait; app.launch()
         selectTab("搜索", app: app)
-        app.buttons["search-platform-picker"].tap(); app.buttons["磁力链搜索"].tap()
         let field = app.textFields["搜索视频、音乐、UP 主"]
-        field.tap(); field.typeText("magnet:?xt=urn:btih:30D1F776C01C1F67FA425D4FA683D0AFA21AA1E4&dn=Direct%20resource\n")
-        XCTAssertTrue(app.buttons["选择 Direct resource"].waitForExistence(timeout: 5))
-        capture("磁力链-直接识别", app: app)
-        app.buttons["清空搜索"].tap()
         field.tap(); field.typeText("history one\n")
         app.buttons["清空搜索"].tap()
         field.tap(); field.typeText("history two\n")
@@ -1150,7 +1145,6 @@ final class MBiOSUITests: XCTestCase {
         selectTab("搜索", app: app)
         picker.press(forDuration: 0.15)
         XCTAssertTrue(app.buttons["全平台搜索"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["磁力链搜索"].exists)
         let choices = app.descendants(matching: .any)["search-platform-options"].firstMatch
         XCTAssertTrue(choices.waitForExistence(timeout: 3))
         XCTAssertGreaterThanOrEqual(choices.frame.minY, field.frame.maxY, "下拉选项不能遮挡搜索框")

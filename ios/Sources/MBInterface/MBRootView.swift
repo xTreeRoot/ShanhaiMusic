@@ -586,7 +586,7 @@ public struct MBRootView: View {
                                 let selected = playback.queue.current?.id == track.id
                                 VStack(alignment: .leading, spacing: 4) {
                                     TrackRow(track: track, selected: selected)
-                                    Text("\(sourceTabs.first(where: { $0.id == track.sourceID })?.name ?? track.artist) · \(resourceTypeName(track.resourceType))\(track.resourceURL == nil ? "" : " · BT")")
+                                    Text("\(sourceTabs.first(where: { $0.id == track.sourceID })?.name ?? track.artist) · \(resourceTypeName(track.resourceType))")
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                             }
@@ -723,7 +723,6 @@ public struct MBRootView: View {
     }
     private var searchTargetName: String {
         if searchTarget == "all" { return AppLocalization.text("全平台搜索") }
-        if searchTarget == "torrent" { return AppLocalization.text("磁力链搜索") }
         return sourceTabs.first { $0.id == (searchTarget ?? selectedSourceID) }?.name ?? source.displayName
     }
     private func chooseSearchTarget(_ id: String) {
@@ -746,15 +745,7 @@ public struct MBRootView: View {
         }
         guard !Task.isCancelled, target == (searchTarget ?? selectedSourceID) else { return }
         trackSearch.cancel()
-        if target == "torrent" { let resource = await resourceSearchPlugin()
-            trackSearch = SearchModel(source: TorrentSearchSource(provider: resource)) }
-        else { trackSearch = SearchModel(source: UnifiedSearchSource(providers: providers)) }
-    }
-    private func resourceSearchPlugin() async -> PluginSource? {
-        for plugin in plugins.installed {
-            if let source = plugins.sources[plugin.id], (try? await source.supports("searchResources")) == true { return source }
-        }
-        return nil
+        trackSearch = SearchModel(source: UnifiedSearchSource(providers: providers))
     }
     private func selectSearch(_ tracks: [Track], _ index: Int) {
         if tracks[index].resourceURL != nil { resourceDetail = tracks[index]; return }

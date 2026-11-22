@@ -4,7 +4,6 @@ import SwiftUI
 func resourceTypeName(_ type: String?) -> String {
     switch type {
     case "video": AppLocalization.text("视频")
-    case "torrent": AppLocalization.text("种子")
     case "book": AppLocalization.text("图书")
     case "software": AppLocalization.text("软件")
     case "music", nil: AppLocalization.text("音乐")
@@ -56,14 +55,14 @@ struct ResourceDetailView: View {
                 LabeledContent("平台", value: track.artist)
                 LabeledContent("资源类型", value: resourceTypeName(track.resourceType))
                 if let url = track.resourceURL {
-                    Button("用下载工具打开") { openURL(url) { accepted in openError = !accepted } }
+                    Button("打开资源链接") { openURL(url) { accepted in openError = !accepted } }
                     ShareLink("分享资源链接", item: url)
                 }
                 if let page = track.pageURL { Link("查看来源", destination: page) }
                 Button(library.resources.contains(where: { $0.id == track.id }) ? "已保存到资料库" : "保存到资料库") {
                     Task { await library.saveResource(track) }
                 }
-                if openError { Text("未找到可打开此资源的下载工具，请使用分享资源链接。选择来源后由下载工具处理种子。") }
+                if openError { Text("未找到可打开此链接的应用，请使用分享资源链接。") }
 
             }.modifier(SkinRow())
         }.modifier(SkinSurface(defaultColor: MBTheme.background, list: true)).navigationTitle(track.title)

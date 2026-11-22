@@ -30,24 +30,13 @@ private actor CombinedSearchFixture: MusicSource {
     #expect(await a.requested() == [1, 2])
 }
 
-@Test func magnetLinkImportsWithoutNetworkAndRejectsMalformedHashes() async throws {
-    let link = "magnet:?xt=urn:btih:30D1F776C01C1F67FA425D4FA683D0AFA21AA1E4&dn=Direct%20resource"
-    let page = try await TorrentSearchSource().search(query: link, page: 1)
-    #expect(page.tracks.first?.title == "Direct resource")
-    #expect(page.tracks.first?.resourceURL?.absoluteString == link && !page.hasMore)
-    #expect(try await TorrentSearchSource().search(query: link, page: 2).tracks.isEmpty)
-    #expect(TorrentSearchSource.directMagnet("magnet:?xt=urn:btih:broken") == nil)
-    #expect(TorrentSearchSource.directMagnet("magnet:?xt=urn:btih:" + String(repeating: "a", count: 40) + "\nextra") == nil)
-    #expect(TorrentSearchSource.directMagnet("magnet:?xt=urn:btmh:1220" + String(repeating: "a", count: 64)) != nil)
-}
-
 @Test func resourceBookmarksPersistAndReplaceWithoutTouchingPlaylists() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let store = LocalLibraryStore(directory: root)
     _ = try await store.createPlaylist("保留歌单")
-    var track = Track(sourceID: "knaben", sourceTrackID: "a", title: "Ubuntu", artist: "Knaben")
-    track.resourceURL = URL(string: "magnet:?xt=urn:btih:abc"); track.resourceType = "software"
+    var track = Track(sourceID: "fixture", sourceTrackID: "a", title: "Example", artist: "Fixture")
+    track.resourceURL = URL(string: "https://example.test/file"); track.resourceType = "software"
     _ = try await store.saveResource(track); _ = try await store.saveResource(track)
     let restored = try await LocalLibraryStore(directory: root).snapshot()
     #expect(restored.resources == [track] && restored.playlists.first?.name == "保留歌单")
@@ -64,13 +53,6 @@ private actor CombinedSearchFixture: MusicSource {
     #expect(restored.names["a"] == "我的平台" && restored.order == ["b", "a"])
     try value.rename("a", to: " "); #expect(value.name(id: "a", fallback: "原名") == "原名")
     #expect(throws: PluginFailure.self) { try value.rename("a", to: String(repeating: "a", count: 61)) }
-}
-
-@Test(.enabled(if: ProcessInfo.processInfo.environment["MB_LIVE_RESOURCE_SEARCH"] == "1"))
-func torrentSearchOfficialV2ReturnsUbuntuMetadata() async throws {
-    let page = try await TorrentSearchSource().search(query: "ubuntu", page: 1)
-    #expect(!page.tracks.isEmpty)
-    #expect(page.tracks.allSatisfy { $0.resourceURL != nil && $0.sourceID == "knaben" })
 }
 
 @MainActor @Test func pluginRenameAndOrderSurviveCodeUpdateAndModelReload() async throws {

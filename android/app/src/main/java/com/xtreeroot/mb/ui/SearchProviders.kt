@@ -6,10 +6,6 @@ import com.xtreeroot.mb.plugin.*
 import kotlinx.coroutines.CancellationException
 
 internal suspend fun searchSource(app: MBApplication, target: String, names: Map<String, String>): MusicSource {
-    if (target == "torrent") {
-        val resource = app.installedPlugins.value.asSequence().filter { it.enabled }.mapNotNull { app.musicSource(it.id) as? PluginSource }.firstOrNull { it.catalog.supports("searchResources") }
-        return TorrentSearchSource(resource?.let { source -> { query, page -> source.searchResources(query, page) } })
-    }
     val providers = buildList {
         for ((id, name) in names) {
             if (target != "all" && target != id) continue

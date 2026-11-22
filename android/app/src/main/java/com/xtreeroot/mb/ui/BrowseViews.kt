@@ -179,10 +179,8 @@ internal fun Search(model: BrowseModel, activeSource: String, plugin: PluginSour
     val focus = LocalFocusManager.current
     val submit = { term: String -> query = term; expanded = false; model.submitSearch(SearchScope.Music, term); focus.clearFocus() }
     val allLabel = mb("全平台搜索", "All Platforms")
-    val torrentLabel = mb("磁力链搜索", "Magnet Search")
     val targetName = when (target) {
         "all" -> mb("全平台搜索", "All Platforms")
-        "torrent" -> mb("磁力链搜索", "Magnet Search")
         else -> platforms[target] ?: target
     }
     Column(Modifier.fillMaxSize()) {
@@ -221,7 +219,7 @@ internal fun Search(model: BrowseModel, activeSource: String, plugin: PluginSour
                 androidx.compose.material3.Surface(Modifier.padding(start = 16.dp).width(250.dp), shape = RoundedCornerShape(12.dp),
                     tonalElevation = 2.dp, shadowElevation = 6.dp) {
                     LazyColumn(Modifier.heightIn(max = 340.dp).padding(vertical = 4.dp)) {
-                        val choices = listOf("all" to allLabel) + platforms.toList() + ("torrent" to torrentLabel)
+                        val choices = listOf("all" to allLabel) + platforms.toList()
                         items(choices, key = { it.first }) { (id, name) ->
                             Row(Modifier.fillMaxWidth().heightIn(min = 44.dp)
                                 .background(if (id == target) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)

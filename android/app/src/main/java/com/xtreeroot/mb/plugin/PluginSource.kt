@@ -81,11 +81,6 @@ internal class PluginSource(
         return (0 until rows.length()).mapNotNull { rows.opt(it) as? String }
     }
 
-    suspend fun searchResources(query: String, page: Int): TrackPage {
-        val value = runtime.invoke("searchResources", JSONObject().put("query", query).put("offset", (page - 1).coerceAtLeast(0) * 30)) as? JSONObject ?: throw PluginException("Invalid resource search response")
-        return TrackPage(tracks(value.optJSONArray("tracks") ?: JSONArray()), value.optBoolean("more"))
-    }
-
     override suspend fun search(query: String, page: Int): TrackPage = searchLock.withLock {
         val term = query.trim()
         if (term.isEmpty()) return TrackPage(emptyList(), false)
@@ -300,7 +295,7 @@ internal class PluginSource(
             artworkUrl = image?.url, durationMs = value.optLong("duration").coerceAtLeast(0), pageUrl = page,
             artistId = artistId, artworkHeaders = image?.headers.orEmpty(),
             resourceType = value.optString("resourceType").takeIf { it.isNotBlank() },
-            resourceUrl = value.optString("resourceUrl").takeIf { link -> runCatching { val uri = java.net.URI(link); uri.scheme.equals("magnet", true) || uri.scheme == "https" && uri.host != null }.getOrDefault(false) },
+            resourceUrl = value.optString("resourceUrl").takeIf { link -> runCatching { val uri = java.net.URI(link); uri.scheme == "https" && uri.host != null }.getOrDefault(false) },
             videoWidth = value.optJSONObject("video")?.optInt("width")?.coerceAtLeast(0) ?: 0,
             videoHeight = value.optJSONObject("video")?.optInt("height")?.coerceAtLeast(0) ?: 0,
             shortVideo = value.optJSONObject("video")?.optBoolean("short") == true,

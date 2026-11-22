@@ -190,8 +190,8 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         val navigator: (PluginSource) -> PluginCatalogNavigator = { catalogs.getOrPut(it) { PluginCatalogNavigator() } }
         val catalog = remember(pluginSource) { pluginSource?.let(navigator) ?: PluginCatalogNavigator() }
         var searchTarget by rememberSaveable { mutableStateOf<String?>(null) }
-        val target = searchTarget ?: sourceId.orEmpty()
-        val searchIdentity = if (target == "torrent") "magnet" else "search:$target"
+        val target = searchTarget?.takeIf { it == "all" || it in sourceNames } ?: sourceId.orEmpty()
+        val searchIdentity = "search:$target"
         LaunchedEffect(target, sourceNames, pluginState.installed.map { it.id to it.revision }) {
             val query = browser.searchPages(SearchScope.Music).state.value.value.query
             try {

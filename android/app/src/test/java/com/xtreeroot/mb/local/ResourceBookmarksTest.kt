@@ -10,7 +10,7 @@ class ResourceBookmarksTest {
         val root = Files.createTempDirectory("mb-bookmark").toFile()
         try {
             val file = root.resolve("resources.json")
-            val track = Track("knaben", "1", "Example", "Tracker", resourceType = "video", resourceUrl = "magnet:?xt=urn:btih:ABC")
+            val track = Track("fixture", "1", "Example", "Fixture", resourceType = "video", resourceUrl = "https://example.test/file")
             val store = ResourceBookmarks(file)
             store.save(track); store.save(track.copy(title = "Updated"))
             val restored = ResourceBookmarks(file); restored.refresh()

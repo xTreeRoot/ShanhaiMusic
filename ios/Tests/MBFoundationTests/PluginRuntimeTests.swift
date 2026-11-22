@@ -543,7 +543,7 @@ private actor PluginRedirectFixture {
 @Test func pagedBrowsePreservesPortraitAndResourceMetadata() async throws {
     try await withPlugin("""
     export function browse({page,offset}) { return {tabs:[{title:'All',page:'all'},{title:'Music',page:'music'}],selectedTab:page,sections:[{tracks:[{id:String(offset),name:'Portrait',video:{width:1080,height:1920,short:true}}]}],more:offset===0}; }
-    export function searchResources({query,offset}) { return {tracks:[{id:String(offset),name:query,resourceType:'software',resourceUrl:'https://example.test/file'}],more:false}; }
+    export function search({query,offset}) { return {tracks:[{id:String(offset),name:query,resourceType:'software',resourceUrl:'https://example.test/file'}],more:false}; }
     """) { runtime, _, manifest in
         let source = PluginSource(manifest: manifest, runtime: runtime)
         let (first, more, count) = try await source.browsePage("shorts")
@@ -552,8 +552,8 @@ private actor PluginRedirectFixture {
         #expect(first.sections.first?.tracks.first?.shortVideo == true)
         let (next, again, _) = try await source.browsePage("shorts", offset: count)
         #expect(!again && next.sections.first?.tracks.first?.sourceTrackID == "1")
-        let resource = try await source.searchResources(query: "Query", page: 2)
-        #expect(resource.tracks.first?.sourceTrackID == "30" && resource.tracks.first?.resourceType == "software")
+        let resource = try await source.search(query: "Query", page: 1)
+        #expect(resource.tracks.first?.sourceTrackID == "0" && resource.tracks.first?.resourceType == "software")
         #expect(resource.tracks.first?.resourceURL?.scheme == "https")
     }
 }
