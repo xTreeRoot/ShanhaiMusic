@@ -84,15 +84,15 @@ internal class PluginCatalog(
         }
     }
 
-    suspend fun load(request: PluginCatalogRequest, offset: Int = 0, includePreviews: Boolean = false): PluginCatalogPage = when (request) {
+    suspend fun load(request: PluginCatalogRequest, offset: Int = 0, includePreviews: Boolean = false, refresh: Boolean = false): PluginCatalogPage = when (request) {
         PluginCatalogRequest.Home -> {
-            val home = if (supports("home")) cachedInvoke("home", JSONObject()).objectValue() else JSONObject()
+            val home = if (supports("home")) invoke("home", JSONObject(), refresh).objectValue() else JSONObject()
             val result = page(home, manifest.name)
-            if (includePreviews) withNavigationPreviews(result) else result
+            if (includePreviews) withNavigationPreviews(result, refresh) else result
         }
-        is PluginCatalogRequest.Browse -> page(cachedInvoke("browse", arguments(offset).put("page", request.page)).objectValue(), request.title, offset).continuing(request)
-        is PluginCatalogRequest.Collection -> collection(request, offset)
-        is PluginCatalogRequest.Entity -> entity(request.entity, offset)
+        is PluginCatalogRequest.Browse -> page(invoke("browse", arguments(offset).put("page", request.page), refresh).objectValue(), request.title, offset).continuing(request)
+        is PluginCatalogRequest.Collection -> collection(request, offset, refresh)
+        is PluginCatalogRequest.Entity -> entity(request.entity, offset, refresh)
         is PluginCatalogRequest.Search -> {
             val args = arguments(offset).put("query", request.query)
             if (request.kind != PluginSearchKind.Videos) args.put("kind", request.kind.key)
@@ -104,12 +104,12 @@ internal class PluginCatalog(
     }
 
     /** 一次刷新等待首页与独立导航栏目全部完成，返回失败栏目而不覆盖已有内容。 */
-    private suspend fun withNavigationPreviews(home: PluginCatalogPage): PluginCatalogPage = coroutineScope {
+    private suspend fun withNavigationPreviews(home: PluginCatalogPage, refresh: Boolean): PluginCatalogPage = coroutineScope {
         val links = navigation().filter { link -> home.sections.none { section ->
             section.more?.destination == link.destination || link.title.isNotBlank() && section.title == link.title
         } }
         val previews = links.map { link -> async {
-            val result = try { PluginCatalogPreview(load(link.destination)) }
+            val result = try { PluginCatalogPreview(load(link.destination, refresh = refresh)) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { PluginCatalogPreview(null, error.message ?: "加载失败") }
             link.destination to result
@@ -146,9 +146,9 @@ internal class PluginCatalog(
         invalidate()
     }
 
-    private suspend fun collection(request: PluginCatalogRequest.Collection, offset: Int): PluginCatalogPage {
+    private suspend fun collection(request: PluginCatalogRequest.Collection, offset: Int, refresh: Boolean): PluginCatalogPage {
         val name = request.collection.method
-        val value = cachedInvoke(name, arguments(offset))
+        val value = invoke(name, arguments(offset), refresh)
         val section = when (request.collection) {
             PluginCollection.Playlists, PluginCollection.Shows, PluginCollection.Stations -> JSONObject().put(name, value.arrayValue())
             PluginCollection.Recent -> JSONObject().put("tracks", value.arrayValue())
@@ -159,10 +159,10 @@ internal class PluginCatalog(
             next = nextOffset(offset, count, (value as? JSONObject)?.optBoolean("more") == true))
     }
 
-    private suspend fun entity(entity: PluginEntity, offset: Int): PluginCatalogPage {
+    private suspend fun entity(entity: PluginEntity, offset: Int, refresh: Boolean): PluginCatalogPage {
         val args = arguments(offset).put("id", entity.id)
         val value = if (entity.kind == PluginEntityKind.Station) runtime.invoke(entity.kind.method, args)
-            else cachedInvoke(entity.kind.method, args)
+            else invoke(entity.kind.method, args, refresh)
         val detailsPage = value as? JSONObject ?: JSONObject()
         val section = when (entity.kind) {
             PluginEntityKind.Station -> JSONObject().put("tracks", value.arrayValue())
@@ -208,6 +208,10 @@ internal class PluginCatalog(
         return PluginCatalogSection(value.text("title").orEmpty(), readTracks(value.list("tracks")), entities,
             links, more, value.text("empty").orEmpty(), value.text("trackLayout") == "videos")
     }
+
+    /** 显式刷新同时绕过宿主缓存并告知插件，避免插件自己的首屏快照被当成新数据。 */
+    private suspend fun invoke(method: String, arguments: JSONObject, refresh: Boolean): Any =
+        cachedInvoke(method, if (refresh) arguments.put("refresh", true) else arguments)
 
     private fun arguments(offset: Int) = JSONObject().put("offset", offset)
     private fun nextOffset(offset: Int, count: Int, more: Boolean): Int? = (offset + count).takeIf { more && count > 0 }

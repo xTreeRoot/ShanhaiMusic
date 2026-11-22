@@ -54,6 +54,22 @@ class PluginRuntimeTest {
         assertEquals("720p", source.video("one", "720p").videoQuality)
     }
 
+    @Test fun explicitCatalogRefreshReplacesPluginSnapshotAndHostCache() = fixture(
+        """
+        let revision = 0, snapshot;
+        export function browse({refresh}={}) {
+            if (!snapshot || refresh) snapshot = {sections:[{tracks:[{id:'snapshot',name:'Snapshot '+(++revision)}]}],more:false};
+            return snapshot;
+        }
+        """.trimIndent(),
+    ) { runtime, _, _ ->
+        val source = PluginSource(manifest, runtime)
+        val request = PluginCatalogRequest.Browse("shelf", "Shelf")
+        assertEquals("Snapshot 1", source.catalog.load(request).sections[0].tracks[0].title)
+        assertEquals("Snapshot 2", source.catalog.load(request, refresh = true).sections[0].tracks[0].title)
+        assertEquals("Snapshot 2", source.catalog.load(request).sections[0].tracks[0].title)
+    }
+
     @Test fun browsePagesForwardOffsetsAndPreservePortraitMetadata() = fixture(
         """
         export function browse({page,offset = 0}) { return {tabs:[{title:'All',page:'all'},{title:'Music',page:'music'}],selectedTab:page,sections:[{tracks:[{id:String(offset),name:'Portrait',video:{width:1080,height:1920,short:true}}]}],more:offset===0}; }

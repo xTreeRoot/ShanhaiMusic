@@ -48,8 +48,12 @@ internal sealed interface CatalogDestination {
             if (filter == selected) return
             filter = selected; pager.invalidate(clear = true)
         }
-        suspend fun refresh(source: PluginSource) = pager.refresh({ source.catalog.invalidate() }) {
-            source.catalog.load(currentRequest, includePreviews = filter == null)
+        suspend fun refresh(source: PluginSource) {
+            val request = currentRequest
+            val previews = filter == null
+            pager.refresh({ source.catalog.invalidate() }) {
+                source.catalog.load(request, includePreviews = previews, refresh = true)
+            }
         }
     }
     class Search : CatalogDestination {

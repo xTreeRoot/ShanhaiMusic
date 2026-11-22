@@ -1602,7 +1602,11 @@ extension MBiOSUITests {
         let scroll = app.scrollViews["plugin-discovery-scroll"]
         XCTAssertTrue(scroll.waitForExistence(timeout: 8))
         capture("下拉刷新-拉动前", app: app)
-        scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.08)).press(forDuration: 0.05,
+        // 平台分页容器的滚动区域延伸至顶栏背后，触点必须落在可见内容内。
+        let top = max(scroll.frame.minY + 60, app.navigationBars.firstMatch.frame.maxY + 24)
+        let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0))
+            .withOffset(CGVector(dx: 0, dy: top - scroll.frame.minY))
+        start.press(forDuration: 0.05,
             thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.85)))
         capture("下拉刷新-拉动后", app: app)
         XCTAssertTrue(app.buttons["播放 首页第2次"].waitForExistence(timeout: 10))

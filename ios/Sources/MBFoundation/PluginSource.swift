@@ -33,21 +33,24 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, SignInMet
         let page = TrackPage(tracks: try await tracks(rawTracks), hasMore: result["more"] == .bool(true) && count > 0)
         return (page, offset + count)
     }
-    func catalogInvoke(_ method: String, arguments: PluginJSON = .object([:])) async throws -> PluginJSON {
+    func catalogInvoke(_ method: String, arguments: PluginJSON = .object([:]), refresh: Bool = false) async throws -> PluginJSON {
+        guard case .object(var values) = arguments else { throw PluginFailure.invalid("Catalog arguments must be an object") }
+        if refresh { values["refresh"] = .bool(true) }
+        let requestArguments = PluginJSON.object(values)
         if cacheAccount == nil {
             do { _ = try await account(); if cacheAccount == nil { cacheAccount = "guest" } }
             catch {
                 try Task.checkCancellation()
                 // 无法确定账号时不读写个人缓存，公开页面仍按原合同加载。
-                return try await runtime.invoke(method, arguments: arguments)
+                return try await runtime.invoke(method, arguments: requestArguments)
             }
         }
         let scope = cacheAccount ?? "guest", generation = accountGeneration
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
         let key = ResponseCache.key([manifest.id, manifest.version ?? "", scope, method, String(decoding: try encoder.encode(arguments), as: UTF8.self)])
         let runtime = runtime
-        let data = try await runtime.catalogCache.data(key: key, lifetime: 6 * 3600) {
-            try await self.catalogData(method, arguments: arguments, generation: generation)
+        let data = try await runtime.catalogCache.data(key: key, lifetime: refresh ? 0 : 6 * 3600) {
+            try await self.catalogData(method, arguments: requestArguments, generation: generation)
         }
         guard generation == accountGeneration else { throw CancellationError() }
         return try JSONDecoder().decode(PluginJSON.self, from: data)
@@ -63,13 +66,13 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, SignInMet
         _ = try await runtime.invoke(method, arguments: arguments)
         await invalidateCatalog()
     }
-    public func home() async throws -> PluginBrowse {
+    public func home(refresh: Bool = false) async throws -> PluginBrowse {
         guard try await supports("home") else { return PluginBrowse(title: displayName) }
-        return try await browseResult(try await catalogInvoke("home"))
+        return try await browseResult(try await catalogInvoke("home", refresh: refresh))
     }
-    public func browse(_ page: String) async throws -> PluginBrowse { try await browsePage(page).0 }
-    public func browsePage(_ page: String, offset: Int = 0) async throws -> (PluginBrowse, Bool, Int) {
-        let value = try await catalogInvoke("browse", arguments: .object(["page": .string(page), "offset": .number(Double(offset))]))
+    public func browse(_ page: String, refresh: Bool = false) async throws -> PluginBrowse { try await browsePage(page, refresh: refresh).0 }
+    public func browsePage(_ page: String, offset: Int = 0, refresh: Bool = false) async throws -> (PluginBrowse, Bool, Int) {
+        let value = try await catalogInvoke("browse", arguments: .object(["page": .string(page), "offset": .number(Double(offset))]), refresh: refresh)
         let result = try await browseResult(value)
         let count = result.sections.reduce(0) { $0 + $1.tracks.count + $1.entities.count + $1.links.count }
         return (result, value["more"] == .bool(true), count)

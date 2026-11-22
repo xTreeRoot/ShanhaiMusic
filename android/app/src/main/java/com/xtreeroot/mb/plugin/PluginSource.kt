@@ -59,9 +59,9 @@ internal class PluginSource(
             catch (_: Exception) { return runtime.invoke(method, arguments) }
         }
         val (account, revision) = synchronized(accountCacheLock) { cacheAccount.orEmpty() to accountGeneration }
-        val parameters = arguments.keys().asSequence().sorted().flatMap { sequenceOf(it, arguments.get(it).toString()) }.toList()
+        val parameters = arguments.keys().asSequence().filter { it != "refresh" }.sorted().flatMap { sequenceOf(it, arguments.get(it).toString()) }.toList()
         val key = DiskResponseCache.key(*(listOf(manifest.id, manifest.version.orEmpty(), account, method) + parameters).toTypedArray())
-        val data = runtime.catalogCache.data(key) {
+        val data = runtime.catalogCache.data(key, lifetimeMs = if (arguments.optBoolean("refresh")) 0 else 6L * 60 * 60 * 1000) {
             synchronized(accountCacheLock) { if (revision != accountGeneration) throw CancellationException() }
             val result = runtime.invoke(method, arguments)
             synchronized(accountCacheLock) { if (revision != accountGeneration) throw CancellationException() }

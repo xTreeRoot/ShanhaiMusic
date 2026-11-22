@@ -31,14 +31,14 @@ extension PluginSource {
     /// 刷新绕过目录缓存，并等待独立导航栏目的新内容；栏目失败单独反馈，不丢首页。
     public func refreshDiscovery() async throws -> PluginDiscoverySnapshot {
         await invalidateCatalog()
-        let home = try await home()
+        let home = try await home(refresh: true)
         let items = discoveryNavigation(home)
         let previews = await withTaskGroup(of: (String, PluginNavigationPreview).self) { group in
             for item in items {
                 group.addTask {
                     do {
                         let page: PluginBrowse
-                        if let value = item.page { page = try await self.browse(value) }
+                        if let value = item.page { page = try await self.browse(value, refresh: true) }
                         else { page = try await self.collection(item.builtin ?? "").0 }
                         return (item.previewKey, PluginNavigationPreview(content: page, error: nil))
                     } catch { return (item.previewKey, PluginNavigationPreview(content: nil, error: error.localizedDescription)) }

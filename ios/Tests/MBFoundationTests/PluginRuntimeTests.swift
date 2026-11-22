@@ -474,9 +474,9 @@ private actor PluginRedirectFixture {
 
 @Test func discoveryRefreshBypassesCacheAndWaitsForIndependentNavigationPreviews() async throws {
     try await withPlugin("""
-    let homes = 0, browses = 0, likes = 0;
-    export function home() { return {sections:[{title:'Home '+(++homes)}]}; }
-    export function browse() { return {sections:[{tracks:[{id:'nav',name:'Navigation '+(++browses)}]}]}; }
+    let homes = 0, browses = 0, likes = 0, savedHome, savedBrowse;
+    export function home({refresh}={}) { if(!savedHome || refresh) savedHome={sections:[{title:'Home '+(++homes)}]}; return savedHome; }
+    export function browse({refresh}={}) { if(!savedBrowse || refresh) savedBrowse={sections:[{tracks:[{id:'nav',name:'Navigation '+(++browses)}]}]}; return savedBrowse; }
     export function liked() { return {tracks:[{id:'liked',name:'Liked '+(++likes)}]}; }
     """) { runtime, _, _ in
         let manifest = try JSONDecoder().decode(PluginManifest.self, from: Data(#"{"id":"fixture","name":"Fixture","version":"1.0.0","navigation":[{"builtin":"home"},{"page":"category","title":"Category"},{"builtin":"liked","title":"Liked"}]}"#.utf8))
@@ -555,5 +555,23 @@ private actor PluginRedirectFixture {
         let resource = try await source.search(query: "Query", page: 1)
         #expect(resource.tracks.first?.sourceTrackID == "0" && resource.tracks.first?.resourceType == "software")
         #expect(resource.tracks.first?.resourceURL?.scheme == "https")
+    }
+}
+
+@Test func explicitCatalogRefreshReplacesPluginSnapshotAndKeepsNewResponseInHostCache() async throws {
+    try await withPlugin("""
+    let revision = 0, snapshot;
+    export function browse({refresh}={}) {
+        if (!snapshot || refresh) snapshot = {sections:[{tracks:[{id:'snapshot',name:'Snapshot '+(++revision)}]}],more:false};
+        return snapshot;
+    }
+    """) { runtime, _, manifest in
+        let source = PluginSource(manifest: manifest, runtime: runtime)
+        let first = try await source.browsePage("shelf")
+        let fresh = try await source.browsePage("shelf", refresh: true)
+        let cached = try await source.browsePage("shelf")
+        #expect(first.0.sections[0].tracks[0].title == "Snapshot 1")
+        #expect(fresh.0.sections[0].tracks[0].title == "Snapshot 2")
+        #expect(cached.0.sections[0].tracks[0].title == "Snapshot 2")
     }
 }
