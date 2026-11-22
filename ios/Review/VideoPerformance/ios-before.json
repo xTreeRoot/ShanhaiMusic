@@ -1,0 +1,12 @@
+{
+  "firstFrameMilliseconds" : [
+    1872.76125,
+    1678.6002080000001,
+    1678.677709
+  ],
+  "peakResidentBytes" : 80789504,
+  "stallCount" : 1,
+  "stallSeconds" : 6.8642276249999998,
+  "systemCPUSeconds" : 0.223106,
+  "userCPUSeconds" : 0.87550899999999998
+}

@@ -208,6 +208,11 @@ internal class PlaybackService : MediaLibraryService() {
         }
         fun refreshPrefetch() {
             video.preload(player.currentMediaItem?.track()?.takeIf { player.isPlaying && !it.isUnavailable })
+            val videoNext = if (player.isPlaying && player.duration > 0 && player.currentPosition.toDouble() / player.duration >= 0.7 && !player.currentTimeline.isEmpty) {
+                val nextIndex = player.currentTimeline.getNextWindowIndex(player.currentMediaItemIndex, player.repeatMode, player.shuffleModeEnabled)
+                if (nextIndex == C.INDEX_UNSET || nextIndex == player.currentMediaItemIndex) null else player.getMediaItemAt(nextIndex).track()
+            } else null
+            video.preloadNext(videoNext)
             preloader.expire()
             if (!player.playWhenReady || video.frames.value != null) { preloader.cancel(); return }
             val eligible = canPrefetchAudio(player.currentPosition, player.duration, player.isPlaying, videoActive = false)

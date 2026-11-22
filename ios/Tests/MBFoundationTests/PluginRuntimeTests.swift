@@ -575,3 +575,37 @@ private actor PluginRedirectFixture {
         #expect(cached.0.sections[0].tracks[0].title == "Snapshot 2")
     }
 }
+
+private actor PlaybackLaneGate {
+    var reached = false
+    var waiter: CheckedContinuation<Void, Never>?
+    func begin() { reached = true; waiter?.resume(); waiter = nil }
+    func wait() async { if !reached { await withCheckedContinuation { waiter = $0 } } }
+}
+
+@Test func playbackResolutionPassesBlockedCatalogAndKeepsItsVmWhenCatalogIsCancelled() async throws {
+    let gate = PlaybackLaneGate()
+    try await withPlugin("""
+    let count = 0;
+    export async function search() { host.storage.set('shared', 'catalog'); await fetch('https://api.example.test/blocked'); }
+    export function stream() { return {count: ++count, shared: host.storage.get('shared')}; }
+    export function video() { return {count: ++count}; }
+    """) { _, root, manifest in
+        let runtime = try PluginRuntime(directory: root, dataDirectory: root.appendingPathComponent("data"), manifest: manifest, transport: { _, _ in
+            await gate.begin()
+            try await Task.sleep(for: .seconds(10))
+            throw CancellationError()
+        })
+        let slow = Task { try await runtime.invoke("search") }
+        await gate.wait()
+        let timeout = Task { try await Task.sleep(for: .seconds(1)); slow.cancel() }
+        defer { timeout.cancel(); slow.cancel() }
+        #expect(try await runtime.supports("video"))
+        let first = try await runtime.invoke("stream")
+        #expect(!slow.isCancelled)
+        #expect(first["shared"] == .string("catalog"))
+        #expect(first["count"] == .number(1))
+        slow.cancel(); _ = await slow.result
+        #expect(try await runtime.invoke("video")["count"] == .number(2))
+    }
+}

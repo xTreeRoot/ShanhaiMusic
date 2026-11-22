@@ -19,6 +19,8 @@ import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.filterNotNull
@@ -317,6 +319,32 @@ class PluginRuntimeTest {
             cancelled.await()
             assertTrue(operation.isCancelled)
             assertEquals(42, next.await())
+        }
+    }
+
+    @Test fun playbackBypassesBlockedCatalogAndItsVmSurvivesCatalogCancellation() {
+        val started = CompletableDeferred<Unit>()
+        fixture(
+            """
+            let count = 0;
+            export async function search() { host.storage.set('shared', 'catalog'); await fetch('https://api.example.test/wait'); }
+            export function stream() { return {count: ++count, shared: host.storage.get('shared')}; }
+            export function video() { return ++count; }
+            """.trimIndent(),
+            transport = PluginTransport { _, _ -> started.complete(Unit); awaitCancellation() },
+        ) { runtime, _, _ ->
+            val catalog = async { runtime.invoke("search") }
+            started.await()
+            val timeout = launch { delay(1_000); catalog.cancel() }
+            try {
+                assertTrue(runtime.supports("video"))
+                val first = runtime.stream(JSONObject()) as JSONObject
+                assertFalse(catalog.isCancelled)
+                assertEquals("catalog", first.getString("shared"))
+                assertEquals(1, first.getInt("count"))
+                catalog.cancelAndJoin()
+                assertEquals(2, runtime.invoke("video"))
+            } finally { timeout.cancel(); catalog.cancelAndJoin() }
         }
     }
 

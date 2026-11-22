@@ -70,6 +70,41 @@ public actor NetworkClient {
 
     public func setProxyHosts(_ input: String) throws { policy = try ProxyPolicy(input) }
 
+    /// 验证最终响应头后持续交付小块；每跳仍执行代理选择、重定向清理和权限校验。
+    func consume(for original: URLRequest, maximumBytes: Int,
+                 response: @Sendable (HTTPURLResponse) async throws -> Void,
+                 chunk: @Sendable (Data) async throws -> Void) async throws {
+        var request = original
+        for _ in 0..<10 {
+            try Task.checkCancellation()
+            let session = policy.usesSystemProxy(for: try Self.url(request)) ? system : direct
+            let began = ContinuousClock.now
+            let (stream, received) = try await session.bytes(for: request)
+            guard let http = received as? HTTPURLResponse else { throw NetworkFailure.response }
+            if let next = try Self.redirect(request, response: http) { request = next; continue }
+            try await response(http)
+            guard received.expectedContentLength <= Int64(maximumBytes) else { throw NetworkFailure.response }
+            var buffer = Data(), count = 0
+            buffer.reserveCapacity(16 << 10)
+            for try await byte in stream {
+                guard count < maximumBytes else { throw NetworkFailure.response }
+                buffer.append(byte); count += 1
+                if buffer.count == 16 << 10 {
+                    try Task.checkCancellation()
+                    try await chunk(buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+            }
+            try Task.checkCancellation()
+            if !buffer.isEmpty { try await chunk(buffer) }
+            guard received.expectedContentLength < 0 || received.expectedContentLength == Int64(count) else { throw MediaStreamingFailure.rangeData }
+            let duration = began.duration(to: .now).components
+            await MediaNetworkConditions.shared.sample(bytes: count, seconds: Double(duration.seconds) + Double(duration.attoseconds) / 1e18)
+            return
+        }
+        throw NetworkFailure.redirect
+    }
+
     public func data(for original: URLRequest, maximumBytes: Int = 32 * 1_024 * 1_024, followRedirects: Bool = true,
                      acceptingBody: @Sendable (Int) -> Bool = { _ in true }, permitting: @Sendable (URL) -> Bool = { _ in true }) async throws -> (Data, URLResponse) {
         var request = original

@@ -42,11 +42,13 @@ internal class PluginRuntime(
     val catalogCache = DiskResponseCache(File(dataDirectory, "catalog-cache"))
     private val dispatcher = Dispatchers.IO.limitedParallelism(1)
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
-    private val calls = Mutex()
+    private class Lane { val calls = Mutex(); var machine: Machine? = null }
+    private val catalog = Lane()
+    private val playback = Lane()
+    private fun lane(name: String) = if (name == "stream" || name == "video") playback else catalog
     private var host: PluginHostState? = null
     private var settings = settings.toMap()
     private var language = language
-    private var machine: Machine? = null
     private var closed = false
 
     private class Machine(val context: QuickJsContext) {
@@ -58,18 +60,19 @@ internal class PluginRuntime(
         var failure: Exception? = null
     }
 
-    suspend fun supports(name: String): Boolean = useMachine { it.context.supports(name) }
+    suspend fun supports(name: String): Boolean = useMachine(lane(name)) { it.context.supports(name) }
 
     suspend fun headersFor(address: URI, kind: String): Map<String, String> = withContext(dispatcher) {
         check(!closed) { "Plugin runtime is closed" }
         hostState().headers(address, manifest, kind)
     }
 
-    suspend fun invoke(name: String, arguments: JSONObject = JSONObject(), timeoutMs: Long = 30_000): Any = useMachine { runtime ->
-        invoke(runtime, name, arguments, timeoutMs)
+    suspend fun invoke(name: String, arguments: JSONObject = JSONObject(), timeoutMs: Long = 30_000): Any = useMachine(lane(name)) { runtime ->
+        try { invoke(runtime, name, arguments, timeoutMs) }
+        finally { if (name == "signOut") reset(playback) }
     }
 
-    suspend fun stream(arguments: JSONObject): Any = useMachine { runtime ->
+    suspend fun stream(arguments: JSONObject): Any = useMachine(playback) { runtime ->
         if (!runtime.context.supports("stream")) {
             throw PlaybackIssueException(PlaybackIssue.SourceUnavailable, "Plugin does not provide audio streams")
         }
@@ -87,7 +90,8 @@ internal class PluginRuntime(
         finally {
             runtime.signInDiagnostics = null
             diagnostics.finish(completed)
-            if (requests.isNotEmpty()) reset()
+            if (requests.isNotEmpty()) reset(catalog)
+            reset(playback)
             runtime.signInRequests = null
             hostState().onPrompt = null
         }
@@ -100,6 +104,7 @@ internal class PluginRuntime(
 
     suspend fun configure(settings: Map<String, String>, language: String) = withContext(dispatcher) {
         check(!closed) { "Plugin runtime is closed" }
+        reset(playback)
         this@PluginRuntime.settings = settings.toMap()
         this@PluginRuntime.language = language
         host?.let {
@@ -109,22 +114,20 @@ internal class PluginRuntime(
     }
 
     suspend fun close() = withContext(NonCancellable + dispatcher) {
-        calls.withLock {
-            closed = true
-            reset()
-            host = null
-            scope.cancel()
-        }
+        closed = true
+        reset(catalog); reset(playback)
+        host = null
+        scope.cancel()
     }
 
-    private suspend fun <T> useMachine(operation: suspend (Machine) -> T): T = withContext(dispatcher) {
-        calls.withLock {
+    private suspend fun <T> useMachine(lane: Lane = catalog, operation: suspend (Machine) -> T): T = withContext(dispatcher) {
+        lane.calls.withLock {
             check(!closed) { "Plugin runtime is closed" }
             try {
-                machine?.failure?.let { reset() }
-                operation(machine ?: load())
+                lane.machine?.failure?.let { reset(lane) }
+                operation(lane.machine ?: load(lane))
             } catch (error: Throwable) {
-                reset()
+                reset(lane)
                 throw error
             }
         }
@@ -135,9 +138,9 @@ internal class PluginRuntime(
         host = it
     }
 
-    private suspend fun load(): Machine {
+    private suspend fun load(lane: Lane): Machine {
         val state = hostState()
-        val runtime = Machine(QuickJsContext(state)).also { machine = it }
+        val runtime = Machine(QuickJsContext(state)).also { lane.machine = it }
         val bootstrap = assets.open("PluginBootstrap.js").bufferedReader().use { it.readText() }
         val platform = "platform: \"ios\", arch: \"arm64\""
         check(bootstrap.indexOf(platform) >= 0 && bootstrap.indexOf(platform) == bootstrap.lastIndexOf(platform)) {
@@ -162,9 +165,9 @@ internal class PluginRuntime(
         return runtime
     }
 
-    private fun reset() {
-        val runtime = machine ?: return
-        machine = null
+    private fun reset(lane: Lane) {
+        val runtime = lane.machine ?: return
+        lane.machine = null
         runtime.events.values.forEach(Job::cancel)
         runtime.wake.close()
         runtime.context.close()
@@ -173,6 +176,7 @@ internal class PluginRuntime(
     private suspend fun finish(runtime: Machine): Any {
         while (true) {
             coroutineContext.ensureActive()
+            if (catalog.machine !== runtime && playback.machine !== runtime) throw CancellationException("Plugin session changed")
             runtime.failure?.let { throw it }
             checkStatus(runtime)
             schedule(runtime)
@@ -259,7 +263,7 @@ internal class PluginRuntime(
                 } catch (_: Exception) {
                     false to JSONObject.quote("Plugin host request failed")
                 }
-                if (machine !== runtime) return@launch
+                if (catalog.machine !== runtime && playback.machine !== runtime) return@launch
                 runtime.events.remove(id)
                 if (signInAllowed) runtime.signInRequests?.remove(id)
                 try {

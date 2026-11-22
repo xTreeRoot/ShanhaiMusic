@@ -44,3 +44,48 @@ private actor SegmentFixture {
     #expect(try await reader.read(offset: 90_000, end: 100_000).count == 10_000)
     #expect(await fixture.ranges == ["bytes=0-262143"])
 }
+
+private actor StreamGate {
+    var count = 0
+    var continuation: CheckedContinuation<Void, Never>?
+    var released = false
+    func begin() { count += 1 }
+    func wait() async { if !released { await withCheckedContinuation { continuation = $0 } } }
+    func release() { released = true; continuation?.resume(); continuation = nil }
+}
+
+@Test @MainActor func mediaDeliversValidatedPrefixBeforeWholeBlockAndSharesInflightRead() async throws {
+    let gate = StreamGate()
+    let resource = MediaResource(url: URL(string: "https://fixture.test/stream.mp4")!, headers: [:], fileExtension: "mp4")
+    let reader = MediaSegmentReader(resource: resource, streaming: { request, response, chunk in
+        await gate.begin()
+        try await response(HTTPURLResponse(url: request.url!, statusCode: 206, httpVersion: nil,
+            headerFields: ["Content-Range": "bytes 0-262143/524288", "ETag": "\"one\""])!)
+        try await chunk(Data(repeating: 7, count: 16 << 10))
+        await gate.wait()
+        try await chunk(Data(repeating: 8, count: 240 << 10))
+    })
+    defer { reader.cancel() }
+    #expect(try await reader.read(offset: 0, end: MediaSegmentReader.block).count == 16 << 10)
+    #expect(try await reader.read(offset: 1, end: 4) == Data(repeating: 7, count: 3))
+    #expect(await gate.count == 1)
+    let tail = Task { try await reader.read(offset: 16 << 10, end: MediaSegmentReader.block) }
+    await gate.release()
+    #expect(try await tail.value.count == 240 << 10)
+    #expect(await gate.count == 1)
+}
+
+@Test @MainActor func mediaRejectsInvalidRangeBeforeDeliveringAndCancelsBlockedRead() async throws {
+    let resource = MediaResource(url: URL(string: "https://fixture.test/broken.mp4")!, headers: [:], fileExtension: "mp4")
+    let wrong = MediaSegmentReader(resource: resource, streaming: { request, response, chunk in
+        try await response(HTTPURLResponse(url: request.url!, statusCode: 206, httpVersion: nil,
+            headerFields: ["Content-Range": "bytes 1-262144/524288"])!)
+        try await chunk(Data(repeating: 9, count: 4))
+    })
+    await #expect(throws: (any Error).self) { try await wrong.read(offset: 0, end: 4) }
+    wrong.cancel()
+    let waiting = MediaSegmentReader(resource: resource, streaming: { _, _, _ in try await Task.sleep(for: .seconds(10)) })
+    let task = Task { try await waiting.read(offset: 0, end: 4) }
+    await Task.yield(); waiting.cancel()
+    await #expect(throws: CancellationError.self) { try await task.value }
+}

@@ -16,14 +16,21 @@ public actor PluginRuntime {
     public typealias Transport = @Sendable (URLRequest, PluginManifest.Permissions) async throws -> (Data, HTTPURLResponse)
     public nonisolated let catalogCache: ResponseCache
     private let host: PluginHostState
-    private var signInDiagnostics: PluginSignInDiagnostics?
-    private var context: PluginContext?
+    /// 两个 VM 均只在本 actor 执行，共享宿主存储；目录 IO 不再挡住播放解析。
+    private final class Lane {
+        var diagnostics: PluginSignInDiagnostics?
+        var context: PluginContext?
+        var events: [Int32: Task<Void, Never>] = [:]
+        var failure: (any Error)?
+        var loaded = false
+        var busy = false
+        var waiters: [CheckedContinuation<Void, Never>] = []
+        deinit { for task in events.values { task.cancel() } }
+    }
+    private let catalog = Lane()
+    private let playback = Lane()
     private struct Completed: Sendable { let id: Int32; let success: Bool; let value: PluginJSON }
-    private var events: [Int32: Task<Void, Never>] = [:]
-    private var backgroundFailure: (any Error)?
-    private var loaded = false
-    private var busy = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private func lane(for name: String) -> Lane { ["stream", "video"].contains(name) ? playback : catalog }
     private let transport: Transport
     private let webSignIn: @Sendable (PluginWebSignIn) async throws -> PluginJSON
     private let oauthSignIn: @Sendable (PluginOAuthRequest) async throws -> PluginJSON
@@ -44,49 +51,54 @@ public actor PluginRuntime {
         host = try PluginHostState(root: directory, data: dataDirectory, manifest: manifest, settings: settings)
         self.transport = transport; self.webSignIn = webSignIn; self.oauthSignIn = oauthSignIn; self.openURL = openURL
     }
-    deinit { for task in events.values { task.cancel() } }
     public func headers(for url: URL, kind: String) throws -> [String: String] { try host.headers(for: url, kind: kind) }
     public func updateSettings(_ settings: [String: String]) async {
+        reset(playback)
         host.settings = settings
         await catalogCache.invalidate()
     }
     public func setPrompt(_ prompt: (@Sendable (SignInPrompt) -> Void)?) { host.prompt = prompt }
     public func supports(_ name: String) async throws -> Bool {
-        await acquire(); defer { release() }
+        let lane = lane(for: name)
+        await acquire(lane); defer { release(lane) }
         try Task.checkCancellation()
-        try await load()
-        return name.withCString { mbjs_has_export(context!.pointer, $0) != 0 }
+        try await load(lane)
+        return name.withCString { mbjs_has_export(lane.context!.pointer, $0) != 0 }
     }
     public func invoke(_ name: String, arguments: PluginJSON = .object([:]), timeout: Duration = .seconds(30)) async throws -> PluginJSON {
-        await acquire(); defer { release() }
+        let lane = lane(for: name)
+        await acquire(lane); defer { release(lane) }
         try Task.checkCancellation()
-        try await load()
-        guard let context else { throw PluginFailure.execution("Runtime unavailable") }
+        try await load(lane)
+        guard let context = lane.context else { throw PluginFailure.execution("Runtime unavailable") }
         let json = try arguments.encoded()
         let diagnostics = name == "signIn" ? PluginSignInDiagnostics(directory: host.data) : nil
-        signInDiagnostics = diagnostics
-        defer { signInDiagnostics = nil }
+        lane.diagnostics = diagnostics
+        defer {
+            lane.diagnostics = nil
+            if ["signIn", "signOut"].contains(name) { reset(playback) }
+        }
         do {
             let value = try await withTaskCancellationHandler {
                 let status = name.withCString { name in json.withCString { mbjs_start(context.pointer, name, $0, 100) } }
-                return try await finish(status, context: context, timeout: timeout)
+                return try await finish(status, context: context, lane: lane, timeout: timeout)
             } onCancel: { context.cancel() }
             await diagnostics?.finish(completed: true)
             return value
         } catch {
             await diagnostics?.finish(completed: false)
-            reset()
+            reset(lane)
             throw error
         }
     }
-    private func acquire() async {
-        if busy { await withCheckedContinuation { waiters.append($0) } } else { busy = true }
+    private func acquire(_ lane: Lane) async {
+        if lane.busy { await withCheckedContinuation { lane.waiters.append($0) } } else { lane.busy = true }
     }
-    private func release() {
-        if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() }
+    private func release(_ lane: Lane) {
+        if lane.waiters.isEmpty { lane.busy = false } else { lane.waiters.removeFirst().resume() }
     }
-    private func load() async throws {
-        guard !loaded else { return }
+    private func load(_ lane: Lane) async throws {
+        guard !lane.loaded else { return }
         let pointer = mbjs_create({ opaque, operation, arguments in
             guard let opaque, let operation, let arguments else { return nil }
             let host = Unmanaged<PluginHostState>.fromOpaque(opaque).takeUnretainedValue()
@@ -98,34 +110,36 @@ public actor PluginRuntime {
             return strdup((try? response.encoded()) ?? "{\"error\":\"Invalid host response\"}")
         }, Unmanaged.passUnretained(host).toOpaque(), 64 * 1_024 * 1_024)
         guard let pointer else { throw PluginFailure.execution("Runtime allocation failed") }
-        let context = PluginContext(pointer); self.context = context
+        let context = PluginContext(pointer); lane.context = context
         do {
             guard let bootstrap = Bundle.module.url(forResource: "PluginBootstrap", withExtension: "js") else { throw PluginFailure.execution("Missing host bootstrap") }
             let source = try String(contentsOf: bootstrap, encoding: .utf8)
             try await withTaskCancellationHandler {
                 let setup = source.withCString { mbjs_evaluate(pointer, $0, "host.js", 0, 100) }
-                _ = try await finish(setup, context: context, timeout: .seconds(5))
+                _ = try await finish(setup, context: context, lane: lane, timeout: .seconds(5))
                 let entry = host.manifest.entry
                 let module = try host.call("module", [.string(entry)]).string ?? ""
                 // 模块初始化可能建立 AES 查找表，允许最多 500ms；导出动作仍使用 100ms 执行片段。
                 let status = entry.withCString { name in module.withCString { mbjs_evaluate(pointer, $0, name, 1, 500) } }
-                _ = try await finish(status, context: context, timeout: .seconds(10))
+                _ = try await finish(status, context: context, lane: lane, timeout: .seconds(10))
             } onCancel: { context.cancel() }
-            loaded = true
-        } catch { reset(); throw error }
+            lane.loaded = true
+        } catch { reset(lane); throw error }
     }
-    private func reset() {
-        for task in events.values { task.cancel() }
-        events = [:]; context = nil; loaded = false; backgroundFailure = nil
+    private func reset(_ lane: Lane) {
+        lane.context?.cancel()
+        for task in lane.events.values { task.cancel() }
+        lane.events = [:]; lane.context = nil; lane.loaded = false; lane.failure = nil
     }
-    private func finish(_ initialStatus: Int32, context: PluginContext, timeout: Duration) async throws -> PluginJSON {
+    private func finish(_ initialStatus: Int32, context: PluginContext, lane: Lane, timeout: Duration) async throws -> PluginJSON {
         var status = initialStatus
         let deadline = ContinuousClock.now + timeout
         while true {
             try Task.checkCancellation()
-            if let backgroundFailure { throw backgroundFailure }
+            guard lane.context === context else { throw CancellationError() }
+            if let failure = lane.failure { throw failure }
             if status < 0 { throw readFailure(context) }
-            try scheduleEvents(context)
+            try scheduleEvents(context, lane: lane)
             if status > 0 { return try JSONDecoder().decode(PluginJSON.self, from: Data(readResult(context).utf8)) }
             guard ContinuousClock.now < deadline else { context.cancel(); throw PluginFailure.execution("Execution timed out") }
             try await Task.sleep(for: .milliseconds(5))
@@ -133,14 +147,14 @@ public actor PluginRuntime {
         }
     }
     /// 宿主任务随 VM 存活；函数返回后，未 await 的 timer/fetch 仍能推进模块状态。
-    private func scheduleEvents(_ context: PluginContext) throws {
+    private func scheduleEvents(_ context: PluginContext, lane: Lane) throws {
         while let pointer = mbjs_take_event(context.pointer) {
             let text = String(cString: pointer); mbjs_free_string(pointer)
             let event = try JSONDecoder().decode(PluginJSON.self, from: Data(text.utf8))
-            if event["kind"].string == "cancel", let id = event["request"].integer { events.removeValue(forKey: Int32(id))?.cancel(); continue }
-            guard let id = event["id"].integer, events.count < 512 else { throw PluginFailure.execution("Host request limit exceeded") }
-            let permissions = host.manifest.permissions, transport = transport, webSignIn = webSignIn, oauthSignIn = oauthSignIn, openURL = openURL, name = host.manifest.displayName, diagnostics = signInDiagnostics
-            events[Int32(id)] = Task { [weak self] in
+            if event["kind"].string == "cancel", let id = event["request"].integer { lane.events.removeValue(forKey: Int32(id))?.cancel(); continue }
+            guard let id = event["id"].integer, lane.events.count < 512 else { throw PluginFailure.execution("Host request limit exceeded") }
+            let permissions = host.manifest.permissions, transport = transport, webSignIn = webSignIn, oauthSignIn = oauthSignIn, openURL = openURL, name = host.manifest.displayName, diagnostics = lane.diagnostics
+            lane.events[Int32(id)] = Task { [weak self] in
                 let completed: Completed
                 do {
                     let value = try await Self.process(event, permissions: permissions, name: name, webSignIn: webSignIn, oauthSignIn: oauthSignIn, openURL: openURL, transport: transport)
@@ -159,15 +173,16 @@ public actor PluginRuntime {
         }
     }
     private func complete(_ completed: Completed, context: PluginContext) {
-        guard self.context === context else { return }
-        events[completed.id] = nil
+        let lane = catalog.context === context ? catalog : playback
+        guard lane.context === context else { return }
+        lane.events[completed.id] = nil
         do {
             let json = try completed.value.encoded()
             let budget: Int32 = json.utf8.count > 64 * 1024 ? 2_000 : 100
             let status = json.withCString { mbjs_settle(context.pointer, completed.id, completed.success ? 1 : 0, $0, budget) }
-            if status < 0 { backgroundFailure = readFailure(context) }
-            else { try scheduleEvents(context) }
-        } catch { backgroundFailure = error }
+            if status < 0 { lane.failure = readFailure(context) }
+            else { try scheduleEvents(context, lane: lane) }
+        } catch { lane.failure = error }
     }
     private func readFailure(_ context: PluginContext) -> any Error {
         let message = readResult(context)

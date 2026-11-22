@@ -45,6 +45,7 @@ internal class PluginSource(
     private val accountCacheLock = Any()
     private var cacheAccount: String? = null
     private var accountGeneration = 0L
+    override val mediaRevision: Long get() = synchronized(accountCacheLock) { accountGeneration }
 
     private fun rememberAccount(account: SourceAccount?, force: Boolean = false) = synchronized(accountCacheLock) {
         val key = account?.let { "user:${it.id}" } ?: "guest"
@@ -110,7 +111,7 @@ internal class PluginSource(
 
     override suspend fun video(trackId: String, qualityID: String): MediaResource {
         require(com.xtreeroot.mb.music.VideoQualityOption.valid(qualityID))
-        return media("video", JSONObject().put("id", trackId).put("quality", qualityID))
+        return media("video", JSONObject().put("id", trackId).put("quality", qualityID).put("network", com.xtreeroot.mb.music.MediaNetworkConditions.snapshot()))
     }
 
     override suspend fun supportsVideo(): Boolean = runtime.supports("video")

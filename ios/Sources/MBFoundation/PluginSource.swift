@@ -87,7 +87,7 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, SignInMet
     }
     public func video(track: Track, qualityID: String) async throws -> MediaResource {
         guard VideoQualityOption.valid(qualityID) else { throw PluginFailure.invalid("Invalid video quality") }
-        return try await resource(runtime.invoke("video", arguments: .object(["id": .string(track.sourceTrackID), "quality": .string(qualityID)])))
+        return try await resource(runtime.invoke("video", arguments: .object(["id": .string(track.sourceTrackID), "quality": .string(qualityID), "network": await MediaNetworkConditions.shared.snapshot()])))
     }
     public func audio(trackID: String) async throws -> MediaResource {
         let result = try await runtime.invoke("stream", arguments: .object(["id": .string(trackID), "quality": .string("")]))

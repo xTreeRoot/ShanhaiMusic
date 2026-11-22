@@ -270,7 +270,8 @@ public struct MBRootView: View {
                 }
             }
             .onChange(of: selectedTab) { _, _ in inputFocused = false }
-            .onChange(of: plugins.revision) { _, _ in Task { await registerPlugins() } }
+            .onChange(of: plugins.revision) { _, _ in video.invalidatePreload(); Task { await registerPlugins() } }
+            .onChange(of: account.revision) { _, _ in video.invalidatePreload() }
             .onChange(of: playback.positionMilliseconds) { _, _ in syncVideoClock() }
             .onChange(of: playback.audioBuffering) { _, _ in syncVideoClock() }
             .onChange(of: video.isLoading) { _, _ in syncVideoClock() }
@@ -330,6 +331,10 @@ public struct MBRootView: View {
     private func syncVideoClock() {
         video.sync(positionMilliseconds: playback.positionMilliseconds, playing: playback.state == .playing && !playback.audioBuffering)
         if !video.isVisible && !video.isFloating { video.preloadCurrent() }
+        let next = playback.queue.nextIndex(automatic: true).map { playback.queue.tracks[$0] }
+        let eligible = playback.state == .playing && !playback.audioBuffering && playback.durationMilliseconds > 0 &&
+            Double(playback.positionMilliseconds) / Double(playback.durationMilliseconds) >= 0.7
+        video.preloadNext(next?.id == playback.queue.current?.id ? nil : next, enabled: eligible)
     }
 
     private var playbackSurface: some View {

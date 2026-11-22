@@ -1,6 +1,13 @@
 package com.xtreeroot.mb.playback
 
 import android.content.Context
+import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
+import android.net.ConnectivityManager
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
+import com.xtreeroot.mb.music.MediaNetworkConditions
+import androidx.media3.common.PlaybackParameters
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -45,7 +52,20 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
         var firstFrame = false
         var recovery = MediaRecoveryBudget()
         var job: Job? = null
+        var lastCorrection = 0L
+        var prefix: MediaRangeGuard.Prefix? = null
     }
+
+    private data class NextTarget(val track: Track, val source: VideoSource, val quality: String, val revision: Long = source.mediaRevision)
+    private val nextPreloader = NextAudioPreloader<NextTarget, PreparedAudio>(scope, SystemClock::elapsedRealtime) { next ->
+        val resource = withContext(Dispatchers.IO) { next.source.video(next.track.sourceTrackId, next.quality) }
+        primeAudio(http, resource)
+    }
+    private fun nextTarget(track: Track?) = track?.takeUnless { it.isUnavailable }?.let { value ->
+        sourceFor(value)?.let { NextTarget(value, it, quality()) }
+    }
+    /** 复用有大小、寿命和取消限制的首块预载器，不创建下一条的解码器。 */
+    fun preloadNext(track: Track?) { if (!closed) { updateNetwork(); nextPreloader.update(nextTarget(track)) } }
 
     private var active: Stage? = null
     private var warm: Stage? = null
@@ -59,10 +79,21 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
     var heldIntent: Boolean? = null
         private set
 
-    init { audio.addListener(this) }
+    private val bandwidth = DefaultBandwidthMeter.getSingletonInstance(context)
+    private val bandwidthListener = androidx.media3.exoplayer.upstream.BandwidthMeter.EventListener { elapsed, bytes, bitrate ->
+        MediaNetworkConditions.sample(bytes, elapsed, bitrate)
+    }
+    init {
+        audio.addListener(this)
+        bandwidth.addEventListener(Handler(Looper.getMainLooper()), bandwidthListener)
+    }
+    private fun updateNetwork() {
+        MediaNetworkConditions.constrained = context.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered == true
+    }
 
     /** 用户画质变化只重新准备静音视频，保留当前音频、进度、播放意图和画面拥有者。 */
     fun qualityChanged() {
+        nextPreloader.cancel()
         listOfNotNull(active, warm).forEach { stage ->
             if (stage.quality != quality()) {
                 stage.quality = quality()
@@ -90,6 +121,7 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
 
     fun show(track: Track): AutoCloseable? {
         if (closed || audio.currentMediaItem?.mediaId != track.id) return null
+        updateNetwork()
         val source = sourceFor(track) ?: return null
         val stage = warm?.takeIf { it.track.id == track.id && it.source === source && it.quality == quality() }
             ?: Stage(track, source, quality())
@@ -99,7 +131,7 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
         val engine = stage.engine
         if (engine != null) {
             // 已就绪且追上音频时不暂停音频；PlayerView 接管同一个播放器和已有缓冲。
-            if (abs(engine.currentPosition - audio.currentPosition) > 250) {
+            if (abs(engine.currentPosition - audio.currentPosition) > 800) {
                 stage.firstFrame = false
                 engine.seekTo(audio.currentPosition)
             }
@@ -131,6 +163,7 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+        nextPreloader.advance(nextTarget(mediaItem?.track()))
         if (mediaItem?.mediaId != active?.track?.id) hide()
         if (mediaItem?.mediaId != warm?.track?.id) clearWarm()
     }
@@ -148,8 +181,13 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
         if (mutable.value?.error != null) return
         if ((reason != Player.DISCONTINUITY_REASON_SEEK && reason != Player.DISCONTINUITY_REASON_AUTO_TRANSITION) ||
             newPosition.mediaItem?.mediaId != stage.track.id) return
-        hold()
-        load(stage, newPosition.positionMs)
+        val engine = stage.engine
+        if (engine != null) {
+            hold()
+            stage.firstFrame = false
+            stage.lastCorrection = SystemClock.elapsedRealtime()
+            engine.seekTo(newPosition.positionMs.coerceAtLeast(0))
+        } else { hold(); load(stage, newPosition.positionMs) }
     }
 
     override fun onEvents(player: Player, events: Player.Events) {
@@ -215,7 +253,9 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
 
     fun close() {
         closed = true
+        nextPreloader.cancel()
         audio.removeListener(this)
+        bandwidth.removeEventListener(bandwidthListener)
         onGateChanged = {}
         heldIntent = null
         hide()
@@ -231,7 +271,9 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
             delay(wait)
             if (!valid(stage)) { hideIfActive(stage); return@launch }
             val media = try {
-                stage.resource ?: withContext(Dispatchers.IO) {
+                val prepared = if (stage.resource == null) nextPreloader.take(NextTarget(stage.track, stage.source, stage.quality)) else null
+                stage.prefix = prepared?.prefix
+                prepared?.resource ?: stage.resource ?: withContext(Dispatchers.IO) {
                     if (!stage.source.supportsVideo()) throw IllegalStateException("Video unavailable")
                     stage.source.video(stage.track.sourceTrackId, stage.quality)
                 }
@@ -245,9 +287,11 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
             ensureActive()
             if (!valid(stage)) { hideIfActive(stage); return@launch }
             stage.resource = media
+            val guard = MediaRangeGuard()
+            stage.prefix?.let(guard::offer); stage.prefix = null
             val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
             val engine = try { ExoPlayer.Builder(context, renderers).setMediaSourceFactory(ProgressiveMediaSource.Factory {
-                val upstream = guardedMediaHttp(http).apply { media.headers.forEach(::setRequestProperty) }
+                val upstream = guardedMediaHttp(http, guard).apply { media.headers.forEach(::setRequestProperty); addTransferListener(bandwidth) }
                 MediaAddressDataSource(upstream).apply { backupUrls = media.backupUrls }
             }.recoverOutsideLoader()).setLoadControl(DefaultLoadControl.Builder()
                 .setBufferDurationsMs(1_500, 8_000, 250, 500).setTargetBufferBytes(12 * 1024 * 1024).build()).build()
@@ -313,6 +357,14 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
         else if (stage === warm) preloadState.value = measured
     }
 
+    private fun correctClock(stage: Stage, video: ExoPlayer, playing: Boolean) {
+        val drift = audio.currentPosition - video.currentPosition
+        val now = SystemClock.elapsedRealtime()
+        val correction = videoClockCorrection(drift, playing, now - stage.lastCorrection)
+        if (correction.seek) { stage.lastCorrection = now; video.seekTo(audio.currentPosition) }
+        if (video.playbackParameters.speed != correction.speed) video.playbackParameters = PlaybackParameters(correction.speed)
+    }
+
     private fun synchronize(stage: Stage, video: ExoPlayer) {
         if (!valid(stage) || stage.engine !== video) return
         if (stage === warm) {
@@ -321,21 +373,20 @@ internal class VideoPlayback(private val context: Context, private val http: OkH
                 clearWarm()
                 return
             }
-            if (video.playbackState == Player.STATE_READY && abs(video.currentPosition - audio.currentPosition) > 250) video.seekTo(audio.currentPosition)
+            if (video.playbackState == Player.STATE_READY) correctClock(stage, video, audio.isPlaying)
             if (video.playWhenReady != audio.isPlaying) video.playWhenReady = audio.isPlaying
             val loading = video.playbackState != Player.STATE_READY || !stage.firstFrame
             publish(stage, VideoFrameState(stage.track.id, video, loading))
             return
         }
+        if (stage.firstFrame && video.playbackState == Player.STATE_BUFFERING) MediaNetworkConditions.stalled()
         val pictureReady = (video.playbackState == Player.STATE_READY || video.playbackState == Player.STATE_ENDED) && stage.firstFrame
         val ready = pictureReady && audio.playbackState == Player.STATE_READY
         if (heldIntent != null && ready) releaseHold()
         // 可见视频一进入缓冲就冻结音频时钟，让同一个解码器继续补缓冲。
         // 反复销毁播放器会丢弃已有数据，短视频还可能在画面出现前播完音频。
         if (heldIntent == null && audio.isPlaying && !pictureReady) hold()
-        if (heldIntent == null && video.playbackState == Player.STATE_READY && pictureReady && abs(video.currentPosition - audio.currentPosition) > 250) {
-            video.seekTo(audio.currentPosition)
-        }
+        if (heldIntent == null && video.playbackState == Player.STATE_READY && pictureReady) correctClock(stage, video, audio.isPlaying)
         val playVideo = heldIntent == null && audio.isPlaying
         if (video.playWhenReady != playVideo) video.playWhenReady = playVideo
         val loading = !pictureReady || heldIntent != null

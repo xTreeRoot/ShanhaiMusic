@@ -53,6 +53,7 @@ public extension VideoEngine {
     }
     @ObservationIgnored private var playbackHeld = false
     @ObservationIgnored private let source: (any VideoSource)?
+    @ObservationIgnored private let nextPreloader: NextVideoPreloader
     @ObservationIgnored private let engine: any VideoEngine
     @ObservationIgnored private let store: (any PlaybackModeStore)?
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -68,6 +69,7 @@ public extension VideoEngine {
         self.source = source
         self.isSupported = source != nil
         self.engine = engine
+        nextPreloader = NextVideoPreloader(source: source)
         self.store = store
         if let events = engine as? any VideoEngineEvents {
             events.onUpdate = { [weak self] in self?.refreshEngineStatus() }
@@ -153,13 +155,20 @@ public extension VideoEngine {
         load(warming: true)
     }
 
+    /// 当前画面稳定且临近结尾才准备下一条，缓冲或队列变更立即取消。
+    public func preloadNext(_ next: Track?, enabled: Bool) {
+        nextPreloader.update(next: next, quality: qualityID, enabled: enabled && engine is NativeVideoEngine && !isLoading && !isBuffering)
+    }
+
+    public func invalidatePreload() { nextPreloader.cancel() }
+
     public func watchCurrent() {
         guard let track, track.localFileID == nil else { return }
         presentationMode = .video
         open()
     }
 
-    public func browse() { isVisible = false; isFloating = false; release(); updatePlaybackHold() }
+    public func browse() { nextPreloader.cancel(); isVisible = false; isFloating = false; release(); updatePlaybackHold() }
     public func minimize() {
         guard isVisible, presentationMode == .video, track != nil else { return }
         isFloating = true; isVisible = false
@@ -170,6 +179,7 @@ public extension VideoEngine {
     public func setQuality(_ id: String) {
         defer { updatePlaybackHold() }
         guard VideoQualityOption.valid(id), qualityID != id else { return }
+        nextPreloader.cancel()
         qualityID = id
         let warming = !isVisible && !isFloating && (isReady || isLoading)
         refreshUsed = false
@@ -206,7 +216,9 @@ public extension VideoEngine {
             else { errorMessage = message }
             return
         }
-        isBuffering = engine.isBuffering
+        let buffering = engine.isBuffering
+        if buffering && !isBuffering && playing && position > 0 { Task { await MediaNetworkConditions.shared.stalled() } }
+        isBuffering = buffering
         measuredAspectRatio = engine.aspectRatio
     }
 
@@ -226,12 +238,16 @@ public extension VideoEngine {
                 guard current == generation, !Task.isCancelled else { return }
                 isSupported = supported
                 guard supported else { isLoading = false; task = nil; return }
-                let resource = try await source.video(track: track, qualityID: qualityID)
+                let prepared = nextPreloader.take(for: track, quality: qualityID)
+                let resource: MediaResource
+                if let prepared { resource = prepared.resource }
+                else { resource = try await source.video(track: track, qualityID: qualityID) }
                 try Task.checkCancellation()
                 guard current == generation else { return }
                 qualities = resource.videoQualities
                 actualQualityID = resource.videoQuality
-                try await engine.load(resource: resource, at: position)
+                if let prepared, let native = engine as? NativeVideoEngine { try await native.load(prepared: prepared, at: position) }
+                else { prepared?.cancel(); try await engine.load(resource: resource, at: position) }
                 guard current == generation, !Task.isCancelled else { return }
                 engine.sync(positionMilliseconds: position, playing: playing)
                 measuredAspectRatio = engine.aspectRatio
@@ -313,6 +329,11 @@ public extension VideoEngine {
             temporaryFile = file
             try await prepare(AVURLAsset(url: file), at: milliseconds)
         }
+    }
+
+    func load(prepared: PreparedVideo, at milliseconds: Int64) async throws {
+        remote?.cancel(); remote = prepared.loader
+        try await prepare(prepared.loader.asset, at: milliseconds)
     }
 
     private func prepare(_ asset: AVURLAsset, at milliseconds: Int64) async throws {

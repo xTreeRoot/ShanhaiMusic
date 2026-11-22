@@ -81,6 +81,7 @@ internal interface StationPlaybackSource : MusicSource {
 }
 
 interface VideoSource : MusicSource {
+    val mediaRevision: Long get() = 0
     suspend fun video(trackId: String, qualityID: String): MediaResource = video(trackId)
     suspend fun supportsVideo(): Boolean = true
     suspend fun video(trackId: String): MediaResource
