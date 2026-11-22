@@ -4,7 +4,7 @@ import ImageIO
 import Foundation
 
 /// 仅供 Preview 和显式 --demo 启动；原创示例无媒体地址，不冒充平台结果。
-public struct DemoSource: DiscoverySource, AccountSource, SignInMethodSource, LibrarySource, InteractionSource {
+public struct DemoSource: DiscoverySource, AccountSource, AccountCacheResetSource, SignInMethodSource, LibrarySource, InteractionSource {
     private let accountState = DemoAccountState()
     public let displayName = "本地示例"
     public init() {}
@@ -41,6 +41,8 @@ public struct DemoSource: DiscoverySource, AccountSource, SignInMethodSource, Li
         try await Task.sleep(for: .seconds(120)); throw CancellationError()
     }
     public func signOut() async throws { await accountState.signOut() }
+    public func supportsAccountCacheReset() async -> Bool { true }
+    public func signOutAndClearCache() async throws { await accountState.signOut() }
     public func library(_ route: LibraryRoute, cursor: String?) async throws -> LibraryPage {
         if ProcessInfo.processInfo.arguments.contains("--demo-pagination"), route == .liked {
             return LibraryPage(title: route.title, tracks: paginationTracks(cursor == nil ? 1 : 2), nextCursor: cursor == nil ? "2" : nil)

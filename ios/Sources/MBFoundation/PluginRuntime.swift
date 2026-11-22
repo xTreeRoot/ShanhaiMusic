@@ -76,7 +76,8 @@ public actor PluginRuntime {
         lane.diagnostics = diagnostics
         defer {
             lane.diagnostics = nil
-            if ["signIn", "signOut"].contains(name) { reset(playback) }
+            if ["signIn", "signOut", "signOutAndClearCache"].contains(name) { reset(playback) }
+            if name == "signOutAndClearCache" { reset(catalog) }
         }
         do {
             let value = try await withTaskCancellationHandler {

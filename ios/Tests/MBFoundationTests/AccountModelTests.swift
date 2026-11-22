@@ -105,3 +105,30 @@ private actor MethodAccountFixture: SignInMethodSource {
     await other.waitForSignIn()
     #expect(await source.calls.isEmpty); #expect(other.account == nil); #expect(!other.choosingSignInMethod)
 }
+
+
+private actor ResettableAccountFixture: AccountCacheResetSource {
+    nonisolated let displayName = "测试账号"
+    var resets = 0
+    var signedIn = true
+    func search(query: String, page: Int) -> TrackPage { TrackPage(tracks: [], hasMore: false) }
+    func account() -> SourceAccount? { signedIn ? SourceAccount(id: "user", name: "测试账号") : nil }
+    func signIn(prompt: @escaping @Sendable (SignInPrompt) async -> Void) -> SourceAccount { signedIn = true; return account()! }
+    func signOut() { signedIn = false }
+    func supportsAccountCacheReset() -> Bool { true }
+    func signOutAndClearCache() { resets += 1; signedIn = false }
+}
+
+@Test @MainActor func accountExplicitResetIsSeparateFromOrdinarySignOut() async {
+    let source = ResettableAccountFixture(), model = AccountModel(source: source)
+    await model.restore()
+    #expect(model.canClearLoginCache)
+    await model.signOut()
+    #expect(await source.resets == 0)
+    model.signIn(); await model.waitForSignIn()
+    #expect(model.account != nil)
+    await model.signOut(clearCache: true)
+    #expect(await source.resets == 1)
+    #expect(model.account == nil)
+    #expect(!model.isSigningOut && model.errorMessage == nil)
+}

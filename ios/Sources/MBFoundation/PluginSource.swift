@@ -1,6 +1,6 @@
 import Foundation
 
-public actor PluginSource: PlaybackSource, VideoSource, AccountSource, SignInMethodSource, InteractionSource, SuggestionSource, PlaybackRecorder {
+public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCacheResetSource, SignInMethodSource, InteractionSource, SuggestionSource, PlaybackRecorder {
     public nonisolated let manifest: PluginManifest
     public let runtime: PluginRuntime
     public nonisolated var displayName: String { manifest.displayName }
@@ -150,6 +150,14 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, SignInMet
     public func signOut() async throws {
         _ = try await runtime.invoke("signOut")
         accountGeneration += 1; cacheAccount = "guest"
+    }
+    public func supportsAccountCacheReset() async -> Bool { (try? await supports("signOutAndClearCache")) == true }
+    public func signOutAndClearCache() async throws {
+        guard try await supports("signOutAndClearCache") else { throw PluginFailure.unavailable }
+        accountGeneration += 1; cacheAccount = nil
+        _ = try await runtime.invoke("signOutAndClearCache")
+        cacheAccount = "guest"; offsets.removeAll(); commentOffsets.removeAll()
+        await invalidateCatalog()
     }
     public func capabilities() async -> InteractionCapabilities {
         InteractionCapabilities(likes: (try? await supports("like")) == true,

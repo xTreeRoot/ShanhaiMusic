@@ -641,3 +641,37 @@ private actor PlaybackLaneGate {
     #expect(combined.sections.flatMap(\.links).last?.imageURL?.absoluteString == "https://api.example.test/new.png")
     }
 }
+
+
+@Test func explicitPluginSignOutClearsOnlyLoginStorageCatalogAndBothRuntimeLanes() async throws {
+    try await withPlugin("""
+    let local = 'cold';
+    export function account() { const value = host.storage.get('session'); return value ? {id:value,name:value} : null; }
+    export function signIn() { host.storage.set('session','user'); return account(); }
+    export function signOut() { host.storage.set('inactive',true); }
+    export function signOutAndClearCache() { host.storage.remove('session'); }
+    export function home() { host.storage.set('loads',(host.storage.get('loads')||0)+1); return {sections:[{title:'Private'}]}; }
+    export function warm() { local = 'warm'; }
+    export function stream() { const before = local; local = 'playing'; return before; }
+    export function state() { return {local,session:host.storage.get('session'),quality:host.setting('quality'),loads:host.storage.get('loads')}; }
+    """) { runtime, root, manifest in
+        let source = PluginSource(manifest: manifest, runtime: runtime)
+        #expect(await source.supportsAccountCacheReset())
+        _ = try await source.signIn { _ in }
+        _ = try await source.home()
+        let cache = root.appendingPathComponent("data/catalog-cache")
+        #expect(!((try? FileManager.default.contentsOfDirectory(atPath: cache.path)) ?? []).isEmpty)
+        _ = try await runtime.invoke("warm")
+        #expect(try await runtime.invoke("stream") == .string("cold"))
+        #expect(try await runtime.invoke("stream") == .string("playing"))
+        try await source.signOutAndClearCache()
+        #expect(try await source.account() == nil)
+        #expect(!FileManager.default.fileExists(atPath: cache.path))
+        let value = try await runtime.invoke("state")
+        #expect(value["local"] == .string("cold"))
+        #expect(value["session"] == .null)
+        #expect(value["quality"] == .string("high"))
+        #expect(value["loads"] == .number(1))
+        #expect(try await runtime.invoke("stream") == .string("cold"))
+    }
+}

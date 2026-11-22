@@ -12,6 +12,7 @@ public final class AccountModel {
     public var signInMethods: [SignInMethod] { (source as? any SignInMethodSource)?.signInMethods ?? [] }
     public private(set) var isSigningIn = false
     public private(set) var isSigningOut = false
+    public private(set) var canClearLoginCache = false
     public private(set) var errorMessage: String?
     public private(set) var revision = 0
     public let available: Bool
@@ -26,6 +27,9 @@ public final class AccountModel {
 
     public func restore() async {
         let current = generation
+        let canClear = await (source as? any AccountCacheResetSource)?.supportsAccountCacheReset() ?? false
+        guard current == generation, !Task.isCancelled else { return }
+        canClearLoginCache = canClear
         do {
             let account = try await source?.account()
             guard current == generation, !Task.isCancelled else { return }
@@ -36,7 +40,7 @@ public final class AccountModel {
     }
 
     public func signIn() {
-        guard source != nil else { return }
+        guard source != nil, !isSigningOut else { return }
         if !signInMethods.isEmpty { cancelSignIn(); choosingSignInMethod = true; errorMessage = nil }
         else { startSignIn(method: nil) }
     }
@@ -77,13 +81,17 @@ public final class AccountModel {
         isSigningIn = false; prompt = nil; choosingSignInMethod = false
     }
 
-    public func signOut() async {
+    public func signOut(clearCache: Bool = false) async {
+        guard !isSigningOut, let source else { return }
+        if clearCache && !canClearLoginCache { return }
         cancelSignIn()
         isSigningOut = true
         defer { isSigningOut = false }
         let current = generation
         do {
-            try await source?.signOut()
+            if clearCache, let resettable = source as? any AccountCacheResetSource {
+                try await resettable.signOutAndClearCache()
+            } else { try await source.signOut() }
             guard current == generation else { return }
             account = nil; revision += 1; errorMessage = nil
         } catch { if current == generation { errorMessage = error.localizedDescription } }

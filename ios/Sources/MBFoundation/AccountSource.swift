@@ -33,6 +33,12 @@ public protocol AccountSource: MusicSource {
     func signOut() async throws
 }
 
+/// 显式清理当前来源的登录会话；普通退出仍保留可复用的凭据。
+public protocol AccountCacheResetSource: AccountSource {
+    func supportsAccountCacheReset() async -> Bool
+    func signOutAndClearCache() async throws
+}
+
 public enum LibraryRoute: Hashable, Codable, Sendable {
     case favorites, liked, history, following, folder(String), creator(String)
     public var title: String {

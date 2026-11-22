@@ -54,7 +54,17 @@ struct AccountLibraryView: View {
                         Button("山海服务", systemImage: "externaldrive.connected.to.line.below") { openService() }
                             .accessibilityIdentifier("open-shanhai-service")
                     }
-                    if account.account != nil { Section { Button("退出登录", role: .destructive) { Task { await account.signOut() } } } }
+                    if account.account != nil {
+                        Section {
+                            HStack {
+                                Button("退出登录", role: .destructive) { Task { await account.signOut() } }
+                                if account.canClearLoginCache {
+                                    Spacer(minLength: 12)
+                                    Button("退出并清理缓存", role: .destructive) { Task { await account.signOut(clearCache: true) } }
+                                }
+                            }.buttonStyle(.plain).frame(minHeight: 44).disabled(account.isSigningOut)
+                        }
+                    }
 
                 }.modifier(SkinRow())
             }

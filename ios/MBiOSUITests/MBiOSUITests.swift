@@ -2067,3 +2067,26 @@ extension MBiOSUITests {
         capture("插件我的-个人入口", app: app)
     }
 }
+
+
+extension MBiOSUITests {
+    @MainActor func testExplicitAccountResetSitsBesideLogoutAndReturnsToQRCode() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-account", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        selectTab("我的", app: app)
+        let normal = app.buttons["退出登录"], reset = app.buttons["退出并清理缓存"]
+        for _ in 0..<4 { if reset.exists && reset.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(reset.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(reset.frame.midX, normal.frame.midX)
+        XCTAssertEqual(reset.frame.midY, normal.frame.midY, accuracy: 3)
+        capture("账号-退出与清理缓存并排", app: app)
+        reset.tap()
+        let login = app.buttons["登录本地示例"]
+        XCTAssertTrue(login.waitForExistence(timeout: 5)); login.tap()
+        XCTAssertTrue(app.images["登录二维码"].waitForExistence(timeout: 5))
+        capture("账号-清理后重新扫码", app: app)
+        app.buttons["取消"].tap()
+    }
+}
