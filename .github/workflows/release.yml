@@ -40,8 +40,14 @@ jobs:
           go tool mygo build -platform darwin/arm64 -sign - -skip-notarize -skip-dmg
       - name: Archive application
         run: |
+          set -euo pipefail
+          app=build/darwin-arm64/山海.app
+          plist="$app/Contents/Info.plist"
+          for key in CFBundleName CFBundleDisplayName; do
+            test "$(plutil -extract "$key" raw "$plist")" = '山海'
+          done
           mkdir -p build/release
-          ditto -c -k --keepParent build/darwin-arm64/山海.app build/release/Shanhai-macos-arm64.zip
+          ditto -c -k --keepParent "$app" build/release/Shanhai-macos-arm64.zip
       - name: Collect signed update
         if: inputs.stage_release
         run: |
