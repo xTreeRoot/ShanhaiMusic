@@ -204,13 +204,41 @@ struct PluginCatalogPage: View {
     private func play(_ tracks: [Track], index: Int) {
         let queue: [Track]
         let selected: Int
-        if case .entity = request, tracks.indices.contains(index), let loaded = content?.sections.flatMap(\.tracks),
+        let paged = more || visitedBrowse.count > 1 || (content?.sections.count ?? 0) > 1 && !request.isHome
+        let entity: Bool
+        if case .entity = request { entity = true } else { entity = false }
+        if (paged || entity), tracks.indices.contains(index), let loaded = content?.sections.flatMap(\.tracks),
            let position = loaded.firstIndex(where: { $0.id == tracks[index].id }) {
             queue = loaded; selected = position
         } else { queue = tracks; selected = index }
         if case .entity(let item) = request, item.kind == .station, let playback {
             playback.startStation(PlaybackStation(sourceID: source.manifest.id, id: item.sourceID, title: item.title), tracks: queue, index: selected)
-        } else { select(queue, selected) }
+        } else {
+            let pages = playbackPages()
+            select(queue, selected)
+            if let pages { playback?.attachPages(pages) }
+        }
+    }
+    private func playbackPages() -> PlaybackPageLoader? {
+        guard more else { return nil }
+        let source = self.source
+        if let nextBrowse {
+            return .following(nextBrowse, visited: visitedBrowse) { cursor in
+                let (page, _, _) = try await source.browsePage(cursor.page, offset: cursor.offset)
+                return (page.sections.flatMap(\.tracks), page.nextBrowse)
+            }
+        }
+        let load: @Sendable (Int) async throws -> PluginBrowse
+        switch request {
+        case .collection(let method, _): load = { try await source.collection(method, offset: $0).0 }
+        case .entity(let item) where item.kind != .station: load = { try await source.entity(item, offset: $0).0 }
+        case .search(let query, let kind): load = { try await source.searchCatalog(query, kind: kind, offset: $0).0 }
+        default: return nil
+        }
+        return .following(offset) { offset in
+            let page = try await load(offset)
+            return (page.sections.flatMap(\.tracks), page.nextOffset)
+        }
     }
     private var saveAction: (method: String, on: String, off: String)? {
         guard case .entity(let item) = request else { return nil }
@@ -273,11 +301,18 @@ struct PluginCatalogPage: View {
             if !append { visitedBrowse = [] }
             if let loadedBrowse { visitedBrowse.insert(loadedBrowse) }
             nextBrowse = page.nextBrowse.flatMap { visitedBrowse.contains($0) ? nil : $0 }
-            if append, let previous = content { content = previous.appending(page, offset: offset); offset += count }
-            else { content = page; offset = count }
+            let previous = append ? content : nil
+            if let previous { content = previous.appending(page, offset: offset) }
+            else { content = page }
+            let (followingOffset, overflow) = offset.addingReportingOverflow(max(1, count))
+            offset = page.nextOffset ?? (append && !overflow ? followingOffset : count)
             if !page.tabs.isEmpty { filterTabs = page.tabs }
             if request.isHome && filterPage == nil { homeTab = page.selectedTab }
-            more = hasMore && count > 0 && (loadedBrowse == nil || nextBrowse != nil)
+            let addedItems = previous.map { old in
+                let oldCount = old.sections.reduce(0) { $0 + $1.tracks.count + $1.entities.count + $1.links.count }
+                return (content?.sections.reduce(0) { $0 + $1.tracks.count + $1.entities.count + $1.links.count } ?? 0) > oldCount
+            } ?? true
+            more = hasMore && (count == 0 || addedItems) && (loadedBrowse == nil || nextBrowse != nil)
             artworkPrefetch?.cancel()
             let artwork = page.artworkTracks(sourceID: source.manifest.id)
             artworkPrefetch = Task { await ArtworkCache.shared.prefetch(artwork) }

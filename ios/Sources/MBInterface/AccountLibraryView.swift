@@ -137,6 +137,7 @@ private struct SignInView: View {
 }
 
 struct LibraryPageView: View {
+    @Environment(\.stationPlayback) private var playback
     @State private var model: LibraryModel
     let select: ([Track], Int) -> Void
     let menu: (Track) -> AnyView
@@ -162,11 +163,11 @@ struct LibraryPageView: View {
                     }
                 }
                 if !model.tracks.isEmpty {
-                    Button { select(model.tracks, 0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
+                    Button { play(0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
                 }
                 ForEach(Array(model.tracks.enumerated()), id: \.element.id) { index, track in
                     HStack(spacing: 4) {
-                        Button { select(model.tracks, index) } label: { TrackRow(track: track) }.buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
+                        Button { play(index) } label: { TrackRow(track: track) }.buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
                             .modifier(TrackProblemAccessibility(track: track))
                         Menu { menu(track) } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("曲目操作 \(track.title)")
                     }.contextMenu { menu(track) }
@@ -193,6 +194,11 @@ struct LibraryPageView: View {
         .task { await model.restore(); prefetchArtwork() }
         .onDisappear { artworkPrefetch?.cancel() }
         .refreshable { await model.refresh(); prefetchArtwork() }
+    }
+    private func play(_ index: Int) {
+        let pages = model.playbackPages()
+        select(model.tracks, index)
+        if let pages { playback?.attachPages(pages) }
     }
     private func prefetchArtwork() {
         artworkPrefetch?.cancel()

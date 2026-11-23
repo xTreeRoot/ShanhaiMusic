@@ -576,6 +576,30 @@ private actor PluginRedirectFixture {
     }
 }
 
+@Test func pluginSearchAndPlaylistRespectExplicitOffsetAndNormalizeHighlights() async throws {
+    try await withPlugin("""
+    function page(offset) {
+        return { tracks: [{id:String(offset), name:'1 < 2 <em class="keyword">入戏</em> <em>原文</em>'}], more:offset===0, nextOffset:20 };
+    }
+    export function playlist({offset}) { return page(offset); }
+    export function search({offset}) { return page(offset); }
+    """) { runtime, _, manifest in
+        let source = PluginSource(manifest: manifest, runtime: runtime)
+        let (first, more, count) = try await source.searchCatalog("query", kind: "tracks", offset: 0)
+        #expect(more && count == 1 && first.nextOffset == 20)
+        #expect(first.sections.first?.tracks.first?.title == "1 < 2 入戏 <em>原文</em>")
+        #expect(try await source.search(query: "query", page: 1).hasMore)
+        #expect(try await source.search(query: "query", page: 2).tracks.first?.sourceTrackID == "20")
+        let playlist = PluginEntity(kind: .playlist, sourceID: "favorites", title: "Favorites", subtitle: "", value: .null)
+        let (initial, hasMore, _) = try await source.entity(playlist)
+        #expect(hasMore)
+        let next = try #require(initial.nextOffset)
+        #expect(next == 20)
+        let (last, lastHasMore, _) = try await source.entity(playlist, offset: next)
+        #expect(!lastHasMore && last.sections.first?.tracks.first?.sourceTrackID == "20")
+    }
+}
+
 @Test func explicitCatalogRefreshReplacesPluginSnapshotAndKeepsNewResponseInHostCache() async throws {
     try await withPlugin("""
     let revision = 0, snapshot;

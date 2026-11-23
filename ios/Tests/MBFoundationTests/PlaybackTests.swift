@@ -237,6 +237,33 @@ private let fakeDownload: @Sendable (MediaResource) async throws -> URL = { _ in
     #expect(model.state == .playing)
 }
 
+@Test @MainActor func paginatedQueueWaitsAtTheBoundaryAndDoesNotWrapAtTheFinalPage() async {
+    let source = AudioSourceFixture(), engine = TestAudio()
+    let model = PlaybackModel(source: source, engine: engine, download: fakeDownload)
+    let (pages, send) = AsyncStream<Track>.makeStream()
+    let final = audioTracks[1]
+    model.select([audioTracks[0]], index: 0)
+    model.attachPages(PlaybackPageLoader {
+        var stream = pages.makeAsyncIterator()
+        return (await stream.next().map { [audioTracks[0], $0] } ?? [], nil)
+    })
+    await model.waitUntilLoaded()
+    #expect(model.queue.current == audioTracks[0])
+    engine.finished = true
+    model.tick()
+    #expect(model.queue.current == audioTracks[0])
+    send.yield(final)
+    send.finish()
+    for _ in 0..<1000 where model.queue.current != final { await Task.yield() }
+    #expect(model.queue.tracks == audioTracks)
+    #expect(model.queue.current == final)
+    #expect(model.selectionIntent == .automatic)
+    await model.waitUntilLoaded()
+    engine.finished = true; model.tick()
+    #expect(model.state == .paused)
+    #expect(model.queue.current == final)
+}
+
 @Test @MainActor func oldAudioDoesNotReplaceTheNewSelection() async {
     let source = AudioSourceFixture()
     await source.block()

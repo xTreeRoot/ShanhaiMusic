@@ -283,7 +283,18 @@ func (a *app) playlistPage(c *ui.Context) {
 		a.trackSkeleton(c, s, true, func(c *ui.Context) { a.playlistHeaderSkeleton(c, s) })
 		return
 	}
-	a.trackRows(c, pl.Tracks, true, func(c *ui.Context) { a.playlistHeader(c, pl) })
+	header := func(c *ui.Context) { a.playlistHeader(c, pl) }
+	if !pl.More {
+		a.trackRows(c, pl.Tracks, true, header)
+		return
+	}
+	lib := a.library
+	page := paged{more: true, loading: lib.loadingPl[id], err: lib.plErr[id]}
+	next := func() { a.loadPlaylistNext(lib, id, pl) }
+	a.trackRows(c, pl.Tracks, true, header, func(c *ui.Context) { a.pageFoot(c, &page, next) })
+	if page.err == "" && a.trackList.AtEnd() {
+		next()
+	}
 }
 
 func (a *app) playlistHeader(c *ui.Context, pl *music.Playlist) {
@@ -299,7 +310,7 @@ func (a *app) playlistHeader(c *ui.Context, pl *music.Playlist) {
 			if pl.Owner != "" {
 				meta = append(meta, pl.Owner)
 			}
-			meta = append(meta, i18n.Songs(len(pl.Tracks)))
+			meta = append(meta, i18n.Songs(max(pl.TrackCount, len(pl.Tracks))))
 			ui.Text(c, strings.Join(meta, " · ")).FontSize(13).TextColor(p.muted)
 			if d := strings.TrimSpace(pl.Description); d != "" {
 				ui.Text(c, strings.ReplaceAll(d, "\n", " ")).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45).Margin(2, 0, 0, 0)
@@ -334,10 +345,18 @@ func (a *app) playButtons(c *ui.Context, tracks []music.Track) {
 		if a.pl.Shuffle() {
 			a.pl.ToggleShuffle()
 		}
-		a.pl.PlayQueue(tracks, firstPlayable(tracks))
+		if a.route.page == pageLiked {
+			a.playCatalogTrack(tracks, firstPlayable(tracks))
+		} else {
+			a.pl.PlayQueue(tracks, firstPlayable(tracks))
+		}
 	}
 	if pillButton(c.Key("shuffle"), iconShuffle, T("Shuffle"), p.hover.Over(p.bg), p.text).Clicked() {
-		a.pl.PlayShuffled(tracks)
+		if a.route.page == pageLiked {
+			a.playCatalogTrack(tracks, -1)
+		} else {
+			a.pl.PlayShuffled(tracks)
+		}
 	}
 }
 
@@ -561,7 +580,7 @@ func (a *app) trackRow(c *ui.Context, tracks []music.Track, i int, covers bool, 
 		ui.Text(c, clock(tr.Length())).FontSize(12.5).FontFeatures("tnum").TextColor(p.faint).Width(44).TextAlign(ui.End)
 	})
 	if row.Clicked() && !tr.Unavailable {
-		a.pl.PlayTrack(tracks, i)
+		a.playCatalogTrack(tracks, i)
 	}
 }
 

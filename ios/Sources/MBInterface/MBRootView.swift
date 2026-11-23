@@ -635,7 +635,7 @@ public struct MBRootView: View {
                     ForEach(search.warnings, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
                     ForEach(Array(search.tracks.enumerated()), id: \.element.id) { index, track in
                         HStack(spacing: 4) {
-                            Button { selectSearch(search.tracks, index) } label: {
+                            Button { selectSearch(search.tracks, index, pages: search.playbackPages()) } label: {
                                 let selected = playback.queue.current?.id == track.id
                                 VStack(alignment: .leading, spacing: 4) {
                                     TrackRow(track: track, selected: selected)
@@ -801,11 +801,12 @@ public struct MBRootView: View {
         trackSearch.cancel()
         trackSearch = SearchModel(source: UnifiedSearchSource(providers: providers))
     }
-    private func selectSearch(_ tracks: [Track], _ index: Int) {
+    private func selectSearch(_ tracks: [Track], _ index: Int, pages: PlaybackPageLoader?) {
         if tracks[index].resourceURL != nil { resourceDetail = tracks[index]; return }
         Task {
             await video.choose(tracks[index].resourceType == "video" ? .video : .music)
             select(tracks, index)
+            if let pages { playback.attachPages(pages) }
         }
     }
     private func submit() {

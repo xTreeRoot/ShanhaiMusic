@@ -52,15 +52,25 @@ func (a *app) loadEpisodes(lib *library, id string) {
 			d.show = &show
 			d.episodes = append(d.episodes, page.Episodes...)
 			d.page.loaded, d.page.more = true, page.More && len(page.Episodes) > 0
-			a.playLoaded(d)
+			a.playLoaded(lib, id, d)
 		})
 	}()
 }
 
 // playEpisodes plays the episodes loaded, from the first that can play.
-func (a *app) playEpisodes(d *showData) {
+func (a *app) playEpisodes(lib *library, id string, d *showData, index int) {
 	if len(d.episodes) > 0 {
-		a.pl.PlayQueue(d.episodes, 0)
+		if d.page.more {
+			a.playCatalog(lib, d.episodes, index, offsetTrackPages(len(d.episodes), func(offset int) ([]music.Track, bool, int, error) {
+				page, err := answered(lib.src.Show(id, offset))
+				if err != nil {
+					return nil, false, 0, err
+				}
+				return page.Episodes, page.More, 0, nil
+			}))
+		} else {
+			a.pl.PlayTrack(d.episodes, index)
+		}
 	}
 }
 
@@ -70,14 +80,14 @@ func (a *app) playShow(lib *library, id string) {
 	a.loadShow(lib, id)
 	d := lib.shows[id]
 	d.thenPlay = true
-	a.playLoaded(d)
+	a.playLoaded(lib, id, d)
 }
 
 // playLoaded plays a show its card asked to play, once it can.
-func (a *app) playLoaded(d *showData) {
+func (a *app) playLoaded(lib *library, id string, d *showData) {
 	if d.thenPlay && d.show != nil && d.page.loaded {
 		d.thenPlay = false
-		a.playEpisodes(d)
+		a.playEpisodes(lib, id, d, firstPlayable(d.episodes))
 	}
 }
 
@@ -164,7 +174,7 @@ func (a *app) showPage(c *ui.Context) {
 				}
 				ui.Row(c).Gap(10).Margin(10, 0, 0, 0).Children(func() {
 					if pillButton(c.Key("play"), iconPlay, T("Play"), p.accent, p.onAccent).Clicked() {
-						a.playEpisodes(d)
+						a.playEpisodes(lib, id, d, firstPlayable(d.episodes))
 					}
 					if a.can("subscribeShow") {
 						icon, label := iconPlus, T("Subscribe")
@@ -238,7 +248,7 @@ func (a *app) episodeRow(c *ui.Context, d *showData, i int, cur *music.Track) {
 		ui.Text(c, clock(time.Duration(tr.Duration)*time.Millisecond)).FontSize(12).FontFeatures("tnum").TextColor(p.muted)
 	})
 	if row.Clicked() {
-		a.pl.PlayTrack(d.episodes, i)
+		a.playEpisodes(a.library, a.route.id, d, i)
 	}
 }
 

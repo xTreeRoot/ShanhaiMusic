@@ -22,6 +22,7 @@ import com.xtreeroot.mb.music.PlaybackSource
 import com.xtreeroot.mb.music.Track
 import com.xtreeroot.mb.playback.TrackPlaybackIssues
 import com.xtreeroot.mb.playback.StationStatus
+import com.xtreeroot.mb.playback.PendingPlaybackPages
 import com.xtreeroot.mb.playback.VideoPlayback
 import com.xtreeroot.mb.plugin.GitHubPluginPackages
 import com.xtreeroot.mb.plugin.CompatPluginBrowserActivity
@@ -64,6 +65,7 @@ internal class MBApplication : Application(), ImageLoaderFactory {
     val audioFocusBlockedTrack = MutableStateFlow<String?>(null)
     val videoPlayback = MutableStateFlow<VideoPlayback?>(null)
     val stationStatus = MutableStateFlow(StationStatus())
+    val pendingPlaybackPages = PendingPlaybackPages()
     val settings by lazy { SettingsStore(this) }
     val appearanceBackground by lazy { AppearanceBackgroundStore(this) }
     val network by lazy { NetworkRouting { settings.values.value.proxy } }

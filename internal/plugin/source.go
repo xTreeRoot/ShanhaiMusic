@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/MoeForge/moejs"
@@ -14,9 +15,20 @@ import (
 // The answers of a plugin name their tracks without their source, which is
 // the plugin: it can't get that wrong, and needn't know its own ID.
 
+var keywordHighlight = regexp.MustCompile(`(?is)<em\s+class\s*=\s*(?:"keyword"|'keyword'|keyword)\s*>(.*?)</em\s*>`)
+
+func plainTitle(text string) string {
+	return keywordHighlight.ReplaceAllString(text, "$1")
+}
+
 func (p *Plugin) stamp(tracks []music.Track) {
 	for i := range tracks {
 		tracks[i].Source = p.manifest.ID
+		tracks[i].Name = plainTitle(tracks[i].Name)
+		tracks[i].Album.Name = plainTitle(tracks[i].Album.Name)
+		for j := range tracks[i].Artists {
+			tracks[i].Artists[j].Name = plainTitle(tracks[i].Artists[j].Name)
+		}
 	}
 }
 
@@ -70,7 +82,17 @@ func (p *Plugin) Search(query string, kind music.SearchKind, offset int) (*music
 		return nil, err
 	}
 	p.stamp(r.Tracks)
+	for i := range r.Albums {
+		r.Albums[i].Name = plainTitle(r.Albums[i].Name)
+	}
+	for i := range r.Artists {
+		r.Artists[i].Name = plainTitle(r.Artists[i].Name)
+	}
+	for i := range r.Shows {
+		r.Shows[i].Name = plainTitle(r.Shows[i].Name)
+	}
 	for i := range r.Playlists {
+		r.Playlists[i].Name = plainTitle(r.Playlists[i].Name)
 		p.stamp(r.Playlists[i].Tracks)
 	}
 	return &r, nil
@@ -114,10 +136,15 @@ func (p *Plugin) Playlists() ([]music.Playlist, error) {
 }
 
 func (p *Plugin) Playlist(id string) (*music.Playlist, error) {
+	return p.PlaylistPage(id, 0)
+}
+
+func (p *Plugin) PlaylistPage(id string, offset int) (*music.Playlist, error) {
 	var pl music.Playlist
-	if err := p.call("playlist", map[string]string{"id": id}, &pl); err != nil {
+	if err := p.call("playlist", map[string]any{"id": id, "offset": offset}, &pl); err != nil {
 		return nil, err
 	}
+	pl.Name = plainTitle(pl.Name)
 	p.stamp(pl.Tracks)
 	return &pl, nil
 }

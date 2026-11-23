@@ -59,11 +59,13 @@ type Player struct {
 
 	// A radio goes on with the tracks its feed gives, as the queue nears
 	// its end, for as long as nothing else is played.
-	radio    string
-	feed     func(got func([]music.Track))
-	radioGen int  // counts radios, to drop what an old one gives
-	feeding  bool // the feed is asked
-	awaiting bool // at the queue's end, for what the feed gives
+	radio      string
+	feed       func(got func([]music.Track))
+	pageFeed   func(got func([]music.Track, bool, error))
+	radioGen   int  // counts radios, to drop what an old one gives
+	feeding    bool // the feed is asked
+	awaiting   bool // at the queue's end, for what the feed gives
+	pageManual bool
 
 	track         *music.Track
 	out           *audio.Player
@@ -178,7 +180,7 @@ func (p *Player) ended() {
 		}
 		return
 	}
-	if p.at+1 >= len(p.order) && p.feed != nil {
+	if p.at+1 >= len(p.order) && p.hasFeed() {
 		p.awaitFeed()
 		return
 	}
@@ -201,6 +203,19 @@ func (p *Player) PlayQueue(tracks []music.Track, start int) {
 // playing in its place.
 func (p *Player) PlayTrack(tracks []music.Track, i int) {
 	p.playQueue(tracks, i, stay)
+}
+
+func (p *Player) PlayPaged(tracks []music.Track, index int, feed func(func([]music.Track, bool, error))) {
+	if len(tracks) == 0 {
+		return
+	}
+	if index < 0 {
+		p.PlayShuffled(tracks)
+	} else {
+		p.PlayTrack(tracks, index)
+	}
+	p.pageFeed = feed
+	p.refill()
 }
 
 // PlayShuffled replaces the queue with tracks in a random order, any of them
@@ -283,18 +298,53 @@ func (p *Player) EndRadio() {
 func (p *Player) endRadio() {
 	p.radioGen++
 	p.radio, p.feed, p.feeding, p.awaiting = "", nil, false, false
+	p.pageFeed = nil
+	p.pageManual = false
 }
+
+func (p *Player) hasFeed() bool { return p.feed != nil || p.pageFeed != nil }
 
 // Radio returns the name of the radio playing, or "".
 func (p *Player) Radio() string { return p.radio }
 
 // refill asks the radio for more once the queue is near its end.
 func (p *Player) refill() {
-	if p.feed == nil || p.feeding || p.at < len(p.order)-2 {
+	if !p.hasFeed() || p.feeding || p.at < len(p.order)-2 {
 		return
 	}
 	p.feeding = true
 	gen := p.radioGen
+	if p.pageFeed != nil {
+		p.pageFeed(func(tracks []music.Track, more bool, err error) {
+			if gen != p.radioGen {
+				return
+			}
+			p.feeding = false
+			if err == nil && !more {
+				p.pageFeed = nil
+			}
+			p.appendTracks(tracks)
+			if !p.awaiting {
+				return
+			}
+			p.awaiting = false
+			manual := p.pageManual
+			p.pageManual = false
+			switch {
+			case p.at+1 < len(p.order):
+				p.load(p.at + 1)
+			case err != nil:
+				p.playing, p.err = false, errorText(err)
+				p.sync()
+			case manual || p.repeat == RepeatAll:
+				p.load(0)
+			default:
+				p.playing = false
+				p.sync()
+			}
+		})
+		return
+	}
 	p.feed(func(more []music.Track) {
 		if gen != p.radioGen {
 			return
@@ -418,7 +468,8 @@ func (p *Player) Next() {
 	}
 	at := p.at + 1
 	if at >= len(p.order) {
-		if p.feed != nil {
+		if p.hasFeed() {
+			p.pageManual = p.pageFeed != nil
 			p.stopForFeed()
 			p.awaitFeed()
 			return
@@ -459,6 +510,11 @@ func (p *Player) Jump(i int) {
 
 // TogglePlay pauses, fading out, or plays, fading in.
 func (p *Player) TogglePlay() {
+	if p.awaiting && p.pageFeed != nil {
+		p.awaiting, p.pageManual, p.playing = false, false, false
+		p.sync()
+		return
+	}
 	if p.remote != nil && p.remote.started {
 		p.remoteToggle()
 		return
@@ -724,6 +780,7 @@ func (p *Player) prepare(at int, play bool, from time.Duration) (music.Track, mu
 	p.track = &t
 	p.loading, p.playing, p.err = false, play, ""
 	p.awaiting = false
+	p.pageManual = false
 	p.lyrics, p.lyricsLoaded = nil, false
 	p.pending = from
 	p.recorded = ""

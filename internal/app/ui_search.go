@@ -73,7 +73,10 @@ func (a *app) moreResults(lib *library, r route, d *searchData) {
 		return
 	}
 	d.page.loading, d.page.err = true, ""
-	offset := d.res.Len()
+	offset := d.page.offset
+	if offset == 0 {
+		offset = d.res.Len()
+	}
 	go func() {
 		res, err := answered(lib.src.Search(r.query, r.kind, offset))
 		a.post(func() {
@@ -82,13 +85,20 @@ func (a *app) moreResults(lib *library, r route, d *searchData) {
 				d.page.err = a.problem(lib, err, T("The search failed"))
 				return
 			}
-			d.res.Tracks = append(d.res.Tracks, res.Tracks...)
+			known := map[[2]string]bool{}
+			newCatalogTracks(known, d.res.Tracks)
+			fresh := newCatalogTracks(known, res.Tracks)
+			d.res.Tracks = append(d.res.Tracks, fresh...)
 			d.res.Albums = append(d.res.Albums, res.Albums...)
 			d.res.Artists = append(d.res.Artists, res.Artists...)
 			d.res.Playlists = append(d.res.Playlists, res.Playlists...)
 			d.res.Shows = append(d.res.Shows, res.Shows...)
 			// A server can claim more while sending none.
-			d.page.loaded, d.page.more = true, res.More && res.Len() > 0
+			d.page.offset = continuationOffset(offset, res.NextOffset, res.Len())
+			d.page.loaded, d.page.more = true, res.More && d.page.offset > offset
+			if len(res.Tracks) > 0 && len(fresh) == 0 {
+				d.page.more = false
+			}
 		})
 	}()
 }

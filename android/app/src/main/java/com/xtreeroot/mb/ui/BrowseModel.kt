@@ -92,6 +92,15 @@ internal class BrowseModel(application: Application, private val source: Discove
 
     fun searchPages(mode: SearchScope) = searches.getValue(mode)
 
+    fun searchPlaybackPages(result: SearchResult): com.xtreeroot.mb.playback.PlaybackPages? {
+        val source = searchSource?.takeIf { it.id == result.sourceId && result.hasMore } ?: return null
+        val query = result.query
+        return com.xtreeroot.mb.playback.playbackPages(result.cursor) { cursor ->
+            val page = source.search(query, cursor)
+            page.tracks to (cursor + 1).takeIf { page.hasMore }
+        }
+    }
+
     fun submitSearch(mode: SearchScope, input: String) {
         val source = searchSource ?: return
         val term = input.trim()

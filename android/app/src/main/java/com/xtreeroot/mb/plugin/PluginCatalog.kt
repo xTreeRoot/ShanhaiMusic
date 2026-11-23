@@ -8,6 +8,13 @@ import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 
+private val keywordHighlight = Regex("""(?is)<em\s+class\s*=\s*(?:"keyword"|'keyword'|keyword)\s*>(.*?)</em\s*>""")
+
+internal fun pluginPlainTitle(title: String): String = keywordHighlight.replace(title, "$1")
+
+internal fun JSONObject.catalogNextOffset(offset: Int, count: Int): Int? =
+    (if (has("nextOffset")) optInt("nextOffset", offset) else offset + count).takeIf { optBoolean("more") && it > offset }
+
 internal enum class PluginEntityKind(val method: String, val key: String) {
     Album("album", "albums"), Artist("artist", "artists"), Playlist("playlist", "playlists"),
     Show("show", "shows"), Station("stationNext", "stations"),
@@ -99,7 +106,7 @@ internal class PluginCatalog(
             val value = runtime.invoke(request.kind.method, args).objectValue()
             val count = value.list(request.kind.key).length()
             if (request.kind == PluginSearchKind.Videos) value.put("trackLayout", "videos")
-            single(request.query, value, next = nextOffset(offset, count, value.optBoolean("more")))
+            single(request.query, value, next = value.catalogNextOffset(offset, count))
         }
     }
 
@@ -156,7 +163,7 @@ internal class PluginCatalog(
         }
         val count = section.list("tracks").length() + PluginEntityKind.entries.sumOf { section.list(it.key).length() }
         return single(request.title.ifBlank { manifest.name }, section,
-            next = nextOffset(offset, count, (value as? JSONObject)?.optBoolean("more") == true))
+            next = (value as? JSONObject)?.catalogNextOffset(offset, count))
     }
 
     private suspend fun entity(entity: PluginEntity, offset: Int, refresh: Boolean): PluginCatalogPage {
@@ -170,14 +177,16 @@ internal class PluginCatalog(
             else -> value.objectValue()
         }
         val details = detailsPage.optJSONObject(entity.kind.method)
-        return single(details?.text("name") ?: entity.title, section, entity.subtitle, details?.text("description").orEmpty(),
-            nextOffset(offset, section.list("tracks").length(), entity.kind == PluginEntityKind.Station || detailsPage.optBoolean("more")))
+        val count = section.list("tracks").length()
+        val next = if (entity.kind == PluginEntityKind.Station) (offset + count).takeIf { count > 0 }
+            else detailsPage.catalogNextOffset(offset, count)
+        return single(details?.text("name")?.let(::pluginPlainTitle) ?: entity.title, section, entity.subtitle, details?.text("description").orEmpty(), next)
     }
 
     private suspend fun page(value: JSONObject, fallbackTitle: String, offset: Int = 0): PluginCatalogPage = PluginCatalogPage(
         value.text("title") ?: fallbackTitle, value.text("subtitle").orEmpty(), value.text("description").orEmpty(),
         value.list("sections").objects().map { section(it) },
-        nextOffset(offset, value.list("sections").objects().sumOf { row -> row.list("tracks").length() + PluginEntityKind.entries.sumOf { row.list(it.key).length() } }, value.optBoolean("more")),
+        value.catalogNextOffset(offset, value.list("sections").objects().sumOf { row -> row.list("tracks").length() + PluginEntityKind.entries.sumOf { row.list(it.key).length() } }),
         tabs = value.list("tabs").objects().take(32).mapNotNull { tab ->
             val title = tab.text("title") ?: return@mapNotNull null
             val page = tab.text("page") ?: return@mapNotNull null
@@ -195,7 +204,7 @@ internal class PluginCatalog(
             val title = entity.text("name") ?: return@mapNotNull null
             val subtitle = entity.text("description") ?: entity.text("publisher")
                 ?: entity.list("artists").objects().mapNotNull { it.text("name") }.joinToString(", ")
-            PluginEntity(kind, id, title, subtitle, readImage(entity.text("imageUrl")),
+            PluginEntity(kind, id, pluginPlainTitle(title), pluginPlainTitle(subtitle), readImage(entity.text("imageUrl")),
                 entity.optBoolean("saved") || entity.optBoolean("following") || entity.optBoolean("subscribed"),
                 entity.optBoolean("mine"), entity.optBoolean("fixed"))
         } }
@@ -214,7 +223,6 @@ internal class PluginCatalog(
         cachedInvoke(method, if (refresh) arguments.put("refresh", true) else arguments)
 
     private fun arguments(offset: Int) = JSONObject().put("offset", offset)
-    private fun nextOffset(offset: Int, count: Int, more: Boolean): Int? = (offset + count).takeIf { more && count > 0 }
     private fun Any.objectValue(): JSONObject = this as? JSONObject ?: throw PluginException("Invalid plugin catalog response")
     private fun Any.arrayValue(): JSONArray = this as? JSONArray ?: throw PluginException("Invalid plugin catalog response")
     private fun JSONObject.text(key: String): String? = (opt(key) as? String)?.takeIf(String::isNotBlank)

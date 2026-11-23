@@ -46,6 +46,25 @@ func TestMenuBarControlClicks(t *testing.T) {
 	}
 }
 
+func TestMenuBarUsesNativeImageWidthForControlClicks(t *testing.T) {
+	width := 224
+	var renderer menuBarRenderer
+	style := menuBarStyle{video: true, transport: menuBarPlaying}
+	renderer.frame("歌词", 0, width, true, style)
+	for _, scale := range []float64{0.75, 1, 1.25, 2} {
+		nativeWidth := float64(style.imageWidth(width)) * scale
+		for index, want := range []menuBarAction{menuBarPrevious, menuBarToggle, menuBarNext} {
+			x := float64(style.controlsStart(width)+index*menuBarControlWidth+menuBarControlWidth/2) * scale
+			if got := renderer.actionAtImage(x, nativeWidth); got != want {
+				t.Fatalf("scale %.2f, control %d: got %v, want %v", scale, index, got, want)
+			}
+		}
+		if renderer.actionAtImage(float64(style.controlsStart(width)-1)*scale, nativeWidth) != menuBarOpenMenu {
+			t.Fatal("lyric click intercepted by a control")
+		}
+	}
+}
+
 func TestMenuBarControlsStayStillAndReflectPlayback(t *testing.T) {
 	const width = 164
 	var renderer menuBarRenderer

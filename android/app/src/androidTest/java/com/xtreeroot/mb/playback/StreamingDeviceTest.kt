@@ -851,6 +851,31 @@ class StreamingDeviceTest {
         }
     }
 
+    @Test fun finiteQueueWaitsAtTheTailAndResumesWithTheNextPage() = runBlocking {
+        val current = Track("fixture", "long-tail", "Tail", "", durationMs = 12_000)
+        val next = current.copy(sourceTrackId = "next", title = "Next")
+        val batch = CompletableDeferred<PlaybackPage>()
+        val calls = AtomicInteger()
+        val client = stationFixture()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val audio = withContext(Dispatchers.Main) { player(client, stationMedia(client)) }
+        try {
+            withContext(Dispatchers.Main) {
+                val pages = PagedPlayback(audio, scope, { true }, {})
+                audio.setMediaItems(listOf(current.mediaItem()), 0, 11_800)
+                pages.set(PlaybackPages { calls.incrementAndGet(); batch.await() })
+                audio.prepare()
+                audio.play()
+            }
+            eventually { calls.get() == 1 && audio.playbackState == Player.STATE_ENDED }
+            batch.complete(PlaybackPage(listOf(current, next), null))
+            eventually { audio.mediaItemCount == 2 && audio.currentMediaItem?.mediaId == next.id && audio.isPlaying }
+            assertEquals(1, calls.get())
+        } finally {
+            withContext(Dispatchers.Main) { scope.cancel(); audio.release() }
+        }
+    }
+
     @Test fun manuallyReplayingTheStationTailKeepsTheSelectionWhenTheBatchArrives() = runBlocking {
         val tail = Track("radio", "long-tail", "Tail", "", durationMs = 12_000)
         val next = tail.copy(sourceTrackId = "next", title = "Next")

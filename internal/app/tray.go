@@ -123,7 +123,7 @@ func (a *app) trayClick() {
 		a.showMain()
 		return
 	}
-	action := a.trayLyrics.actionAt(a.tray.Bounds(), mygo.Screen.CursorScreenPoint())
+	action := a.trayTransportAction()
 	if !a.runMenuBarAction(action) {
 		a.trayMenu().Popup(nil)
 	}

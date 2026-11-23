@@ -79,11 +79,18 @@ func (m *menuBarRenderer) actionAt(bounds mygo.Rectangle, point mygo.Point) menu
 		return menuBarOpenMenu
 	}
 	imageLeft := bounds.X + (bounds.Width-width)/2
-	offset := point.X - imageLeft - m.style.controlsStart(m.width)
+	return m.actionAtImage(float64(point.X-imageLeft), float64(width))
+}
+
+func (m *menuBarRenderer) actionAtImage(x, nativeWidth float64) menuBarAction {
+	if !m.enabled || nativeWidth <= 0 {
+		return menuBarOpenMenu
+	}
+	offset := x*float64(m.style.imageWidth(m.width))/nativeWidth - float64(m.style.controlsStart(m.width))
 	if offset < 0 || offset >= 3*menuBarControlWidth {
 		return menuBarOpenMenu
 	}
-	return menuBarPrevious + menuBarAction(offset/menuBarControlWidth)
+	return menuBarPrevious + menuBarAction(int(offset)/menuBarControlWidth)
 }
 
 func (a *app) runMenuBarAction(action menuBarAction) bool {

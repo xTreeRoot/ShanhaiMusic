@@ -94,3 +94,52 @@ func TestPluginPlaylistTrackStartsFullQueueWithoutHeaderPlayAll(t *testing.T) {
 		t.Fatal("lost playlist queue")
 	}
 }
+
+type paginatedTestSource struct {
+	*fakeSource
+	page func(string, int) (*music.Playlist, error)
+}
+
+func (src *paginatedTestSource) PlaylistPage(id string, offset int) (*music.Playlist, error) {
+	return src.page(id, offset)
+}
+
+func TestPlaylistLoadsNextPageAtBottomAndKeepsScroll(t *testing.T) {
+	a := newTestApp()
+	lib := a.library
+	ch := posts(a)
+	calls := make(chan int, 8)
+	tracks := make([]music.Track, 24)
+	for index := range tracks {
+		tracks[index] = song(fmt.Sprint(index+1), fmt.Sprintf("Favorite %d", index+1))
+	}
+	lib.src = &paginatedTestSource{fake(a), func(_ string, offset int) (*music.Playlist, error) {
+		calls <- offset
+		return &music.Playlist{ID: "folder", Tracks: []music.Track{song("25", "Favorite 25")}}, nil
+	}}
+	lib.playlists["folder"] = &music.Playlist{ID: "folder", Name: "Favorites", TrackCount: 25, More: true, NextOffset: 30, Tracks: tracks}
+	lib.plAt["folder"] = time.Now()
+	a.route = route{page: pagePlaylist, src: lib.id, id: "folder"}
+	tt := ui.NewTester(a.view, 1000, 800)
+	settled(tt)
+	select {
+	case offset := <-calls:
+		t.Fatalf("prefetched before scroll: %d", offset)
+	default:
+	}
+	tt.Scroll(700, 400, 0, 100000)
+	tt.Advance(time.Second)
+	tt.Frame()
+	tt.Frame()
+	if got := wait(t, calls, "playlist continuation"); got != 30 {
+		t.Fatalf("lost plugin cursor: %d", got)
+	}
+	until(t, ch, func() bool { return len(lib.playlists["folder"].Tracks) == 25 })
+	settled(tt)
+	tt.Scroll(700, 400, 0, 100000)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if _, ok := tt.Find("Favorite 25"); !ok || lib.playlists["folder"].More {
+		t.Fatal("final playlist row did not appear at bottom")
+	}
+}

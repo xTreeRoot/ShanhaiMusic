@@ -1,5 +1,17 @@
 import Foundation
 
+func pluginPlainTitle(_ title: String) -> String {
+    title.replacingOccurrences(of: #"(?is)<em\s+class\s*=\s*(?:"keyword"|'keyword'|keyword)\s*>(.*?)</em\s*>"#,
+                               with: "$1", options: .regularExpression)
+}
+
+func catalogNextOffset(_ value: PluginJSON, offset: Int, count: Int) -> Int? {
+    guard value["more"] == .bool(true) else { return nil }
+    let (fallback, overflow) = offset.addingReportingOverflow(count)
+    guard let next = value["nextOffset"].integer ?? (overflow ? nil : fallback) else { return nil }
+    return next > offset ? next : nil
+}
+
 public struct PluginEntity: Identifiable, Sendable {
     public enum Kind: String, CaseIterable, Sendable { case album, artist, playlist, show, station }
     public let kind: Kind
@@ -24,7 +36,7 @@ extension PluginSource {
         var result: [PluginEntity] = PluginEntity.Kind.allCases.flatMap { kind in
             section[kind.rawValue + "s"].array.compactMap { value in
                 guard let id = value["id"].string, let title = value["name"].string else { return nil }
-                return PluginEntity(kind: kind, sourceID: id, title: title, subtitle: value["description"].string ?? value["publisher"].string ?? value["artists"].array.compactMap { $0["name"].string }.joined(separator: ", "), value: value)
+                return PluginEntity(kind: kind, sourceID: id, title: pluginPlainTitle(title), subtitle: value["description"].string ?? value["publisher"].string ?? value["artists"].array.compactMap { $0["name"].string.map(pluginPlainTitle) }.joined(separator: ", "), value: value)
             }
         }
         for index in result.indices {
@@ -42,9 +54,10 @@ extension PluginSource {
         case "recent": section = .object(["tracks": value])
         default: section = value
         }
-        let content = try await browseResult(.object(["sections": .array([section])]))
+        var content = try await browseResult(.object(["sections": .array([section])]))
         let count = section["tracks"].array.count + section["albums"].array.count + section["playlists"].array.count + section["shows"].array.count + section["stations"].array.count
-        return (content, value["more"] == .bool(true), count)
+        content.nextOffset = catalogNextOffset(value, offset: offset, count: count)
+        return (content, content.nextOffset != nil, count)
     }
     public func entity(_ entity: PluginEntity, offset: Int = 0) async throws -> (PluginBrowse, Bool, Int) {
         let method = entity.kind == .station ? "stationNext" : entity.kind.rawValue
@@ -55,15 +68,19 @@ extension PluginSource {
         else if entity.kind == .show { section = .object(["tracks": value["episodes"]]) }
         else { section = value }
         let details = value[entity.kind.rawValue]
-        let content = try await browseResult(.object(["title": details["name"].string.map(PluginJSON.string) ?? .string(entity.title), "subtitle": .string(entity.subtitle), "description": details["description"], "sections": .array([section])]))
-        return (content, entity.kind == .station || value["more"] == .bool(true), (section["tracks"].array.count))
+        var content = try await browseResult(.object(["title": details["name"].string.map { .string(pluginPlainTitle($0)) } ?? .string(entity.title), "subtitle": .string(entity.subtitle), "description": details["description"], "sections": .array([section])]))
+        let count = section["tracks"].array.count
+        content.nextOffset = catalogNextOffset(value, offset: offset, count: count)
+        return (content, entity.kind == .station || content.nextOffset != nil, count)
     }
     public func change(_ method: String, entity: PluginEntity, on: Bool) async throws {
         try await mutate(method, arguments: .object(["id": .string(entity.sourceID), "on": .bool(on)]))
     }
     public func searchCatalog(_ query: String, kind: String, offset: Int) async throws -> (PluginBrowse, Bool, Int) {
         let value = try await runtime.invoke("search", arguments: .object(["query": .string(query), "kind": .string(kind), "offset": .number(Double(offset))]))
-        let content = try await browseResult(.object(["title": .string(query), "sections": .array([value])]))
-        return (content, value["more"] == .bool(true), value[kind].array.count)
+        var content = try await browseResult(.object(["title": .string(query), "sections": .array([value])]))
+        let count = value[kind].array.count
+        content.nextOffset = catalogNextOffset(value, offset: offset, count: count)
+        return (content, content.nextOffset != nil, count)
     }
 }

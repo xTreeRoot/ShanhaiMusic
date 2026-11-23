@@ -327,6 +327,7 @@ func segmented(c *ui.Context, selected *int, labels ...string) bool {
 
 // paged is how a list loaded a page at a time is coming along.
 type paged struct {
+	offset  int
 	loaded  bool // whether the first page came
 	loading bool
 	more    bool   // whether there is a page after those loaded

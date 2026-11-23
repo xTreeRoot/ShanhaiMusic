@@ -48,6 +48,15 @@ public final class SearchModel {
         await load(generation: generation)
     }
 
+    public func playbackPages() -> PlaybackPageLoader? {
+        guard hasMore else { return nil }
+        let query = self.query, load = loadPage
+        return .following(cursor) { offset in
+            let (page, next) = try await load(query, offset)
+            return (page.tracks, page.hasMore && next > offset ? next : nil)
+        }
+    }
+
     public func cancel() {
         generation += 1
         isLoading = false

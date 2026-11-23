@@ -1273,8 +1273,8 @@ final class MBiOSUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--demo", "--plugin-demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["我的"].waitForExistence(timeout: 15))
         selectTab("设置", app: app)
         let plugins = app.buttons["settings-plugins"]
         for _ in 0..<5 { if !plugins.isHittable { app.swipeUp() } }; plugins.tap()
@@ -1286,19 +1286,30 @@ final class MBiOSUITests: XCTestCase {
         selectTab("发现", app: app)
         app.buttons["source-tab-fixture"].tap()
         XCTAssertTrue(app.buttons["播放 插件示例歌曲"].waitForExistence(timeout: 5))
+        let shelf = app.scrollViews["plugin-shelf-0"]
+        XCTAssertTrue(shelf.waitForExistence(timeout: 5))
+        func visibleOnShelf(_ element: XCUIElement) -> Bool {
+            guard element.exists, shelf.exists, !element.frame.isEmpty else { return false }
+            return shelf.frame.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) && element.isHittable
+        }
         for (title, detail) in [("示例专辑", "专辑"), ("示例作者", "作者"), ("示例播客", "播客"), ("示例电台", "电台")] {
+            XCTAssertTrue(shelf.waitForExistence(timeout: 5))
             let link = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
-            for _ in 0..<3 { if !link.isHittable { app.swipeUp() } }
+            for _ in 0..<3 where !visibleOnShelf(link) { shelf.swipeLeft() }
+            XCTAssertTrue(visibleOnShelf(link), "横滑后仍无法点击\(title)")
             link.tap()
             XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
             capture("插件-" + detail + "详情-演示数据", app: app)
             if detail == "专辑" { app.buttons["收藏专辑"].tap(); XCTAssertTrue(app.buttons["取消收藏专辑"].waitForExistence(timeout: 5)) }
             if detail == "作者" { app.buttons["关注作者"].tap(); XCTAssertTrue(app.buttons["取消关注作者"].waitForExistence(timeout: 5)) }
             if detail == "播客" { app.buttons["订阅播客"].tap(); XCTAssertTrue(app.buttons["取消订阅"].waitForExistence(timeout: 5)) }
-            app.navigationBars.buttons.element(boundBy: 0).tap()
+            app.navigationBars[title].buttons["BackButton"].tap()
         }
         let playlist = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "示例歌单")).firstMatch
-        if !playlist.isHittable { app.swipeDown() }; playlist.tap()
+        XCTAssertTrue(shelf.waitForExistence(timeout: 5))
+        for _ in 0..<3 where !visibleOnShelf(playlist) { shelf.swipeRight() }
+        XCTAssertTrue(visibleOnShelf(playlist))
+        playlist.tap()
         XCTAssertTrue(app.buttons["添加平台歌曲"].waitForExistence(timeout: 5)); app.buttons["添加平台歌曲"].tap()
         let field = app.textFields["搜索音源"]
         XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("music\n")
@@ -1314,14 +1325,14 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertTrue(app.buttons["播放 music · 插件结果"].waitForNonExistence(timeout: 5))
         app.buttons["重命名歌单"].tap(); capture("插件-重命名歌单-演示数据", app: app); app.buttons["取消"].tap()
         app.buttons["删除平台歌单"].tap(); capture("插件-删除歌单确认-演示数据", app: app); app.buttons["取消"].tap()
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.navigationBars["示例歌单"].buttons["BackButton"].tap()
         selectTab("我的", app: app)
         for title in ["平台歌单", "喜欢的歌曲", "最近播放", "收藏专辑", "订阅播客", "电台"] {
             let link = app.buttons[title]
             if !link.isHittable { app.swipeUp() }; link.tap()
             XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
             capture("插件-我的-" + title + "-演示数据", app: app)
-            app.navigationBars.buttons.element(boundBy: 0).tap()
+            app.navigationBars[title].buttons["BackButton"].tap()
         }
     }
 

@@ -20,11 +20,10 @@ public struct SearchProvider: Sendable {
 public actor UnifiedSearchSource: MusicSource {
     public nonisolated let displayName = "全平台搜索"
     private let providers: [SearchProvider]
-    private var cursors: [String: [String: Int]] = [:]
+    private var cursors: [String: [Int: [String: Int]]] = [:]
     public init(providers: [SearchProvider]) { self.providers = providers }
     public func search(query: String, page: Int) async throws -> TrackPage {
-        if page == 1 { cursors[query] = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, $0.initialCursor) }) }
-        let current = cursors[query] ?? [:]
+        let current = page == 1 ? Dictionary(uniqueKeysWithValues: providers.map { ($0.id, $0.initialCursor) }) : cursors[query]?[page] ?? [:]
         let batches = await withTaskGroup(of: (Int, TrackPage?, Int, String?).self) { group in
             for (index, provider) in providers.enumerated() {
                 guard let cursor = current[provider.id] else { continue }
@@ -50,7 +49,7 @@ public actor UnifiedSearchSource: MusicSource {
             if let error { warnings.append(error) }
         }
         if batches.allSatisfy({ $0.1 == nil }), let error = warnings.first { throw PluginFailure.execution(error) }
-        cursors[query] = remaining
+        cursors[query, default: [:]][page + 1] = remaining
         var seen: Set<String> = []
         var result = TrackPage(tracks: tracks.filter { seen.insert($0.id).inserted }, hasMore: !remaining.isEmpty)
         result.warnings = warnings; return result

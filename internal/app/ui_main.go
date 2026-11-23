@@ -541,7 +541,7 @@ const listsFresh = 30 * time.Second
 func (a *app) loadPlaylist(lib *library, id string, thenPlay bool) {
 	if pl := lib.playlists[id]; pl != nil {
 		if thenPlay {
-			a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
+			a.playPlaylist(lib, id, pl, firstPlayable(pl.Tracks))
 		}
 		if !lib.freshPl[id] && time.Since(lib.plAt[id]) > listsFresh {
 			a.freshenPlaylist(lib, id)
@@ -564,7 +564,7 @@ func (a *app) loadPlaylist(lib *library, id string, thenPlay bool) {
 			}
 			lib.playlists[id], lib.plAt[id] = pl, at
 			if thenPlay {
-				a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
+				a.playPlaylist(lib, id, pl, firstPlayable(pl.Tracks))
 			}
 		})
 	}()

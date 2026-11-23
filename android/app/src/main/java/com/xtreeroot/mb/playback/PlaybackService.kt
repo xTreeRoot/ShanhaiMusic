@@ -196,7 +196,10 @@ internal class PlaybackService : MediaLibraryService() {
             persist()
         }
         this.stations = stations
-        val sessionPlayer = CaptionSessionPlayer(player, video, stations) {
+        val pages = PagedPlayback(player, scope, { !it.isUnavailable && it.resourceUrl == null && app.acceptsTrack(it) }) {
+            (session?.player as? CaptionSessionPlayer)?.stationChanged()
+        }
+        val sessionPlayer = CaptionSessionPlayer(player, video, stations, pages, app.pendingPlaybackPages::take) {
             recovery.reset()
             invalidateAddress(player.currentMediaItem)
         }
@@ -218,7 +221,7 @@ internal class PlaybackService : MediaLibraryService() {
             val eligible = canPrefetchAudio(player.currentPosition, player.duration, player.isPlaying, videoActive = false)
             val index = player.currentMediaItemIndex
             val next = if (!eligible || player.currentTimeline.isEmpty ||
-                (stations.station != null && index == player.mediaItemCount - 1)) null else {
+                (stations.station != null && index == player.mediaItemCount - 1) || (pages.pending && pages.atTail)) null else {
                 val nextIndex = player.currentTimeline.getNextWindowIndex(index, player.repeatMode, player.shuffleModeEnabled)
                 if (nextIndex == C.INDEX_UNSET) null else target(player.getMediaItemAt(nextIndex))
                     ?.takeUnless { it.uri == player.currentMediaItem?.localConfiguration?.uri }
@@ -328,8 +331,14 @@ internal class PlaybackService : MediaLibraryService() {
                             app.playbackSource(candidate.sourceId) is StationPlaybackSource &&
                                 safe.all { it.track()?.sourceId == candidate.sourceId }
                         }
-                        val items = if (station == null) safe else safe.mapIndexed { index, item ->
-                            if (index == startIndex) item.withStation(station) else item
+                        val token = mediaItems.getOrNull(startIndex)?.pagesToken().takeIf { controller.uid == applicationInfo.uid }
+                        val items = if (station == null && token == null) safe else safe.mapIndexed { index, item ->
+                            when {
+                                index != startIndex -> item
+                                station != null -> item.withStation(station)
+                                token != null -> item.withPages(token)
+                                else -> item
+                            }
                         }
                         MediaSession.MediaItemsWithStartPosition(items, startIndex, startPositionMs)
                     }, MoreExecutors.directExecutor())

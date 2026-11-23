@@ -363,7 +363,7 @@ func (p *Player) remoteEnded(r *remote) {
 		p.load(p.at)
 	case p.at+1 < len(p.order):
 		p.load(p.at + 1)
-	case p.feed != nil:
+	case p.hasFeed():
 		p.stopForFeed()
 		p.awaitFeed()
 	case p.repeat == RepeatAll:

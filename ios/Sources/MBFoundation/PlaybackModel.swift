@@ -68,6 +68,10 @@ public final class PlaybackModel {
     @ObservationIgnored private var stationTask: Task<Void, Never>?
     @ObservationIgnored private var stationRevision = 0
     @ObservationIgnored private var stationAdvance = false
+    @ObservationIgnored private var pageLoader: PlaybackPageLoader?
+    @ObservationIgnored private var pageTask: Task<Void, Never>?
+    @ObservationIgnored private var pageRevision = 0
+    @ObservationIgnored private var pageAdvance: PlaybackSelectionIntent?
 
     public init(source: (any PlaybackSource)?, engine: any AudioEngine, store: (any PlaybackSessionStore)? = nil,
                 mediaLibrary: MediaLibrary? = nil,
@@ -102,6 +106,7 @@ public final class PlaybackModel {
     public func select(_ tracks: [Track], index: Int, intent: PlaybackSelectionIntent = .content, autoplay: Bool = true) {
         guard tracks.indices.contains(index) else { return }
         endStation()
+        endPages()
         queue.replace(with: tracks, selecting: index)
         jump(to: index, intent: intent, autoplay: autoplay)
     }
@@ -109,6 +114,7 @@ public final class PlaybackModel {
     public func jump(to index: Int, intent: PlaybackSelectionIntent = .content, autoplay: Bool = true) {
         guard queue.tracks.indices.contains(index) else { return }
         stationAdvance = false
+        pageAdvance = nil
         defer { stateDidChange?() }
         let prepared = autoplay ? preloader.take(for: queue.tracks[index]) : nil
         reset()
@@ -118,10 +124,12 @@ public final class PlaybackModel {
         durationMilliseconds = queue.current?.durationMilliseconds ?? 0
         persistSoon()
         if autoplay { play(prepared: prepared) }
+        refillPages()
     }
 
     public func next() {
         if station != nil, queue.index == queue.tracks.indices.last { refillStation(advance: true); return }
+        if pageLoader != nil, pageTail { refillPages(advance: .transport); return }
         if let index = queue.nextIndex(automatic: false) { jump(to: index, intent: .transport) }
     }
     public func previous() {
@@ -130,7 +138,7 @@ public final class PlaybackModel {
 
     /// 预览复用真实队列顺序，不选曲、不启动解码。
     public func neighboringTrack(forward: Bool) -> Track? {
-        if forward, station != nil, queue.index == queue.tracks.indices.last { return nil }
+        if forward && (station != nil && queue.index == queue.tracks.indices.last || pageLoader != nil && pageTail) { return nil }
         let index = forward ? queue.nextIndex(automatic: false) : queue.previousIndex()
         return index.flatMap { queue.tracks.indices.contains($0) ? queue.tracks[$0] : nil }
     }
@@ -148,6 +156,60 @@ public final class PlaybackModel {
     public func endStation() {
         stationRevision += 1; stationTask?.cancel(); stationTask = nil; stationAdvance = false; station = nil
         persistSoon()
+    }
+
+    public func attachPages(_ loader: PlaybackPageLoader) {
+        guard queue.current != nil, station == nil else { return }
+        endPages()
+        pageLoader = loader
+        refillPages()
+    }
+
+    private func endPages() {
+        pageRevision += 1; pageTask?.cancel(); pageTask = nil; pageLoader = nil; pageAdvance = nil
+    }
+
+    private var pageTail: Bool { queue.index != nil && queue.index == queue.playOrder.last }
+
+    private func refillPages(advance: PlaybackSelectionIntent? = nil) {
+        guard let loader = pageLoader, let index = queue.index,
+              let position = queue.playOrder.firstIndex(of: index) else { return }
+        if let advance { pageAdvance = advance }
+        guard pageTask == nil, advance != nil || queue.playOrder.count - position <= 2 else { return }
+        let revision = pageRevision
+        pageTask = Task {
+            var cursor: PlaybackPageLoader? = loader
+            do {
+                for _ in 0..<8 {
+                    guard let load = cursor else { break }
+                    let batch = try await load.fetch()
+                    guard revision == pageRevision, !Task.isCancelled else { return }
+                    cursor = batch.next
+                    var seen = Set(queue.tracks.map(\.id))
+                    let fresh = batch.tracks.filter { seen.insert($0.id).inserted }
+                    for track in fresh { queue.append(track) }
+                    if !batch.tracks.isEmpty {
+                        if fresh.isEmpty { cursor = nil }
+                        break
+                    }
+                }
+                if pageTail { cursor = nil }
+                pageLoader = cursor
+                pageTask = nil
+                let advance = pageAdvance; pageAdvance = nil
+                if let advance, let index = queue.nextIndex(automatic: advance == .automatic), cursor == nil || !pageTail {
+                    jump(to: index, intent: advance)
+                } else if advance == .automatic, cursor == nil {
+                    engine.stop(); ready = false; removeFile()
+                }
+                persistSoon(); stateDidChange?()
+            } catch {
+                guard revision == pageRevision, !Task.isCancelled else { return }
+                pageTask = nil; pageLoader = cursor
+                if pageAdvance != nil { errorMessage = error.localizedDescription; stateDidChange?() }
+                pageAdvance = nil
+            }
+        }
     }
     private func refillStation(advance: Bool = false) {
         guard let station, let provider = source as? any StationPlaybackSource else { return }
@@ -199,6 +261,7 @@ public final class PlaybackModel {
         restored = true
         queue.remove(IndexSet(queue.tracks.indices))
         endStation()
+        endPages()
         reset()
         durationMilliseconds = 0
         controlRevision += 1
@@ -359,6 +422,7 @@ public final class PlaybackModel {
         defer { stateDidChange?() }
         controlRevision += 1
         stationAdvance = false
+        pageAdvance = nil
         wantsPlay = false
         preloader.cancel()
         if ready {
@@ -406,6 +470,9 @@ public final class PlaybackModel {
             fail(error); return
         }
         if snapshot.finished && wantsPlay && !videoHold {
+            if pageLoader != nil, pageTail, queue.repeatMode != .one {
+                wantsPlay = false; engine.pause(); state = .paused; refillPages(advance: .automatic); return
+            }
             if station != nil, queue.index == queue.tracks.indices.last {
                 wantsPlay = false; engine.pause(); state = .paused; refillStation(advance: true); return
             }
@@ -413,7 +480,8 @@ public final class PlaybackModel {
             else { wantsPlay = false; engine.stop(); state = .paused; ready = false; removeFile(); persistSoon() }
             return
         }
-        let nextIndex = station != nil && queue.index == queue.tracks.indices.last ? nil : queue.nextIndex(automatic: true)
+        let waitingForPage = pageLoader != nil && pageTail && queue.repeatMode != .one
+        let nextIndex = waitingForPage || (station != nil && queue.index == queue.tracks.indices.last) ? nil : queue.nextIndex(automatic: true)
         let next = nextIndex.flatMap { queue.tracks.indices.contains($0) ? queue.tracks[$0] : nil }
         preloader.update(next: next, enabled: wantsPlay && !videoHold && !audioBuffering && durationMilliseconds > 0 && Double(positionMilliseconds) / Double(durationMilliseconds) >= 0.7)
         if abs(positionMilliseconds - savedPosition) >= 5_000 { persistSoon() }

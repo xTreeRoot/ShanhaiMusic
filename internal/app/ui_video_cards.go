@@ -13,7 +13,7 @@ func (a *app) videoTrackRow(c *ui.Context, sec *music.Section, row browseRow, co
 	ui.Grid(c).Columns(cols).GapX(20).Margin(0, 12, cardRowGap, 12).Children(func() {
 		for i := row.from; i < row.to; i++ {
 			track := &sec.Tracks[i]
-			play := func() { a.pl.PlayQueue(sec.Tracks, i) }
+			play := func() { a.playCatalogTrack(sec.Tracks, i) }
 			a.videoTrackCard(c.Key(track.ID), track, play)
 		}
 	})

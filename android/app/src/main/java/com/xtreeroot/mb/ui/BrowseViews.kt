@@ -165,7 +165,8 @@ internal fun CategoryView(model: BrowseModel, category: DiscoveryCategory,
 internal fun Search(model: BrowseModel, activeSource: String, plugin: PluginSource?,
                     openCatalog: (() -> Unit)?, openCategory: ((DiscoveryCategory) -> Unit)?, play: (List<Track>, Track) -> Unit,
                     platforms: Map<String, String> = emptyMap(), target: String = activeSource,
-                    chooseTarget: (String) -> Unit = {}, saved: SavedLibraryModel? = null) {
+                    chooseTarget: (String) -> Unit = {}, saved: SavedLibraryModel? = null,
+                    playPages: ((List<Track>, Track, com.xtreeroot.mb.playback.PlaybackPages) -> Unit)? = null) {
     val pages = model.searchPages(SearchScope.Music)
     val result by pages.state.collectAsStateWithLifecycle()
     val history by model.history.collectAsStateWithLifecycle()
@@ -197,7 +198,11 @@ internal fun Search(model: BrowseModel, activeSource: String, plugin: PluginSour
                     }
                     items(result.value.warnings) { Text(it, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall) }
                     items(result.value.tracks, key = Track::id) { track ->
-                        ResourceRow(track, saved) { play(result.value.tracks.filter { it.resourceUrl == null }, track) }
+                        ResourceRow(track, saved) {
+                            val queue = result.value.tracks.filter { it.resourceUrl == null }
+                            val continuation = model.searchPlaybackPages(result.value)
+                            if (continuation != null && playPages != null) playPages(queue, track, continuation) else play(queue, track)
+                        }
                     }
                     when {
                         result.loading -> item { Loading() }

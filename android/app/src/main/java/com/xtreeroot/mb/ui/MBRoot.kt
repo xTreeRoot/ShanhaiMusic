@@ -155,7 +155,8 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
     }
     val english = preferences.language.usesEnglish()
     CompositionLocalProvider(LocalMBEnglish provides english, LocalVideoBrowse provides (preferences.playbackMode == PlaybackMode.Video),
-        LocalTrackPlaybackIssues provides trackPlaybackIssues) {
+        LocalTrackPlaybackIssues provides trackPlaybackIssues,
+        LocalPlayCatalogPages provides { tracks, track, pages -> player.play(tracks, track, pages = pages) }) {
     val skinStyle = if (backgroundState.preview != null) backgroundState.previewStyle else preferences.backgroundStyle
     val skinImage = backgroundState.preview ?: backgroundState.image
     val skinOpacity = if (backgroundState.preview != null) backgroundState.previewOpacity else preferences.backgroundOpacity
@@ -491,7 +492,11 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                                                     null, { tracks, track ->
                                                         choosePlaybackMode(if (track.resourceType == "video") PlaybackMode.Video else PlaybackMode.Music)
                                                         select(tracks, track)
-                                                    }, sourceNames, target, { searchTarget = it }, saved)
+                                                    }, sourceNames, target, { searchTarget = it }, saved,
+                                                    playPages = { tracks, track, pages ->
+                                                        choosePlaybackMode(if (track.resourceType == "video") PlaybackMode.Video else PlaybackMode.Music)
+                                                        player.play(tracks, track, pages = pages)
+                                                    })
                                                 Tab.Library -> LocalLibraryView(select, selectGroup, saved)
                                                 Tab.Account -> if (pluginSource != null) PluginPersonalContent(pluginSource, catalog, pluginAccount, pluginUser,
                                                     openSettings = { showSettings = true }, openPlugins = { showPlugins = true }, openService = { showService = true })

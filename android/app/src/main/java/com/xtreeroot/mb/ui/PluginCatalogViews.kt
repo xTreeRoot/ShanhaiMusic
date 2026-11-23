@@ -69,8 +69,13 @@ import com.xtreeroot.mb.plugin.PluginEntityKind
 import com.xtreeroot.mb.plugin.PluginSearchKind
 import com.xtreeroot.mb.plugin.PluginSource
 import com.xtreeroot.mb.playback.PlaybackStation
+import com.xtreeroot.mb.playback.PlaybackPages
+import com.xtreeroot.mb.playback.playbackPages
+import androidx.compose.runtime.staticCompositionLocalOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+
+internal val LocalPlayCatalogPages = staticCompositionLocalOf<((List<Track>, Track, PlaybackPages) -> Unit)?> { null }
 
 @Composable
 internal fun PluginCatalogBrowser(source: PluginSource, destination: CatalogDestination, navigator: PluginCatalogNavigator,
@@ -166,8 +171,12 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
     })
     val tracks = page?.sections?.flatMap { it.tracks }.orEmpty()
     val station = entity?.takeIf { it.kind == PluginEntityKind.Station }?.let { PlaybackStation(source.id, it.id, it.title) }
+    val playPages = LocalPlayCatalogPages.current
+    val continuation = if (station == null && page != null) catalogPlaybackPages(source, request, page) else null
     val select: (List<Track>, Track) -> Unit = if (station != null && playStation != null) {
         { batch, track -> playStation(batch, track, station) }
+    } else if (continuation != null && playPages != null) {
+        { _, track -> playPages(tracks, track, continuation) }
     } else play
     val videoMode = LocalVideoBrowse.current
     val saveMethod = entity?.saveMethod
@@ -283,6 +292,17 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
         PlaylistDialog.Add -> if (entity != null) PluginPlaylistAddDialog(source, entity, tracks.map(Track::sourceTrackId).toSet(),
             close = { edit = null }, added = { edit = null; scope.launch { load() } })
         null -> Unit
+    }
+}
+
+private fun catalogPlaybackPages(source: PluginSource, request: PluginCatalogRequest, page: com.xtreeroot.mb.plugin.PluginCatalogPage): PlaybackPages? {
+    if (request == PluginCatalogRequest.Home) return null
+    fun cursor(value: com.xtreeroot.mb.plugin.PluginCatalogPage): Pair<PluginCatalogRequest, Int>? =
+        value.nextPage?.let { it to (value.nextOffset ?: 0) } ?: value.nextOffset?.let { request to it }
+    val next = cursor(page) ?: return null
+    return playbackPages(next, visited = setOf(request to 0)) { (destination, offset) ->
+        val loaded = source.catalog.load(destination, offset)
+        loaded.sections.flatMap { it.tracks } to cursor(loaded)
     }
 }
 

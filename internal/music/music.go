@@ -84,6 +84,12 @@ type Playlist struct {
 	Saved       bool    `json:"saved,omitempty"` // saved from someone else
 	Fixed       bool    `json:"fixed,omitempty"` // the listener's, but kept by the source: liked songs, say
 	Tracks      []Track `json:"tracks,omitempty"`
+	More        bool    `json:"more,omitempty"`
+	NextOffset  int     `json:"nextOffset,omitempty"`
+}
+
+type PlaylistPager interface {
+	PlaylistPage(id string, offset int) (*Playlist, error)
 }
 
 // ArtistPage is what an artist's page shows.
@@ -123,12 +129,13 @@ const (
 // SearchResult is a page of what a search found; only the kind searched for
 // is filled in.
 type SearchResult struct {
-	Tracks    []Track    `json:"tracks,omitempty"`
-	Albums    []Album    `json:"albums,omitempty"`
-	Artists   []Artist   `json:"artists,omitempty"`
-	Playlists []Playlist `json:"playlists,omitempty"`
-	Shows     []Show     `json:"shows,omitempty"`
-	More      bool       `json:"more,omitempty"` // there is a next page
+	Tracks     []Track    `json:"tracks,omitempty"`
+	Albums     []Album    `json:"albums,omitempty"`
+	Artists    []Artist   `json:"artists,omitempty"`
+	Playlists  []Playlist `json:"playlists,omitempty"`
+	Shows      []Show     `json:"shows,omitempty"`
+	More       bool       `json:"more,omitempty"` // there is a next page
+	NextOffset int        `json:"nextOffset,omitempty"`
 }
 
 // Len is how many things the page holds.

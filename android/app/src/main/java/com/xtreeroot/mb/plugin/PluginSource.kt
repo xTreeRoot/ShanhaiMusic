@@ -72,8 +72,7 @@ internal class PluginSource(
         return JSONTokener(data.toString(Charsets.UTF_8)).nextValue()
     }
     private val searchLock = Mutex()
-    private var searchTerm = ""
-    private val offsets = mutableMapOf<Int, Int>()
+    private val offsets = mutableMapOf<String, MutableMap<Int, Int>>()
 
     override suspend fun suggestions(query: String): List<String> {
         if (!runtime.supports("suggest")) return emptyList()
@@ -84,18 +83,14 @@ internal class PluginSource(
     override suspend fun search(query: String, page: Int): TrackPage = searchLock.withLock {
         val term = query.trim()
         if (term.isEmpty()) return TrackPage(emptyList(), false)
-        if (page == 1) {
-            searchTerm = term
-            offsets.clear()
-            offsets[1] = 0
-        }
-        val offset = offsets[page]?.takeIf { term == searchTerm } ?: throw PluginException("Search page has no previous cursor")
+        val offset = if (page == 1) 0 else offsets[term]?.get(page) ?: throw PluginException("Search page has no previous cursor")
         val result = runtime.invoke("search", JSONObject().put("query", term).put("kind", "tracks").put("offset", offset)) as? JSONObject
             ?: throw PluginException("Invalid plugin search response")
         val values = result.optJSONArray("tracks") ?: JSONArray()
         val tracks = tracks(values)
-        offsets[page + 1] = offset + values.length()
-        TrackPage(tracks, result.optBoolean("more") && tracks.isNotEmpty())
+        val next = result.catalogNextOffset(offset, values.length())
+        if (next != null) offsets.getOrPut(term) { mutableMapOf() }[page + 1] = next
+        TrackPage(tracks, next != null)
     }
 
     override suspend fun audio(trackId: String): MediaResource = media("stream", JSONObject().put("id", trackId).put("quality", ""))
@@ -155,7 +150,7 @@ internal class PluginSource(
         synchronized(accountCacheLock) { accountGeneration++; cacheAccount = null }
         runtime.clearLoginCache()
         rememberAccount(null, force = true)
-        searchLock.withLock { offsets.clear(); searchTerm = "" }
+        searchLock.withLock { offsets.clear() }
         catalog.invalidate()
     }
 
@@ -301,12 +296,12 @@ internal class PluginSource(
         val title = (value.opt("name") as? String)?.takeIf(String::isNotBlank) ?: return null
         val artists = value.optJSONArray("artists") ?: JSONArray()
         val artist = (0 until artists.length()).mapNotNull { artists.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank) }
-            .joinToString(", ")
+            .joinToString(", ", transform = ::pluginPlainTitle)
         val album = value.optJSONObject("album")
         val image = image(album?.opt("imageUrl") as? String)
         val page = value.opt("url") as? String
         val artistId = artists.optJSONObject(0)?.opt("id") as? String
-        return Track(sourceId = manifest.id, sourceTrackId = id, title = title, artist = artist,
+        return Track(sourceId = manifest.id, sourceTrackId = id, title = pluginPlainTitle(title), artist = artist,
             artworkUrl = image?.url, durationMs = value.optLong("duration").coerceAtLeast(0), pageUrl = page,
             artistId = artistId, artworkHeaders = image?.headers.orEmpty(),
             resourceType = value.optString("resourceType").takeIf { it.isNotBlank() },

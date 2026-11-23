@@ -60,7 +60,7 @@ internal data class PlaybackState(
 internal class PlaybackModel(application: Application) : AndroidViewModel(application) {
     private sealed interface PlaybackRequest
     private data class Selection(val tracks: List<Track>, val track: Track, val station: PlaybackStation?,
-                                 val shuffle: Boolean, val mode: PlaybackMode) : PlaybackRequest
+                                 val shuffle: Boolean, val mode: PlaybackMode, val pages: PlaybackPages?) : PlaybackRequest
     private data class QueueQuery(val query: String) : PlaybackRequest
 
     private val app = application as MBApplication
@@ -165,9 +165,9 @@ internal class PlaybackModel(application: Application) : AndroidViewModel(applic
 
     override fun onCleared() = releaseController()
 
-    fun play(tracks: List<Track>, selected: Track, station: PlaybackStation? = null, enableShuffle: Boolean = false) {
+    fun play(tracks: List<Track>, selected: Track, station: PlaybackStation? = null, enableShuffle: Boolean = false, pages: PlaybackPages? = null) {
         if (selected.isUnavailable) return
-        val selection = Selection(tracks, selected, station, enableShuffle, app.settings.values.value.playbackMode)
+        val selection = Selection(tracks, selected, station, enableShuffle, app.settings.values.value.playbackMode, pages)
         val player = controller
         if (player == null) {
             pendingRequest = selection.copy(tracks = tracks.toList())
@@ -208,9 +208,15 @@ internal class PlaybackModel(application: Application) : AndroidViewModel(applic
         if (index < 0) return
         selectionRevision++
         contentSelection = selected.id to selection.mode
+        val pages = selection.pages?.let(app.pendingPlaybackPages::offer)
         player.setMediaItems(playable.mapIndexed { position, track ->
             val item = track.mediaItem()
-            if (position == index && selection.station != null) item.withStation(selection.station) else item
+            when {
+                position != index -> item
+                selection.station != null -> item.withStation(selection.station)
+                pages != null -> item.withPages(pages)
+                else -> item
+            }
         }, index, 0)
         if (selection.shuffle) player.shuffleModeEnabled = true
         player.prepare()
@@ -388,6 +394,11 @@ internal class PlaybackModel(application: Application) : AndroidViewModel(applic
     private fun step(forward: Boolean) {
         val player = controller ?: return
         if (forward && atStationTail(player)) { requestStationNext(player); return }
+        if (forward && player.isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
+            contentSelection = null
+            player.seekToNextMediaItem()
+            return
+        }
         select(player.manualNeighbor(forward))
     }
 

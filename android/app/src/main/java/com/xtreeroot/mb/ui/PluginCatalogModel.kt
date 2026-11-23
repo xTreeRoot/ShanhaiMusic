@@ -120,7 +120,10 @@ internal class PluginCatalogPager {
             if (append) previous.page?.nextPage?.page?.let { visitedPages.add(it to offset) }
             if (next.nextPage?.page?.let { it to (next.nextOffset ?: 0) } in visitedPages) next = next.copy(nextPage = null, nextOffset = null)
             val page = previous.page?.takeIf { append }?.let { existing ->
-                existing.copy(sections = appendCatalogSections(existing.sections, next.sections), nextOffset = next.nextOffset, nextPage = next.nextPage)
+                val combined = appendCatalogSections(existing.sections, next.sections)
+                val duplicated = next.sections.any { it.tracks.isNotEmpty() || it.entities.isNotEmpty() || it.links.isNotEmpty() } &&
+                    combined.drop(existing.sections.size).none { it.tracks.isNotEmpty() || it.entities.isNotEmpty() || it.links.isNotEmpty() }
+                existing.copy(sections = combined, nextOffset = next.nextOffset.takeUnless { duplicated }, nextPage = next.nextPage.takeUnless { duplicated })
             } ?: next
             mutable.value = PluginCatalogStatus(page.copy(nextOffset = page.nextOffset?.takeIf { it > offset }), needsReload = false, revision = ticket)
         } catch (cancelled: CancellationException) {

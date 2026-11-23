@@ -31,7 +31,7 @@ func (p *Player) upNext() (music.Track, bool) {
 	}
 	at := p.at + 1
 	if at >= len(p.order) {
-		if p.repeat != RepeatAll || p.feed != nil {
+		if p.repeat != RepeatAll || p.hasFeed() {
 			return music.Track{}, false
 		}
 		at = 0

@@ -19,19 +19,20 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
         _ = try? await runtime.invoke("played", arguments: .object(["id": .string(track.sourceTrackID)]))
     }
     public func search(query: String, page: Int) async throws -> TrackPage {
-        if page == 1 { offsets[query] = [1: 0] }
-        guard let offset = offsets[query]?[page] else { throw PluginFailure.invalid("Search page has no previous cursor") }
+        guard let offset = page == 1 ? 0 : offsets[query]?[page] else { throw PluginFailure.invalid("Search page has no previous cursor") }
         let result = try await runtime.invoke("search", arguments: .object(["query": .string(query), "kind": .string("tracks"), "offset": .number(Double(offset))]))
         let tracks = try await tracks(result["tracks"])
-        offsets[query]?[page + 1] = offset + result["tracks"].array.count
-        return TrackPage(tracks: tracks, hasMore: result["more"] == .bool(true) && !tracks.isEmpty)
+        let next = catalogNextOffset(result, offset: offset, count: result["tracks"].array.count)
+        if let next { offsets[query, default: [:]][page + 1] = next }
+        return TrackPage(tracks: tracks, hasMore: next != nil)
     }
     public func searchVideos(query: String, offset: Int) async throws -> (page: TrackPage, nextOffset: Int) {
         let result = try await runtime.invoke("searchVideos", arguments: .object(["query": .string(query), "offset": .number(Double(offset))]))
         let rawTracks = result["tracks"]
         let count = rawTracks.array.count
-        let page = TrackPage(tracks: try await tracks(rawTracks), hasMore: result["more"] == .bool(true) && count > 0)
-        return (page, offset + count)
+        let next = catalogNextOffset(result, offset: offset, count: count)
+        let page = TrackPage(tracks: try await tracks(rawTracks), hasMore: next != nil)
+        return (page, next ?? offset)
     }
     func catalogInvoke(_ method: String, arguments: PluginJSON = .object([:]), refresh: Bool = false) async throws -> PluginJSON {
         guard case .object(var values) = arguments else { throw PluginFailure.invalid("Catalog arguments must be an object") }
@@ -77,8 +78,8 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
         let value = try await catalogInvoke("browse", arguments: .object(["page": .string(page), "offset": .number(Double(offset))]), refresh: refresh)
         var result = try await browseResult(value)
         let count = result.sections.reduce(0) { $0 + $1.tracks.count + $1.entities.count + $1.links.count }
-        if count > 0, value["more"] == .bool(true) {
-            result.nextBrowse = .init(page: page, offset: offset + count)
+        if let next = catalogNextOffset(value, offset: offset, count: count) {
+            result.nextBrowse = .init(page: page, offset: next)
         }
         // 单列表 morePage 是旧插件的续页；首页各分区的“更多”仍保留导航语义。
         if result.sections.count == 1 {
@@ -216,7 +217,7 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
         for value in values.array {
             guard let id = value["id"].string, let title = value["name"].string else { continue }
             let artists = value["artists"].array
-            var track = Track(sourceID: manifest.id, sourceTrackID: id, title: title, artist: artists.compactMap { $0["name"].string }.joined(separator: ", "), artworkURL: value["album"]["imageUrl"].string.flatMap(URL.init(string:)), durationMilliseconds: Int64(value["duration"].integer ?? 0), pageURL: value["url"].string.flatMap(URL.init(string:)))
+            var track = Track(sourceID: manifest.id, sourceTrackID: id, title: pluginPlainTitle(title), artist: artists.compactMap { $0["name"].string.map(pluginPlainTitle) }.joined(separator: ", "), artworkURL: value["album"]["imageUrl"].string.flatMap(URL.init(string:)), durationMilliseconds: Int64(value["duration"].integer ?? 0), pageURL: value["url"].string.flatMap(URL.init(string:)))
             track.unavailable = value["unavailable"] == .bool(true)
             track.unavailableReason = TrackProblem.declared(value["unavailableReason"].string)
             track.videoWidth = value["video"]["width"].integer
@@ -288,6 +289,7 @@ public struct PluginBrowse: Sendable {
     public var tabs: [Link] = []
     public var selectedTab: String? = nil
     public var nextBrowse: Cursor? = nil
+    public var nextOffset: Int? = nil
 }
 
 public extension PluginBrowse {

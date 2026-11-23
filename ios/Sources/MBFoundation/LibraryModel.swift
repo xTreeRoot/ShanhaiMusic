@@ -31,6 +31,14 @@ public final class LibraryModel {
         guard let nextCursor, !isLoading else { return }
         await load(cursor: nextCursor, generation: generation)
     }
+    public func playbackPages() -> PlaybackPageLoader? {
+        guard let nextCursor else { return nil }
+        let source = self.source, route = self.route
+        return .following(nextCursor) { cursor in
+            let page = try await source.library(route, cursor: cursor)
+            return (page.tracks, page.nextCursor)
+        }
+    }
     public func retry() async {
         guard !isLoading else { return }
         await load(cursor: failedRefresh ? nil : failedCursor, generation: generation)
