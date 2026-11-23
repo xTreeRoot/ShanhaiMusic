@@ -351,6 +351,33 @@ final class MBiOSUITests: XCTestCase {
         capture("点击资源-自动展开播放器", app: app)
     }
 
+    @MainActor func testAudioContinuesAfterBackgroundingAndPlayerControlsRecover() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launchEnvironment["MB_VIDEO_UI_FIXTURE"] = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Tests/MBFoundationTests/Fixtures/video-ui.mp4").path
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        if UIDevice.current.userInterfaceIdiom != .pad {
+            XCTAssertTrue(app.buttons["查看更多为你推荐"].waitForExistence(timeout: 10))
+            app.buttons["查看更多为你推荐"].tap()
+        }
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 晚风里的片刻")).firstMatch.tap()
+        XCTAssertTrue(app.buttons["收起"].waitForExistence(timeout: 5))
+        app.buttons["收起"].tap()
+        XCTAssertTrue(app.buttons["打开播放页，晚风里的片刻"].waitForExistence(timeout: 5))
+        app.buttons["播放"].tap()
+        XCTAssertTrue(app.buttons["暂停"].waitForExistence(timeout: 8))
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+        app.activate()
+        XCTAssertTrue(app.buttons["打开播放页，晚风里的片刻"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["暂停"].isHittable)
+        capture("后台音频-返回后继续播放", app: app)
+        app.buttons["暂停"].tap()
+        XCTAssertTrue(app.buttons["播放"].waitForExistence(timeout: 5))
+    }
+
     @MainActor func testRecentSearchRemoval() {
         continueAfterFailure = false
         let app = XCUIApplication()

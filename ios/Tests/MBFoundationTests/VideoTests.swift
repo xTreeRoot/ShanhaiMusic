@@ -452,13 +452,55 @@ private actor RestoredSession: PlaybackSessionStore {
     model.preloadCurrent()
     await model.waitUntilLoaded()
     #expect(model.isReady && !model.isVisible && model.aspectRatio == 9.0 / 16)
-    #expect(engine.loads.count == 1)
+    model.sync(positionMilliseconds: 45_000, playing: true)
+    #expect(engine.loads.count == 1 && !engine.isPlaying && engine.positions == [1_200])
     model.watchCurrent()
     #expect(model.isVisible && model.isReady && engine.loads.count == 1)
+    #expect(engine.isPlaying && engine.positions.last == 45_000)
     model.updateTrack(videoTracks[1])
     #expect(!model.isReady)
     await model.waitUntilLoaded()
     #expect(engine.loads.count == 2)
+}
+
+@Test @MainActor func backgroundReleasesHiddenVideoButCanPrepareOnReturn() async {
+    let source = VideoFixture(), engine = TestVideo()
+    let model = VideoModel(source: source, engine: engine)
+    model.updateTrack(videoTracks[0])
+    model.sync(positionMilliseconds: 1_200, playing: true)
+    model.preloadCurrent()
+    await model.waitUntilLoaded()
+    let stopped = engine.stopped
+    model.suspendPreloading()
+    #expect(!model.isReady && engine.stopped == stopped + 1)
+    model.preloadCurrent()
+    await model.waitUntilLoaded()
+    #expect(model.isReady && engine.loads.count == 2 && !engine.isPlaying)
+}
+
+@Test @MainActor func carAudioCancelsVideoBlocksNewRequestsAndPreservesModePreference() async {
+    let source = VideoFixture(), engine = TestVideo()
+    let model = VideoModel(source: source, engine: engine, store: source)
+    await model.choose(.video)
+    model.handleSelection(videoTracks[0], intent: .content, positionMilliseconds: 0, playing: true)
+    await model.waitUntilLoaded()
+    #expect(model.isVisible && engine.isPlaying)
+    model.setAudioOnly(true)
+    #expect(!model.isVisible && !model.isReady && !engine.isPlaying)
+    model.handleSelection(videoTracks[1], intent: .content, positionMilliseconds: 15_000, playing: true)
+    model.preloadCurrent()
+    model.watchCurrent()
+    model.preloadNext(videoTracks[0], enabled: true)
+    await model.waitUntilLoaded()
+    #expect(model.presentationMode == .music && model.mode == .video && !model.isLoading)
+    #expect(await source.calls() == ["one"])
+    model.setAudioOnly(false)
+    #expect(!model.isVisible)
+    #expect(await source.calls() == ["one"])
+    model.watchCurrent()
+    await model.waitUntilLoaded()
+    #expect(model.isVisible && engine.isPlaying && engine.positions.last == 15_000)
+    #expect(await source.calls() == ["one", "two"])
 }
 
 @Test @MainActor func nativeVideoMeasuresPortraitTrackAndClearsGeometryOnStop() async throws {

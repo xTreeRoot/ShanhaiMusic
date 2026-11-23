@@ -12,8 +12,9 @@ struct RetroArtworkView: View {
     var size: CGFloat = 280
     @State private var sampled = Date()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !playing || reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !playing || reduceMotion || scenePhase != .active)) { context in
             let seconds = Double(positionMilliseconds) / 1_000 + (playing ? max(0, context.date.timeIntervalSince(sampled)) : 0)
             let turn = reduceMotion ? 0 : seconds.truncatingRemainder(dividingBy: 360) * (style == .vinyl ? 200 : 150)
             Group {

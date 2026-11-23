@@ -19,8 +19,22 @@ public final class PlaybackModel {
     public private(set) var selectionIntent: PlaybackSelectionIntent = .content
     public private(set) var state: PlaybackState = .paused
     public private(set) var audioBuffering = false
-    public private(set) var positionMilliseconds: Int64 = 0
-    public private(set) var bassLevel = 0.0
+    @ObservationIgnored public private(set) var positionMilliseconds: Int64 {
+        get { access(keyPath: \.positionMilliseconds); return clockPosition }
+        set {
+            guard clockPosition != newValue else { return }
+            if progressObservationEnabled { withMutation(keyPath: \.positionMilliseconds) { clockPosition = newValue } }
+            else { clockPosition = newValue }
+        }
+    }
+    @ObservationIgnored public private(set) var bassLevel: Double {
+        get { access(keyPath: \.bassLevel); return clockBass }
+        set {
+            guard clockBass != newValue else { return }
+            if progressObservationEnabled { withMutation(keyPath: \.bassLevel) { clockBass = newValue } }
+            else { clockBass = newValue }
+        }
+    }
     public private(set) var durationMilliseconds: Int64 = 0
     public private(set) var timeline = CaptionTimeline(lines: [])
     public private(set) var errorMessage: String?
@@ -29,6 +43,9 @@ public final class PlaybackModel {
     public private(set) var controlRevision = 0
     public private(set) var station: PlaybackStation?
     @ObservationIgnored public var stateDidChange: (() -> Void)?
+    @ObservationIgnored private var clockPosition: Int64 = 0
+    @ObservationIgnored private var clockBass = 0.0
+    @ObservationIgnored private var progressObservationEnabled = true
     @ObservationIgnored private let source: (any PlaybackSource)?
     @ObservationIgnored private let engine: any AudioEngine
     @ObservationIgnored private let preloader: NextAudioPreloader
@@ -362,6 +379,15 @@ public final class PlaybackModel {
         if durationMilliseconds == 0 || Double(positionMilliseconds) / Double(durationMilliseconds) < 0.7 { preloader.cancel() }
         if ready { engine.seek(to: positionMilliseconds) }
         persistSoon()
+    }
+
+    public func setProgressObservationEnabled(_ enabled: Bool) {
+        guard progressObservationEnabled != enabled else { return }
+        progressObservationEnabled = enabled
+        if enabled {
+            withMutation(keyPath: \.positionMilliseconds) {}
+            withMutation(keyPath: \.bassLevel) {}
+        }
     }
 
     public func tick() {

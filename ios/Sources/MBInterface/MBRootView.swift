@@ -170,7 +170,7 @@ public struct MBRootView: View {
                 } }
             }
             .preferredColorScheme(preferences.values.appearance == .system ? nil : preferences.values.appearance == .dark ? .dark : .light)
-            .playerPresentation(isPresented: $showingPlayer) { NowPlayingView(playback: playback, demo: demo, interactionSource: currentInteractions, librarySource: currentLibrarySource, pluginSource: currentPluginSource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: { video.watchCurrent() }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
+            .playerPresentation(isPresented: $showingPlayer) { NowPlayingView(playback: playback, demo: demo, interactionSource: currentInteractions, librarySource: currentLibrarySource, pluginSource: currentPluginSource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: video.isAudioOnly ? nil : { video.watchCurrent() }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
             .sheet(isPresented: $showingQueue) { QueueView(playback: playback) }
             .sheet(isPresented: $showingService) { ShanhaiServiceView(model: platformData, account: verifiedProfileAccount, platform: selectedSourceID) }
             .sheet(isPresented: $showingAppSettings) { SettingsView(preferences: preferences, network: networkSettings, plugins: plugins, skin: skin) }
@@ -216,8 +216,18 @@ public struct MBRootView: View {
             }
             .task {
                 if demo { await router.register(initialSource, id: initialSourceID) }
-                if !demo { await plugins.restore(); await registerPlugins() }
-                if !demo { systemPlayback.connect(playback) }
+                if !demo {
+                    #if os(iOS)
+                    systemPlayback.connect(playback) { [video, pictureInPicture] audioOnly in
+                        video.setAudioOnly(audioOnly)
+                        if audioOnly { pictureInPicture.stop() }
+                    }
+                    #else
+                    systemPlayback.connect(playback)
+                    #endif
+                    await plugins.restore()
+                    await registerPlugins()
+                }
                 if !demo { await networkSettings.restore() }
                 if !demo { await preferences.restore(); if let saved = preferences.values.selectedSourceID { selectedSourceID = saved }; playback.setVolume(preferences.values.volume); playback.setNormalization(preferences.values.normalization) }
                 if !demo { systemPlayback.setLyricsEnabled(preferences.values.nowPlayingLyrics) }
@@ -282,12 +292,38 @@ public struct MBRootView: View {
             .onChange(of: selectedTab) { _, _ in inputFocused = false }
             .onChange(of: plugins.revision) { _, _ in video.invalidatePreload(); Task { await registerPlugins() } }
             .onChange(of: account.revision) { _, _ in video.invalidatePreload() }
-            .onChange(of: playback.positionMilliseconds) { _, _ in syncVideoClock() }
-            .onChange(of: playback.audioBuffering) { _, _ in syncVideoClock() }
+            .background {
+                if !video.isAudioOnly { PlaybackClockObserver(playback: playback, sync: syncVideoClock) }
+            }
             .onChange(of: video.isLoading) { _, _ in syncVideoClock() }
             .onChange(of: video.isBuffering) { _, _ in syncVideoClock() }
-            .onChange(of: scenePhase) { _, phase in
-                if phase != .active { Task { await playback.saveNow(); if !demo { await preferences.flush() } } }
+            #if os(iOS)
+            .onChange(of: video.errorMessage != nil) { _, failed in
+                if !demo && failed { AppPersistence.shared.logPlayback(.videoFailed) }
+            }
+            #endif
+            .onChange(of: scenePhase, initial: true) { previous, phase in
+                #if os(iOS)
+                if !demo {
+                    switch phase {
+                    case .active: AppPersistence.shared.logPlayback(.sceneActive)
+                    case .inactive: AppPersistence.shared.logPlayback(.sceneInactive)
+                    case .background: AppPersistence.shared.logPlayback(.sceneBackground)
+                    @unknown default: break
+                    }
+                }
+                #endif
+                playback.setProgressObservationEnabled(phase == .active)
+                if phase == .active { syncVideoClock() }
+                else {
+                    video.suspendPreloading()
+                    if previous != phase {
+                        Task {
+                            if playback.queue.current != nil { await playback.saveNow() }
+                            if !demo { await preferences.flush() }
+                        }
+                    }
+                }
             }
             .onChange(of: preferences.values) { _, _ in
                 AppLocalization.use(preferences.values.language)
@@ -339,7 +375,9 @@ public struct MBRootView: View {
     }
 
     private func syncVideoClock() {
+        guard !video.isAudioOnly else { return }
         video.sync(positionMilliseconds: playback.positionMilliseconds, playing: playback.state == .playing && !playback.audioBuffering)
+        guard scenePhase == .active else { return }
         if !video.isVisible && !video.isFloating { video.preloadCurrent() }
         let next = playback.queue.nextIndex(automatic: true).map { playback.queue.tracks[$0] }
         let eligible = playback.state == .playing && !playback.audioBuffering && playback.durationMilliseconds > 0 &&
@@ -725,6 +763,7 @@ public struct MBRootView: View {
         if preferences.values.inAppVideoWindow { video.minimize() } else { video.browse() }
     }
     private func showVideo() {
+        guard video.isVisible else { return }
         if selectedTab == .search { if searchPath.last != .video { searchPath.append(.video) } }
         else { selectedTab = .discover; if path.last != .video { path.append(.video) } }
     }
@@ -776,6 +815,22 @@ public struct MBRootView: View {
             if !term.isEmpty { preferences.values.searchHistory = Array(([term] + preferences.values.searchHistory.filter { $0 != term }).prefix(20)) }
         } else { preferences.recordSearch(input) }
         request = SearchRequest(model: search, query: input)
+    }
+}
+
+private struct PlaybackClockObserver: View {
+    @Environment(\.scenePhase) private var scenePhase
+    let playback: PlaybackModel
+    let sync: () -> Void
+
+    var body: some View {
+        if scenePhase == .active {
+            Color.clear
+                .onChange(of: playback.positionMilliseconds) { _, _ in sync() }
+                .onChange(of: playback.audioBuffering) { _, _ in sync() }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 }
 

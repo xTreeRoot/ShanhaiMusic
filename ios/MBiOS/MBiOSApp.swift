@@ -14,6 +14,7 @@ struct MBiOSApp: App {
         #else
         demo = false
         #endif
+        if !demo { AppPersistence.shared.logPlayback(.launch) }
     }
 
     var body: some Scene {

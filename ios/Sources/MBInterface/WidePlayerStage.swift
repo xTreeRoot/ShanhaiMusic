@@ -107,6 +107,7 @@ private struct RhythmLyrics: View {
     let message: String?
     let seek: (Int64) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     var body: some View {
         if timeline.lines.isEmpty {
             ContentUnavailableView("暂无字幕", systemImage: "quote.bubble", description: Text(message ?? "此视频没有提供可用字幕"))
@@ -115,7 +116,7 @@ private struct RhythmLyrics: View {
             let line = timeline.lines[index]
             VStack(spacing: 20) {
                 Spacer(minLength: 4)
-                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || !playing)) { context in
+                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || !playing || scenePhase != .active)) { context in
                     let phase = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate * 2.4
                     RhythmWordLayout {
                         ForEach(Array(line.timedWords.enumerated()), id: \.offset) { offset, word in

@@ -25,9 +25,20 @@ public protocol PlaybackSessionStore: Sendable {
     func saveSession(_ session: PlaybackSession) async throws
 }
 
+public enum PlaybackDiagnosticEvent: String, Codable, Sendable {
+    case launch, sceneActive, sceneInactive, sceneBackground
+    case carAudio, otherAudio
+    case audioLoading, audioPlaying, audioPaused, audioFailed, videoFailed
+}
+
 /// 数据仅在本 App 的沙盒，不读取桌面会话，也不保存临时播放地址。
 public actor AppPersistence: PlaybackSessionStore, PlaybackModeStore {
     private struct ProxyHosts: Codable { let hosts: [String]; let version: Int? }
+    struct PlaybackDiagnostic: Codable {
+        let timestamp: String
+        let build: String?
+        let event: PlaybackDiagnosticEvent
+    }
     public static let shared = AppPersistence()
     private let directory: URL
     public init(directory: URL? = nil) {
@@ -37,6 +48,20 @@ public actor AppPersistence: PlaybackSessionStore, PlaybackModeStore {
 
     public func loadSession() throws -> PlaybackSession? { try load(PlaybackSession.self, name: "playback.json") }
     public func saveSession(_ session: PlaybackSession) throws { try save(session, name: "playback.json") }
+
+    public nonisolated func logPlayback(_ event: PlaybackDiagnosticEvent) {
+        let timestamp = Date.now
+        Task(priority: .utility) { try? await writePlaybackDiagnostic(event, at: timestamp) }
+    }
+
+    func writePlaybackDiagnostic(_ event: PlaybackDiagnosticEvent, at timestamp: Date) throws {
+        let name = "playback-diagnostics.json"
+        var recent = (try? load([PlaybackDiagnostic].self, name: name)) ?? []
+        recent.append(PlaybackDiagnostic(timestamp: timestamp.ISO8601Format(.init(includingFractionalSeconds: true)),
+            build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String, event: event))
+        try save(Array(recent.sorted { $0.timestamp < $1.timestamp }.suffix(128)), name: name)
+    }
+
     public func loadProxyHosts() throws -> [String]? {
         let file = "proxy-hosts.json"
         do {

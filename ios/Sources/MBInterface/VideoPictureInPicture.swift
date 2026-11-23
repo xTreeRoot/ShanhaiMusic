@@ -43,6 +43,9 @@ import SwiftUI
         starting = true
         controller?.startPictureInPicture()
     }
+    func stop() {
+        if running { controller?.stopPictureInPicture() }
+    }
     func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
         starting = true; restoring = false
         video?.setSystemControlled(true)
@@ -77,7 +80,7 @@ import SwiftUI
         clockTask?.cancel(); clockTask = nil
         active = false; starting = false
         video?.setSystemControlled(false)
-        if !restoring, UIApplication.shared.applicationState == .background {
+        if !restoring, video?.isAudioOnly != true, UIApplication.shared.applicationState == .background {
             playback?.pause(); video?.browse()
         }
         if let video, let playback {

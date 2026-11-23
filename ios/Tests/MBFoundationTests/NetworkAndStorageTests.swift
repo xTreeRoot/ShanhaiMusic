@@ -47,6 +47,24 @@ func proxyRejectsInvalidDomains(_ value: String) {
     #expect(!json.contains("audioURL"))
 }
 
+@Test func playbackDiagnosticsKeepRecentEventsAcrossStoreRecreation() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = AppPersistence(directory: directory)
+    let start = Date(timeIntervalSince1970: 1_700_006_397)
+    try await store.writePlaybackDiagnostic(.sceneBackground, at: start.addingTimeInterval(128))
+    for offset in 0..<128 {
+        try await store.writePlaybackDiagnostic(.audioPlaying, at: start.addingTimeInterval(Double(offset)))
+    }
+    let reopened = AppPersistence(directory: directory)
+    try await reopened.writePlaybackDiagnostic(.launch, at: start.addingTimeInterval(129))
+    let contents = try Data(contentsOf: directory.appendingPathComponent("playback-diagnostics.json"))
+    let events = try JSONDecoder().decode([AppPersistence.PlaybackDiagnostic].self, from: contents)
+    #expect(events.count == 128)
+    #expect(events.first?.timestamp == "2023-11-14T23:59:59.000Z")
+    #expect(events.suffix(2).map(\.event) == [.sceneBackground, .launch])
+}
+
 @Test func postRedirectsKeepSameOriginBodyButNeverForwardCSRFToAnotherHost() throws {
     let url = URL(string: "https://api.bilibili.com/write")!
     var request = URLRequest(url: url)

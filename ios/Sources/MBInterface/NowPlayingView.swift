@@ -14,7 +14,7 @@ struct NowPlayingView: View {
     var accountRevision = 0
     var downloads: DownloadModel? = nil
     var preferences: PreferencesModel? = nil
-    let watchVideo: () -> Void
+    let watchVideo: (() -> Void)?
     @Environment(\.backgroundSkinImage) private var skinImage
     @Environment(\.backgroundSkinStyle) private var skinStyle
     @Environment(\.skinAccent) private var skinAccent
@@ -208,7 +208,7 @@ struct NowPlayingView: View {
             Spacer(minLength: 0)
             Text(LocalizedStringKey(demo ? "界面演示" : "正在播放")).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
             Spacer(minLength: 0)
-            if track.localFileID == nil {
+            if track.localFileID == nil, let watchVideo {
                 Button("观看当前视频", systemImage: "play.rectangle", action: watchVideo)
                     .labelStyle(.iconOnly).frame(width: 44, height: 44)
             }
@@ -271,7 +271,7 @@ struct NowPlayingView: View {
                         .accessibilityAddTraits(wideSection == section ? .isSelected : [])
                 }
                 Spacer(minLength: 0)
-                if track.localFileID == nil {
+                if track.localFileID == nil, let watchVideo {
                     Button("观看当前视频", systemImage: "play.rectangle", action: watchVideo).labelStyle(.iconOnly).frame(width: 44, height: 44)
                 }
                 styleMenu

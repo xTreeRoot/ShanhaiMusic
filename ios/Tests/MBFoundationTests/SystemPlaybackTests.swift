@@ -1,6 +1,8 @@
 import Foundation
 @testable import MBFoundation
 @preconcurrency import MediaPlayer
+import Observation
+import os
 import Testing
 
 private let systemTracks = [
@@ -45,13 +47,14 @@ private actor SystemSource: PlaybackSource {
 @MainActor private final class SystemClock: AudioEngine, AudioEngineEvents, AudioEngineStreaming {
     var onUpdate: (() -> Void)?
     var position: Int64 = 0
+    var bassLevel = 0.0
     func load(url: URL, at milliseconds: Int64) { position = milliseconds }
     func load(resource: MediaResource, at milliseconds: Int64) { position = milliseconds }
     func play() {}
     func pause() {}
     func stop() { position = 0 }
     func seek(to milliseconds: Int64) { position = milliseconds }
-    func snapshot() -> AudioEngineSnapshot { AudioEngineSnapshot(positionMilliseconds: position, durationMilliseconds: 10_000) }
+    func snapshot() -> AudioEngineSnapshot { AudioEngineSnapshot(positionMilliseconds: position, durationMilliseconds: 10_000, bassLevel: bassLevel) }
     func advance(to milliseconds: Int64) { position = milliseconds; onUpdate?() }
 }
 
@@ -121,6 +124,33 @@ private actor SystemSource: PlaybackSource {
         #expect(f.info.value?[MPMediaItemPropertyPlaybackDuration] as? Double == 10)
         f.playback.play()
         #expect(f.info.rate == 1)
+    }
+
+    @Test @MainActor func backgroundAudioUpdatesLyricsButDoesNotInvalidateProgressUntilResume() async {
+        let fixture = SystemFixture()
+        defer { fixture.coordinator.disconnect() }
+        let playback = fixture.playback
+        playback.select(systemTracks, index: 0)
+        await playback.waitUntilLoaded()
+
+        let positionChanges = OSAllocatedUnfairLock(initialState: 0)
+        let bassChanges = OSAllocatedUnfairLock(initialState: 0)
+        withObservationTracking { _ = playback.positionMilliseconds } onChange: { positionChanges.withLock { $0 += 1 } }
+        withObservationTracking { _ = playback.bassLevel } onChange: { bassChanges.withLock { $0 += 1 } }
+        playback.setProgressObservationEnabled(false)
+        fixture.clock.bassLevel = 0.5
+        fixture.clock.advance(to: 1_100)
+        #expect(fixture.info.title == "First line")
+        fixture.clock.advance(to: 1_400)
+        #expect(fixture.info.title == "Second line" && fixture.info.rate == 1)
+        #expect(playback.positionMilliseconds == 1_400 && playback.bassLevel == 0.5)
+        #expect(positionChanges.withLock { $0 } == 0 && bassChanges.withLock { $0 } == 0)
+
+        playback.setProgressObservationEnabled(true)
+        #expect(positionChanges.withLock { $0 } == 1 && bassChanges.withLock { $0 } == 1)
+        withObservationTracking { _ = playback.positionMilliseconds } onChange: { positionChanges.withLock { $0 += 1 } }
+        fixture.clock.advance(to: 1_600)
+        #expect(positionChanges.withLock { $0 } == 2 && playback.positionMilliseconds == 1_600)
     }
 
     @Test @MainActor func gapsBlankLinesAndSwitchingKeepSongNameInSubtitle() async {

@@ -28,6 +28,7 @@ public extension VideoEngine {
 @MainActor @Observable public final class VideoModel {
     public private(set) var mode: PlaybackMode = .music
     public private(set) var presentationMode: PlaybackMode = .music
+    public private(set) var isAudioOnly = false
     public private(set) var isVisible = false
     public private(set) var isFloating = false
     public private(set) var systemControlled = false
@@ -130,7 +131,7 @@ public extension VideoEngine {
             self.track = track
             position = positionMilliseconds
             self.playing = playing
-            presentationMode = track?.localFileID == nil ? mode : .music
+            presentationMode = !isAudioOnly && track?.localFileID == nil ? mode : .music
             isFloating = false
             isVisible = presentationMode == .video && track != nil
             if isVisible || isFloating { load() }
@@ -142,14 +143,15 @@ public extension VideoEngine {
 
     public func open() {
         defer { updatePlaybackHold() }
-        guard presentationMode == .video, track != nil else { return }
+        guard !isAudioOnly, presentationMode == .video, track != nil else { return }
         isFloating = false; isVisible = true
-        if !isReady && task == nil { load() }
+        if isReady { sync(positionMilliseconds: position, playing: playing) }
+        else if task == nil { load() }
     }
 
     /// 音频已播放后后台准备同一条静音视频，打开时复用已加载的播放器。
     public func preloadCurrent() {
-        guard !isVisible, playing, !isReady, task == nil, !warmAttempted,
+        guard !isAudioOnly, !isVisible, playing, !isReady, task == nil, !warmAttempted,
               let track, track.localFileID == nil else { return }
         warmAttempted = true
         load(warming: true)
@@ -157,13 +159,30 @@ public extension VideoEngine {
 
     /// 当前画面稳定且临近结尾才准备下一条，缓冲或队列变更立即取消。
     public func preloadNext(_ next: Track?, enabled: Bool) {
-        nextPreloader.update(next: next, quality: qualityID, enabled: enabled && engine is NativeVideoEngine && !isLoading && !isBuffering)
+        nextPreloader.update(next: next, quality: qualityID, enabled: !isAudioOnly && enabled && engine is NativeVideoEngine && !isLoading && !isBuffering)
     }
 
     public func invalidatePreload() { nextPreloader.cancel() }
 
+    public func suspendPreloading() {
+        nextPreloader.cancel()
+        guard !isVisible, !isFloating, !systemControlled, isLoading || isReady else { return }
+        release()
+        warmAttempted = false
+    }
+
+    public func setAudioOnly(_ enabled: Bool) {
+        guard isAudioOnly != enabled else { return }
+        isAudioOnly = enabled
+        if enabled {
+            presentationMode = .music
+            browse()
+            warmAttempted = false
+        }
+    }
+
     public func watchCurrent() {
-        guard let track, track.localFileID == nil else { return }
+        guard !isAudioOnly, let track, track.localFileID == nil else { return }
         presentationMode = .video
         open()
     }
@@ -191,7 +210,7 @@ public extension VideoEngine {
         defer { updatePlaybackHold() }
         position = positionMilliseconds
         self.playing = playing
-        guard isReady else { return }
+        guard (isVisible || isFloating), isReady else { return }
         refreshEngineStatus()
         guard isReady else { return }
         if !systemControlled { engine.sync(positionMilliseconds: position, playing: playing) }
@@ -225,7 +244,7 @@ public extension VideoEngine {
     public func waitUntilLoaded() async { await task?.value }
 
     private func load(warming: Bool = false) {
-        guard isVisible || isFloating || warming, let track, let source else { return }
+        guard !isAudioOnly, isVisible || isFloating || warming, let track, let source else { return }
         generation += 1
         let current = generation
         isLoading = true
@@ -249,7 +268,7 @@ public extension VideoEngine {
                 if let prepared, let native = engine as? NativeVideoEngine { try await native.load(prepared: prepared, at: position) }
                 else { prepared?.cancel(); try await engine.load(resource: resource, at: position) }
                 guard current == generation, !Task.isCancelled else { return }
-                engine.sync(positionMilliseconds: position, playing: playing)
+                if isVisible || isFloating { engine.sync(positionMilliseconds: position, playing: playing) }
                 measuredAspectRatio = engine.aspectRatio
                 isReady = true
                 isBuffering = engine.isBuffering

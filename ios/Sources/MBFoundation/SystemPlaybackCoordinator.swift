@@ -29,6 +29,11 @@ import AppKit
     private var artworkTrack: String?
     private var artwork: MPMediaItemArtwork?
     private var artworkTask: Task<Void, Never>?
+    #if os(iOS)
+    private var audioRouteObserver: NSObjectProtocol?
+    private var lastCarAudio: Bool?
+    private var lastLoggedState: PlaybackState?
+    #endif
 
     public override init() {
         publish = { info, state in
@@ -49,7 +54,7 @@ import AppKit
         update()
     }
 
-    public func connect(_ playback: PlaybackModel) {
+    public func connect(_ playback: PlaybackModel, onCarAudioChanged: (@MainActor (Bool) -> Void)? = nil) {
         guard self.playback == nil else { return }
         self.playback = playback
         playback.stateDidChange = { [weak self] in self?.update() }
@@ -74,7 +79,16 @@ import AppKit
         commands.append((center.changePlaybackPositionCommand, token))
         #if os(iOS)
         NotificationCenter.default.addObserver(self, selector: #selector(interruption(_:)), name: AVAudioSession.interruptionNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(routeChanged(_:)), name: AVAudioSession.routeChangeNotification, object: nil)
+        audioRouteObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { [weak self] notification in
+            let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            let disconnected = raw == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue
+            Task { @MainActor [weak self] in
+                guard let self, self.playback != nil else { return }
+                let audioOnly = self.updateCarAudio(onChange: onCarAudioChanged)
+                if disconnected && !audioOnly { self.pauseAfterRouteLoss() }
+            }
+        }
+        updateCarAudio(onChange: onCarAudioChanged)
         #endif
         update()
     }
@@ -90,6 +104,19 @@ import AppKit
 
     private func update() {
         let hasTrack = playback?.queue.current != nil
+        #if os(iOS)
+        let state = hasTrack ? playback?.state : nil
+        if lastLoggedState != state {
+            lastLoggedState = state
+            switch state {
+            case .loading: AppPersistence.shared.logPlayback(.audioLoading)
+            case .playing: AppPersistence.shared.logPlayback(.audioPlaying)
+            case .paused: AppPersistence.shared.logPlayback(.audioPaused)
+            case .failed: AppPersistence.shared.logPlayback(.audioFailed)
+            case nil: break
+            }
+        }
+        #endif
         for (command, _) in commands { command.isEnabled = hasTrack }
         MPRemoteCommandCenter.shared().nextTrackCommand.isEnabled = hasTrack && ((playback?.queue.tracks.count ?? 0) > 1 || playback?.station != nil)
         MPRemoteCommandCenter.shared().previousTrackCommand.isEnabled = hasTrack && (playback?.queue.tracks.count ?? 0) > 1
@@ -152,6 +179,12 @@ import AppKit
         for (command, token) in commands { command.removeTarget(token); command.isEnabled = false }
         commands.removeAll()
         NotificationCenter.default.removeObserver(self)
+        #if os(iOS)
+        if let audioRouteObserver { NotificationCenter.default.removeObserver(audioRouteObserver) }
+        audioRouteObserver = nil
+        lastCarAudio = nil
+        lastLoggedState = nil
+        #endif
         artworkTask?.cancel(); artworkTask = nil
         playback?.stateDidChange = nil; playback = nil
         artwork = nil; artworkTrack = nil; infoKey = nil
@@ -174,9 +207,17 @@ import AppKit
             interruptedRevision = nil; interruptedTrack = nil
         }
     }
-    @objc private func routeChanged(_ notification: Notification) {
-        guard let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
-              AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable else { return }
+    @discardableResult private func updateCarAudio(onChange: (@MainActor (Bool) -> Void)?) -> Bool {
+        let audioOnly = AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .carAudio }
+        if audioOnly != lastCarAudio {
+            lastCarAudio = audioOnly
+            AppPersistence.shared.logPlayback(audioOnly ? .carAudio : .otherAudio)
+            onChange?(audioOnly)
+        }
+        return audioOnly
+    }
+
+    private func pauseAfterRouteLoss() {
         interruptedRevision = nil; interruptedTrack = nil
         playback?.pause()
     }
