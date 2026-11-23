@@ -15,8 +15,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/audio"
-	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/mbvideo"
+	"github.com/egoist/mygo/ui"
 	"mygo-music/internal/music"
 	"mygo-music/internal/player"
 )
@@ -208,7 +208,7 @@ func TestMenuBarNativeVideo(t *testing.T) {
 		t.Fatal("video did not reach the status bar image")
 	}
 	combined := menuBarImage(t, b)
-	if combined.Bounds().Dx() != (240+menuBarVideoPoints+menuBarIconGap)*menuBarScale {
+	if combined.Bounds().Dx() != (menuBarStyle{video: true}).imageWidth(240)*menuBarScale {
 		t.Fatal("video changed lyric viewport width")
 	}
 	colored := false
@@ -243,11 +243,13 @@ func TestMenuBarNativeVideo(t *testing.T) {
 
 // Video loading, failures, and new frames keep the left slot and lyric viewport fixed.
 func TestMenuBarVideoWidthAndAppearance(t *testing.T) {
+	const width = 240
+	const expected = (width + menuBarVideoPoints + menuBarIconGap + menuBarControlGap + 3*menuBarControlWidth) * menuBarScale
 	var renderer menuBarRenderer
 	preview := image.NewRGBA(image.Rect(0, 0, 64, 36))
 	for _, style := range []menuBarStyle{{video: true}, {video: true, preview: preview}, {video: true, dark: true, preview: preview}} {
-		b, _ := renderer.frame("short", 0, 240, true, style)
-		if menuBarImage(t, b).Bounds().Dx() != 556 {
+		b, _ := renderer.frame("short", 0, width, true, style)
+		if menuBarImage(t, b).Bounds().Dx() != expected {
 			t.Fatal("preview loading or appearance resized the status item")
 		}
 	}

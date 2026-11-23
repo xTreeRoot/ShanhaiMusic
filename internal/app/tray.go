@@ -86,13 +86,23 @@ func (a *app) applyTray() {
 		if runtime.GOOS == "darwin" {
 			icon, template = trayTemplate, true
 		}
-		t, err := mygo.NewTray(mygo.TrayOptions{ID: "mb", Icon: icon, IconIsTemplate: template, ToolTip: mygo.App.Name(), Menu: a.trayMenu()})
+		options := mygo.TrayOptions{ID: "mb", Icon: icon, IconIsTemplate: template, ToolTip: mygo.App.Name()}
+		if !a.trayHasInlineControls() {
+			options.Menu = a.trayMenu()
+		}
+		t, err := mygo.NewTray(options)
 		if err != nil {
 			log.Println("tray:", err)
 			return
 		}
-		// Windows' left click, where the right one opens the menu.
-		t.OnClick(a.showMain)
+		t.OnClick(a.trayClick)
+		if runtime.GOOS == "darwin" {
+			t.OnRightClick(func() {
+				if a.trayHasInlineControls() {
+					a.trayMenu().Popup(nil)
+				}
+			})
+		}
 		t.OnAppearanceChange(a.updateTrayLyric)
 		a.tray = t
 		a.trayLyrics, a.trayTip = menuBarRenderer{}, ""
@@ -104,10 +114,29 @@ func (a *app) applyTray() {
 	}
 }
 
+func (a *app) trayHasInlineControls() bool {
+	return runtime.GOOS == "darwin" && a.settings.MenuBarLyrics
+}
+
+func (a *app) trayClick() {
+	if !a.trayHasInlineControls() || a.tray == nil {
+		a.showMain()
+		return
+	}
+	action := a.trayLyrics.actionAt(a.tray.Bounds(), mygo.Screen.CursorScreenPoint())
+	if !a.runMenuBarAction(action) {
+		a.trayMenu().Popup(nil)
+	}
+}
+
 // refreshTray gives the icon its menu anew, as in another language.
 func (a *app) refreshTray() {
 	if a.tray != nil {
-		a.tray.SetMenu(a.trayMenu())
+		if a.trayHasInlineControls() {
+			a.tray.SetMenu(nil)
+		} else {
+			a.tray.SetMenu(a.trayMenu())
+		}
 		a.updateTrayLyric()
 	}
 }

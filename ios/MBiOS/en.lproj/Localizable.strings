@@ -340,6 +340,9 @@
 "等待视频画面" = "Waiting for video frame";
 "一键导入/覆盖" = "Import / Replace Plugins";
 "GitHub 星标列表地址" = "GitHub Stars list URL";
+"插件仓库或列表网页地址" = "Plugin repository or catalog web address";
+"请输入插件仓库或列表网页地址" = "Enter a plugin repository or catalog web address";
+"没有找到插件仓库链接" = "No plugin repository links found";
 "解析列表" = "Read List";
 "导入/覆盖" = "Import / Replace";
 "正在解析 GitHub 星标列表" = "Reading GitHub Stars list";

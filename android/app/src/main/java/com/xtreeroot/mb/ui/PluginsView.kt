@@ -114,7 +114,7 @@ internal fun PluginsView(model: PluginManagerModel, state: PluginManagerState, r
             Text(if (batchImport) mb("一键导入/覆盖", "Import / Overwrite") else mb("从 GitHub 安装", "Install from GitHub"))
         },
         text = { OutlinedTextField(repository, { repository = it }, label = {
-            Text(if (batchImport) mb("GitHub 仓库或 Stars 列表地址", "GitHub repository or Stars list URL") else "owner/repository")
+            Text(if (batchImport) mb("插件仓库或列表网页地址", "Plugin repository or catalog web address") else "owner/repository")
         }, singleLine = true) },
         confirmButton = { TextButton(onClick = {
             showGitHub = false

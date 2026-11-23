@@ -30,7 +30,7 @@ func menuBarImage(t *testing.T, b []byte) image.Image {
 func TestMenuBarFixedViewport(t *testing.T) {
 	var renderer menuBarRenderer
 	width := 240
-	expected := image.Rect(0, 0, (width+menuBarIconPoints+menuBarIconGap)*menuBarScale, menuBarHeightPoints*menuBarScale)
+	expected := image.Rect(0, 0, (menuBarStyle{}).imageWidth(width)*menuBarScale, menuBarHeightPoints*menuBarScale)
 	for _, text := range []string{"短句", "i.W 演出红尘一响，凡人又要再等一周！", strings.Repeat("很长的歌词Mixed i.W! ", 6), ""} {
 		b, changed := renderer.frame(text, 0, width, true, menuBarStyle{})
 		if !changed {
@@ -47,7 +47,7 @@ func TestMenuBarFixedViewport(t *testing.T) {
 		}
 	}
 	b, changed := renderer.frame("短句", time.Second, 320, true, menuBarStyle{})
-	if !changed || menuBarImage(t, b).Bounds().Dx() != (320+menuBarIconPoints+menuBarIconGap)*menuBarScale {
+	if !changed || menuBarImage(t, b).Bounds().Dx() != expected.Dx()+(320-width)*menuBarScale {
 		t.Fatal("width adjustment did not resize the viewport")
 	}
 	if _, changed = renderer.frame("短句", time.Hour, 320, true, menuBarStyle{}); changed {

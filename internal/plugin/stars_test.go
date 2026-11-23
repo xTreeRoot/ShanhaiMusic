@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"slices"
 	"strings"
@@ -29,23 +31,51 @@ func TestStarsRepositoriesIgnoresOtherPageLinksAndHost(t *testing.T) {
 		markup = string(bytes)
 		want = []string{"xTreeRoot/mygo-music-soda", "xTreeRoot/mygo-ximalaya", "xTreeRoot/mygo-music-youtube-music", "xTreeRoot/mygo-music-netease"}
 	}
-	repos, err := parseStarsRepositories(strings.NewReader(markup))
+	address, err := starsListURL("https://github.com/stars/example/lists/fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repos, err := parseStarsRepositories(strings.NewReader(markup), address)
 	if err != nil || !slices.Equal(repos, want) {
 		t.Fatalf("list parsed as %v, err %v", repos, err)
 	}
-	if _, err := parseStarsRepositories(strings.NewReader(`<h1>Sign in</h1>`)); err == nil {
+	if _, err := parseStarsRepositories(strings.NewReader(`<h1>Sign in</h1>`), address); err == nil {
 		t.Fatal("a non-list page reported success")
 	}
 }
 
-func TestStarsURLStaysOnPublicGitHubLists(t *testing.T) {
-	address, err := starsListURL(" https://github.com/stars/xTreeRoot/lists/fork-%E5%A4%9A%E5%B9%B3%E5%8F%B0/?tab=ignored#details ")
-	if err != nil || address.String() != "https://github.com/stars/xTreeRoot/lists/fork-%E5%A4%9A%E5%B9%B3%E5%8F%B0" {
+func TestPluginCatalogAcceptsWebAddressesWithoutDroppingQuery(t *testing.T) {
+	address, err := starsListURL(" catalog.test/plugins/?group=audio#details ")
+	if err != nil || address.String() != "https://catalog.test/plugins/?group=audio" {
 		t.Fatalf("address %v, error %v", address, err)
 	}
-	for _, input := range []string{"https://github.com@other.test/stars/a/lists/b", "https://github.com/a/b", "http://github.com/stars/a/lists/b", "https://github.com/stars/a/lists/%2E%2E"} {
+	for _, input := range []string{"https://github.com@other.test/stars/a/lists/b", "file:///tmp/plugin.zip", "not a URL"} {
 		if _, err := starsListURL(input); err == nil {
 			t.Fatalf("accepted %q", input)
+		}
+	}
+}
+
+func TestPluginCatalogReadsRedirectedPageAndDirectLinks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/start" {
+			http.Redirect(writer, request, "/plugins", http.StatusFound)
+			return
+		}
+		_, _ = writer.Write([]byte(`<a href="mb://install-plugin?repo=Owner%2FAudio&amp;from=catalog">Install</a>
+<a href="//github.com/owner/audio/releases">Duplicate</a>
+<a href="https://github.com/Other/Video/releases/download/v1/plugin-universal.zip">Download</a>
+<a href="https://github.com.fake.test/Other/Fake">Fake</a>`))
+	}))
+	defer server.Close()
+	result, err := StarsRepositories(t.Context(), server.URL+"/start")
+	if err != nil || !slices.Equal(result, []string{"Owner/Audio", "Other/Video"}) {
+		t.Fatalf("catalog parsed as %v, err %v", result, err)
+	}
+	for _, input := range []string{"Owner/Audio", " github.com/Owner/Audio/releases ", "mb://install-plugin?repo=Owner%2FAudio"} {
+		result, err := StarsRepositories(t.Context(), input)
+		if err != nil || !slices.Equal(result, []string{"Owner/Audio"}) {
+			t.Fatalf("%q parsed as %v, err %v", input, result, err)
 		}
 	}
 }

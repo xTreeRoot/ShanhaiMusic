@@ -4,6 +4,8 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -11,6 +13,7 @@ import (
 )
 
 var fetchStarsRepositories = plugin.StarsRepositories
+var prepareStarsPlugin = plugin.FetchContext
 
 type starsImport struct {
 	open, reviewed, done bool
@@ -63,7 +66,7 @@ func (a *app) scanStars() {
 	address, directory := stars.address, pluginsDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	stars.cancel = cancel
-	stars.message = T("Reading GitHub Stars list…")
+	stars.message = T("Reading plugin catalog…")
 	in.busy = true
 	type owner struct{ id, repo string }
 	blocked := map[string]owner{}
@@ -80,25 +83,27 @@ func (a *app) scanStars() {
 		defer cancel()
 		repos, err := fetchStarsRepositories(ctx, address)
 		var entries []starsEntry
-		for _, repo := range repos {
-			if ctx.Err() != nil {
-				break
-			}
-			entry := starsEntry{repo: repo}
-			pending, err := fetchPlugin(repo, directory)
-			if err != nil {
-				entry.issue = installError(err)
-			} else {
+		if err == nil && len(repos) > 0 && ctx.Err() == nil {
+			a.post(func() {
+				if in.stars == stars && stars.open {
+					stars.message = Tf("Found %d repositories. Checking plugin packages…", len(repos))
+				}
+			})
+			entries = reviewStarsPackages(ctx, repos, directory)
+			for index, entry := range entries {
+				pending := entry.pending
+				if pending == nil {
+					continue
+				}
 				id := strings.ToLower(pending.Manifest.ID)
-				if source, exists := blocked[id]; exists && (source.id != pending.Manifest.ID || !strings.EqualFold(source.repo, repo)) {
-					entry.issue = T("A plugin from another source already uses this ID")
+				if source, exists := blocked[id]; exists && (source.id != pending.Manifest.ID || !strings.EqualFold(source.repo, entry.repo)) {
+					entries[index].issue = T("A plugin from another source already uses this ID")
+					entries[index].pending = nil
 					pending.Discard()
 				} else {
-					blocked[id] = owner{pending.Manifest.ID, repo}
-					entry.pending = pending
+					blocked[id] = owner{pending.Manifest.ID, entry.repo}
 				}
 			}
-			entries = append(entries, entry)
 		}
 		a.post(func() {
 			in.busy = false
@@ -108,7 +113,7 @@ func (a *app) scanStars() {
 			}
 			stars.cancel = nil
 			if err != nil {
-				stars.message = Tf("Cannot read the GitHub Stars list: %s", err.Error())
+				stars.message = Tf("Cannot read the plugin catalog: %s", err.Error())
 				return
 			}
 			in.starsAddress = address
@@ -118,6 +123,33 @@ func (a *app) scanStars() {
 			}
 		})
 	}()
+}
+
+func reviewStarsPackages(ctx context.Context, repos []string, directory string) []starsEntry {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	entries := make([]starsEntry, len(repos))
+	workers := min(4, len(repos))
+	var group sync.WaitGroup
+	for worker := range workers {
+		group.Go(func() {
+			for index := worker; index < len(repos); index += workers {
+				entry := starsEntry{repo: repos[index]}
+				err := ctx.Err()
+				if err == nil {
+					request, stop := context.WithTimeout(ctx, 25*time.Second)
+					entry.pending, err = prepareStarsPlugin(request, entry.repo, directory)
+					stop()
+				}
+				if err != nil {
+					entry.issue = installError(err)
+				}
+				entries[index] = entry
+			}
+		})
+	}
+	group.Wait()
+	return entries
 }
 
 func (a *app) applyStars() {
@@ -178,7 +210,7 @@ func (a *app) starsDialog(c *ui.Context, p palette) {
 		ready := false
 		switch {
 		case !stars.reviewed:
-			label := T("GitHub Stars list URL")
+			label := T("GitHub repository or catalog page URL")
 			field := ui.TextInput(c.Key("stars-url"), &stars.address).Label(label).Placeholder(label).AutoFocus().Disabled(in.busy)
 			ready = !in.busy && strings.TrimSpace(stars.address) != ""
 			if ready && field.Submitted() {

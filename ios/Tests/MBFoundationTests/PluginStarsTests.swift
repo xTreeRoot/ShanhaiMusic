@@ -17,17 +17,32 @@ import Testing
       <h2 class="h3"><a href="/xTreeRoot/mygo-ximalaya">Ximalaya</a></h2>
     </div>
     """
+    let stars = try #require(URL(string: "https://github.com/stars/example/lists/plugins"))
     if let fixture = ProcessInfo.processInfo.environment["MB_STARS_HTML_FIXTURE"] {
         let live = try Data(contentsOf: URL(fileURLWithPath: fixture))
-        #expect(try PluginStars.parse(live) == ["xTreeRoot/mygo-music-soda", "xTreeRoot/mygo-ximalaya", "xTreeRoot/mygo-music-youtube-music", "xTreeRoot/mygo-music-netease"])
+        #expect(try PluginStars.parse(live, relativeTo: stars) == ["xTreeRoot/mygo-music-soda", "xTreeRoot/mygo-ximalaya", "xTreeRoot/mygo-music-youtube-music", "xTreeRoot/mygo-music-netease"])
     } else {
-        #expect(try PluginStars.parse(Data(html.utf8)) == ["xTreeRoot/mygo-music-soda", "someone/mb-plugin-template", "xTreeRoot/mb-plugin-template-extra", "xTreeRoot/mygo-ximalaya"])
+        #expect(try PluginStars.parse(Data(html.utf8), relativeTo: stars) == ["xTreeRoot/mygo-music-soda", "someone/mb-plugin-template", "xTreeRoot/mb-plugin-template-extra", "xTreeRoot/mygo-ximalaya"])
     }
-    #expect(throws: (any Error).self) { try PluginStars.parse(Data("<h1>Sign in</h1>".utf8)) }
-    let address = try PluginStars.address(" https://github.com/stars/xTreeRoot/lists/fork-多平台/?tab=ignored#details ")
-    #expect(address.absoluteString == "https://github.com/stars/xTreeRoot/lists/fork-%E5%A4%9A%E5%B9%B3%E5%8F%B0")
-    for input in ["https://github.com@other.test/stars/a/lists/b", "https://github.com/a/b", "http://github.com/stars/a/lists/b", "https://github.com/stars/a/lists/%2E%2E"] {
+    #expect(throws: (any Error).self) { try PluginStars.parse(Data("<h1>Sign in</h1>".utf8), relativeTo: stars) }
+}
+
+@Test func pluginCatalogReadsOrdinaryWebPageAndDirectLinks() throws {
+    let address = try PluginStars.address(" catalog.test/plugins/?group=audio#details ")
+    #expect(address.absoluteString == "https://catalog.test/plugins/?group=audio")
+    for input in ["https://github.com@other.test/stars/a/lists/b", "file:///tmp/plugin.zip"] {
         #expect(throws: (any Error).self) { try PluginStars.address(input) }
+    }
+    let html = """
+    <a href="mb://install-plugin?repo=Owner%2FAudio&amp;from=catalog">Install</a>
+    <a href="//github.com/owner/audio/releases">Duplicate</a>
+    <a href="https://github.com/Other/Video/releases/download/v1/plugin-universal.zip">Download</a>
+    <a href="https://github.com.fake.test/Other/Fake">Fake</a>
+    """
+    #expect(try PluginStars.parse(Data(html.utf8), relativeTo: address) == ["Owner/Audio", "Other/Video"])
+    #expect(throws: (any Error).self) { try PluginStars.parse(Data("<h1>No links</h1>".utf8), relativeTo: address) }
+    for input in ["Owner/Audio", " github.com/Owner/Audio/releases ", "mb://install-plugin?repo=Owner%2FAudio"] {
+        #expect(PluginStars.repository(input) == "Owner/Audio")
     }
 }
 

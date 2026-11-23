@@ -15,6 +15,12 @@ func (a *app) updateTrayLyric() {
 	a.syncMenuBarVideo()
 	content := a.menuBarContent()
 	style := menuBarStyle{video: a.settings.MenuBarVideo, dark: a.tray.Dark(), preview: a.trayVideo.picture}
+	if a.pl != nil && a.pl.Current() != nil {
+		style.transport = menuBarPaused
+		if a.pl.Playing() {
+			style.transport = menuBarPlaying
+		}
+	}
 	if frame, changed := a.trayLyrics.frame(content.text, content.elapsed, menuBarWidth(a.settings.MenuBarLyricsWidth), a.settings.MenuBarLyrics, style); changed {
 		if err := a.tray.SetIcon(frame, !a.settings.MenuBarLyrics); err != nil {
 			log.Println("menu bar lyrics:", err)

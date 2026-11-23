@@ -217,7 +217,18 @@ func (a *app) settingsView(c *ui.Context) {
 				ui.Text(c, title).FontSize(15).FontWeight(700).SingleLine().Shrink(1).MinWidth(0)
 				if query == "" && current.id == "plugins" {
 					ui.Box(c).Grow(1)
-					if in := &a.installer; ui.Button(c.Key("stars-import"), T("Import / Replace Plugins")).Margin(0, 8, 0, 0).
+					in := &a.installer
+					edit := T("Edit Plugins")
+					if in.editingPlugins {
+						edit = T("Finish Editing")
+					}
+					ui.Button(c.Key("edit-plugins"), edit).Margin(0, 8, 0, 0).Disabled(a.pluginPrefsBusy || in.busy || in.batch || len(in.updating) != 0).OnClick(func() {
+						in.editingPlugins = !in.editingPlugins
+						if !in.editingPlugins {
+							in.renamingID = ""
+						}
+					})
+					if ui.Button(c.Key("stars-import"), T("Import / Replace Plugins")).Margin(0, 8, 0, 0).
 						Disabled(in.busy || in.batch || in.open || len(in.updating) != 0).Clicked() {
 						a.openStars()
 					}
@@ -729,6 +740,9 @@ func (a *app) pluginSettings(c *ui.Context, lib *library, p palette) {
 			a.pluginSwitch(c, lib)
 			ui.Button(c.Key("discovery-sections"), T("Display Settings")).OnClick(func() { a.openDiscoveryEditor(lib) })
 		})
+		if a.installer.editingPlugins {
+			a.pluginEditActions(c, lib)
+		}
 		if !enabled {
 			return
 		}

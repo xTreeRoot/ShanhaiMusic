@@ -1,9 +1,11 @@
 package app
 
 import (
+	"os"
+	"testing"
+
 	"github.com/egoist/mygo/ui"
 	"mygo-music/internal/pluginprefs"
-	"testing"
 )
 
 func TestPluginLocalNameEditorPersistsAndRestoresToEverySource(t *testing.T) {
@@ -12,25 +14,37 @@ func TestPluginLocalNameEditorPersistsAndRestoresToEverySource(t *testing.T) {
 	post := posts(a)
 	store := pluginprefs.NewStore(t.TempDir(), pluginprefs.Legacy{})
 	a.pluginPrefs = store
-	a.installer.renamingID = other.id
-	tt := ui.NewTester(func(c *ui.Context) { a.pluginNameEditor(c, other) }, 640, 300)
+	a.settingsPage = "plugins"
+	tt := ui.NewTester(a.settingsView, 800, 800)
+	click := func(label string) {
+		t.Helper()
+		if err := tt.Click(T(label)); err != nil {
+			t.Fatalf("%v; shows %q", err, tt.Texts())
+		}
+		tt.Frame()
+	}
 	tt.Frame()
+	click("Edit Plugins")
+	click("Move Down")
+	runPost(t, post)
+	tt.Frame()
+	if a.libs[0] != other {
+		t.Fatal("move did not update source tabs")
+	}
+	click("Rename Locally")
 	clickSettingRole(t, tt, ui.RoleTextField, T("Local Name"))
 	tt.Type("我的平台")
 	tt.Frame()
-	if err := tt.Click(T("Save")); err != nil {
-		t.Fatal(err)
-	}
+	click("Save")
 	runPost(t, post)
 	tt.Frame()
 	if other.name() != "我的平台" {
 		t.Fatal("rename did not reach source name")
 	}
-	a.movePlugin(other, -1)
-	runPost(t, post)
-	if a.libs[0] != other {
-		t.Fatal("move did not update source tabs")
+	if path := os.Getenv("MM_FRAMES"); path != "" {
+		saveFrame(t, path, "plugins-edit.png", tt.Image())
 	}
+	click("Finish Editing")
 	a.setPluginEnabled(other, false)
 	runPost(t, post)
 	if a.pluginEnabled(other) {

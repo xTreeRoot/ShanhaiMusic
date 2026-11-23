@@ -95,6 +95,7 @@ type pluginInstaller struct {
 	// open is whether the dialog shows: asking for a repository, with github,
 	// or about a plugin on its way, or what went wrong with one.
 	renamingID, localName string
+	editingPlugins        bool
 	open, github          bool
 	catalogOpen           bool
 	catalog               []edge.Package

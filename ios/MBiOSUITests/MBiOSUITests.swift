@@ -1170,7 +1170,7 @@ final class MBiOSUITests: XCTestCase {
         capture("设置-MB-Server-未接入", app: app)
     }
 
-    @MainActor func testPluginsStarsImportAsksForAPublicList() {
+    @MainActor func testPluginCatalogImportRejectsNonWebInput() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
@@ -1180,12 +1180,12 @@ final class MBiOSUITests: XCTestCase {
         let open = app.buttons["plugin-import-stars"]
         XCTAssertTrue(open.waitForExistence(timeout: 5)); open.tap()
         let field = app.textFields["plugin-stars-address"]
-        XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("https://example.test/list")
+        XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("file:///tmp/plugin.zip")
         app.buttons["plugin-stars-read"].tap()
-        let problem = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "请输入公开的 GitHub 星标列表地址")).firstMatch
+        let problem = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "请输入插件仓库或列表网页地址")).firstMatch
         XCTAssertTrue(problem.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["plugin-stars-confirm"].exists)
-        capture("插件-星标列表导入弹窗", app: app)
+        capture("插件-网页列表导入弹窗", app: app)
         app.buttons["关闭"].tap()
         XCTAssertTrue(field.waitForNonExistence(timeout: 5))
     }

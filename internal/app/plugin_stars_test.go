@@ -33,12 +33,12 @@ func TestStarsImportReviewsBeforeInstallingAndKeepsPluginData(t *testing.T) {
 	write(filepath.Join(old, "index.js"), "// old code")
 	data := userDataDir("plugin-data/stars-fixture/account-state")
 	write(data, "synthetic account state")
-	wasList, wasFetch := fetchStarsRepositories, fetchPlugin
-	t.Cleanup(func() { fetchStarsRepositories, fetchPlugin = wasList, wasFetch })
+	wasList, wasFetch := fetchStarsRepositories, prepareStarsPlugin
+	t.Cleanup(func() { fetchStarsRepositories, prepareStarsPlugin = wasList, wasFetch })
 	fetchStarsRepositories = func(_ context.Context, _ string) ([]string, error) {
 		return []string{"owner/offline", "Owner/Fixture"}, nil
 	}
-	fetchPlugin = func(repo, target string) (*plugin.Pending, error) {
+	prepareStarsPlugin = func(_ context.Context, repo, target string) (*plugin.Pending, error) {
 		if repo == "owner/offline" {
 			return nil, errors.New("fixture offline")
 		}
@@ -61,11 +61,13 @@ func TestStarsImportReviewsBeforeInstallingAndKeepsPluginData(t *testing.T) {
 	}
 	view.Frame()
 	click("Import / Replace Plugins")
-	click("GitHub Stars list URL")
-	view.Type("https://github.com/stars/owner/lists/fixture")
+	click("GitHub repository or catalog page URL")
+	view.Type("https://catalog.test/plugins")
 	view.Frame()
 	click("Read List")
-	runPost(t, ch)
+	for a.installer.busy {
+		runPost(t, ch)
+	}
 	view.Frame()
 	if bytes, _ := os.ReadFile(filepath.Join(old, "index.js")); string(bytes) != "// old code" {
 		t.Fatal("preview changed installed code")
@@ -102,10 +104,10 @@ func TestStarsImportAcceptsFormerPlatformID(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(directory, "index.js"), []byte(`export function search() { return {tracks: []}; }`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	wasList, wasFetch := fetchStarsRepositories, fetchPlugin
-	t.Cleanup(func() { fetchStarsRepositories, fetchPlugin = wasList, wasFetch })
+	wasList, wasFetch := fetchStarsRepositories, prepareStarsPlugin
+	t.Cleanup(func() { fetchStarsRepositories, prepareStarsPlugin = wasList, wasFetch })
 	fetchStarsRepositories = func(context.Context, string) ([]string, error) { return []string{"owner/external"}, nil }
-	fetchPlugin = func(repo, target string) (*plugin.Pending, error) {
+	prepareStarsPlugin = func(_ context.Context, repo, target string) (*plugin.Pending, error) {
 		pending, err := plugin.Open(directory, target)
 		if err == nil {
 			pending.Repo = repo
@@ -116,7 +118,9 @@ func TestStarsImportAcceptsFormerPlatformID(t *testing.T) {
 	ch := posts(a)
 	a.installer.stars = &starsImport{open: true, address: "https://github.com/stars/owner/lists/fixture"}
 	a.scanStars()
-	runPost(t, ch)
+	for a.installer.busy {
+		runPost(t, ch)
+	}
 	entries := a.installer.stars.entries
 	if len(entries) != 1 || entries[0].issue != "" || entries[0].pending == nil {
 		t.Fatalf("external plugin was incorrectly reserved: %+v", entries)

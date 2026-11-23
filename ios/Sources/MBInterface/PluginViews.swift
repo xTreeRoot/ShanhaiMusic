@@ -186,11 +186,11 @@ private struct PluginStarsView: View {
                     if let entries = model.starsEntries {
                         ForEach(entries, content: repositoryRow)
                     } else {
-                        TextField("GitHub 仓库或星标列表地址", text: $address)
+                        TextField("插件仓库或列表网页地址", text: $address)
                             .autocorrectionDisabled().disabled(model.starsBusy)
                             .accessibilityIdentifier("plugin-stars-address")
                     }
-                    if model.starsBusy { ProgressView(model.starsEntries == nil ? "正在解析 GitHub 星标列表" : "正在导入插件") }
+                    if model.starsBusy { ProgressView(model.starsEntries == nil ? "正在解析插件列表" : "正在导入插件") }
                     if let status = model.starsStatus { Text(status).font(.caption).foregroundStyle(.secondary) }
 
                 }.modifier(SkinRow())

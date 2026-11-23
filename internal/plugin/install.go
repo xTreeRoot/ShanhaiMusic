@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"mygo-music/internal/local"
+	"mygo-music/internal/network"
 )
 
 // Plugins install from GitHub: a repository's latest release, as the zip it
@@ -74,7 +75,7 @@ var ErrNoRepo = errors.New("no such public repository on GitHub")
 // githubAPI is GitHub's API; tests replace it, and installClient.
 var (
 	githubAPI     = "https://api.github.com"
-	installClient = &http.Client{Timeout: 10 * time.Minute}
+	installClient = &http.Client{Transport: network.Transport(), Timeout: 10 * time.Minute}
 )
 
 var (
@@ -171,13 +172,13 @@ func withToken() bool { return !tokenRefused.Load() && githubToken() != "" }
 // githubSend gets url, as the listener when it's GitHub's API and they have a
 // token, which goes nowhere else. One GitHub refuses is dropped, and the request
 // sent again without it.
-func githubSend(url, accept string) (*http.Response, error) {
+func githubSend(ctx context.Context, url, accept string) (*http.Response, error) {
 	token := ""
 	if strings.HasPrefix(url, githubAPI+"/") && withToken() {
 		token = githubToken()
 	}
 	for {
-		req, err := http.NewRequest("GET", url, nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -199,8 +200,8 @@ func githubSend(url, accept string) (*http.Response, error) {
 	}
 }
 
-func githubGet(path string, out any) (status int, err error) {
-	res, err := githubSend(githubAPI+path, "application/vnd.github+json")
+func githubGet(ctx context.Context, path string, out any) (status int, err error) {
+	res, err := githubSend(ctx, githubAPI+path, "application/vnd.github+json")
 	if err != nil {
 		return 0, err
 	}
@@ -218,6 +219,10 @@ func githubGet(path string, out any) (status int, err error) {
 
 // Latest finds what a repository offers now.
 func Latest(repo string) (*Release, error) {
+	return latestContext(context.Background(), repo)
+}
+
+func latestContext(ctx context.Context, repo string) (*Release, error) {
 	var rel struct {
 		Tag    string `json:"tag_name"`
 		Zip    string `json:"zipball_url"`
@@ -227,7 +232,7 @@ func Latest(repo string) (*Release, error) {
 			API  string `json:"url"`
 		} `json:"assets"`
 	}
-	status, err := githubGet("/repos/"+repo+"/releases/latest", &rel)
+	status, err := githubGet(ctx, "/repos/"+repo+"/releases/latest", &rel)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +255,7 @@ func Latest(repo string) (*Release, error) {
 	var commit struct {
 		SHA string `json:"sha"`
 	}
-	status, err = githubGet("/repos/"+repo+"/commits/HEAD", &commit)
+	status, err = githubGet(ctx, "/repos/"+repo+"/commits/HEAD", &commit)
 	if err != nil {
 		return nil, err
 	}
@@ -292,17 +297,25 @@ func pickAsset(names []string, goos, goarch string) int {
 // folder, without installing it, and checks it's a plugin that compiles. Nothing
 // of it runs. Discard or Install it next.
 func Fetch(repo, dir string) (*Pending, error) {
-	rel, err := Latest(repo)
+	return FetchContext(context.Background(), repo, dir)
+}
+
+func FetchContext(ctx context.Context, repo, dir string) (*Pending, error) {
+	rel, err := latestContext(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
-	return FetchRelease(rel, dir)
+	return fetchReleaseContext(ctx, rel, dir)
 }
 
 // FetchRelease is Fetch of a release Latest found already, without asking GitHub
 // again what there is.
 func FetchRelease(rel *Release, dir string) (*Pending, error) {
-	return pending(dir, func(tmp string) (*Pending, error) { return fetchInto(rel, tmp) })
+	return fetchReleaseContext(context.Background(), rel, dir)
+}
+
+func fetchReleaseContext(ctx context.Context, rel *Release, dir string) (*Pending, error) {
+	return pending(dir, func(tmp string) (*Pending, error) { return fetchInto(ctx, rel, tmp) })
 }
 
 // pending makes a plugin waiting to be installed, in a folder of its own in dir
@@ -325,9 +338,9 @@ func pending(dir string, into func(tmp string) (*Pending, error)) (*Pending, err
 	return p, nil
 }
 
-func fetchInto(rel *Release, tmp string) (*Pending, error) {
+func fetchInto(ctx context.Context, rel *Release, tmp string) (*Pending, error) {
 	archive := filepath.Join(tmp, "archive.zip")
-	if err := download(rel.url, archive); err != nil {
+	if err := download(ctx, rel.url, archive); err != nil {
 		return nil, err
 	}
 	unpacked := filepath.Join(tmp, "unpacked")
@@ -456,14 +469,14 @@ func copyFile(from, to string, perm os.FileMode, limit int64) (int64, error) {
 	return n, out.Close()
 }
 
-func download(url, path string) error {
+func download(ctx context.Context, url, path string) error {
 	// An asset from the API comes as itself with this, and as its description
 	// without; a zipball refuses it.
 	accept := ""
 	if strings.Contains(url, "/releases/assets/") {
 		accept = "application/octet-stream"
 	}
-	res, err := githubSend(url, accept)
+	res, err := githubSend(ctx, url, accept)
 	if err != nil {
 		return err
 	}

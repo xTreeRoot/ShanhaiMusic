@@ -15,6 +15,7 @@ import (
 type menuBarStyle struct {
 	video, dark bool
 	preview     *image.RGBA
+	transport   menuBarTransport
 }
 
 // menuBarRenderer caches each shaped lyric and only replaces the native template
@@ -54,8 +55,8 @@ func (m *menuBarRenderer) frame(text string, elapsed time.Duration, width int, e
 	if style.video {
 		left = menuBarVideoPoints
 	}
-	start := (left + menuBarIconGap) * menuBarScale
-	canvas := image.NewRGBA(image.Rect(0, 0, start+viewport, height))
+	start := style.lyricStart() * menuBarScale
+	canvas := image.NewRGBA(image.Rect(0, 0, style.imageWidth(width)*menuBarScale, height))
 	ink := image.NewUniform(color.Black)
 	if style.dark {
 		ink = image.NewUniform(color.White)
@@ -74,6 +75,7 @@ func (m *menuBarRenderer) frame(text string, elapsed time.Duration, width int, e
 			draw.DrawMask(canvas, image.Rect(start+repeat, 0, start+viewport, height), ink, image.Point{}, m.strip, image.Point{}, draw.Over)
 		}
 	}
+	style.drawControls(canvas, width, ink)
 	var encoded bytes.Buffer
 	_ = png.Encode(&encoded, canvas)
 	m.initialized, m.enabled, m.width, m.offset, m.style = true, true, width, offset, style

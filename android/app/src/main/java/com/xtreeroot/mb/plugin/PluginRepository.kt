@@ -80,28 +80,30 @@ internal object PluginRepository {
 
 internal class GitHubPluginPackages(private val transport: PluginHttpTransport, private val abis: List<String>) {
     suspend fun repositories(input: String): List<String> {
-        val initial = GitHubStarsList.address(input) ?: return listOf(PluginRepository.parse(input))
+        GitHubStarsList.repository(input)?.let { return listOf(it) }
+        val initial = GitHubStarsList.address(input) ?: throw PluginException("Enter a plugin repository or catalog web address")
         val visited = mutableSetOf<HttpUrl>()
         val repositories = linkedMapOf<String, String>()
         var next: HttpUrl? = initial
         while (next != null) {
             val page = next
-            if (!visited.add(page) || visited.size > 8) throw PluginException("Too many GitHub Stars pages")
-            val request = request(uri(page.toString())).copy(headers = mapOf("User-Agent" to "MB-Android", "Accept" to "text/html"))
+            if (!visited.add(page) || visited.size > 8) throw PluginException("Too many plugin catalog pages")
+            val request = request(uri(page.toString())).copy(headers = mapOf("User-Agent" to "MB-Android", "Accept" to "text/html, */*;q=0.8"))
             val listing = transport.receive(request, { target ->
-                target.onGitHub("github.com") && target.path == initial.toUri().path
-            }) { response, _ ->
-                if (response.code != 200) throw PluginException("GitHub Stars list failed (HTTP ${response.code})")
-                val incoming = response.body ?: throw PluginException("GitHub Stars list is empty")
+                target.host != null && target.rawUserInfo == null
+            }) { response, target ->
+                if (response.code != 200) throw PluginException("Plugin catalog failed (HTTP ${response.code})")
+                GitHubStarsList.repository(target.toString())?.let { return@receive GitHubStarsList.Page(listOf(it), null) }
+                val incoming = response.body ?: throw PluginException("Plugin catalog is empty")
                 val data = ByteArrayOutputStream()
                 incoming.byteStream().use { copyPluginBytes(it, data, 4L * 1024 * 1024) }
-                GitHubStarsList.read(data.toByteArray().decodeToString(throwOnInvalidSequence = true), page)
+                GitHubStarsList.read(data.toByteArray().decodeToString(), checkNotNull(GitHubStarsList.address(target.toString())))
             }
             listing.repositories.forEach { repositories.putIfAbsent(it.lowercase(), it) }
             if (repositories.size > 32) throw PluginException("Import supports up to 32 repositories per batch")
             next = listing.next
         }
-        return repositories.values.toList().ifEmpty { throw PluginException("No repositories in this GitHub Stars list") }
+        return repositories.values.toList().ifEmpty { throw PluginException("No plugin repository links found") }
     }
 
     suspend fun latestRevision(input: String): GitHubPluginRevision {

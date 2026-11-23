@@ -691,7 +691,7 @@ func (a *app) builtinTitle(name string) string {
 
 func (a *app) sourceTabs(c *ui.Context) {
 	active := a.library
-	ui.ScrollHorizontal(c.Key("source-tabs")).Grow(1).Basis(0).MinWidth(0).Height(topBar(c)).AlignItems(ui.Center).
+	ui.ScrollHorizontal(c.Key("source-tabs")).Scrollbars(false).Grow(1).Basis(0).MinWidth(0).Height(topBar(c)).AlignItems(ui.Center).
 		Role(ui.RoleTabList).TrackScroll(&a.sourceScroll).Children(func() {
 		for _, lib := range a.libs {
 			selected := lib == active

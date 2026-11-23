@@ -157,6 +157,21 @@ func (a *app) savePluginName(id, name string) {
 		return doc.WithName(id, name, writer)
 	})
 }
+func (a *app) pluginEditActions(c *ui.Context, lib *library) {
+	index := slices.Index(a.allLibs, lib)
+	canMoveUp := index > 0 && a.allLibs[index-1].id != local.ID
+	canMoveDown := index >= 0 && index+1 < len(a.allLibs) && a.allLibs[index+1].id != local.ID
+	busy := a.pluginPrefs == nil || a.pluginPrefsBusy
+	ui.Row(c.Key("plugin-edit-actions")).Gap(6).Children(func() {
+		ui.Button(c.Key("rename"), T("Rename Locally")).Disabled(busy).OnClick(func() {
+			a.installer.renamingID = lib.id
+			a.installer.localName = lib.localName
+		})
+		ui.Button(c.Key("move-up"), T("Move Up")).Disabled(busy || !canMoveUp).OnClick(func() { a.movePlugin(lib, -1) })
+		ui.Button(c.Key("move-down"), T("Move Down")).Disabled(busy || !canMoveDown).OnClick(func() { a.movePlugin(lib, 1) })
+	})
+}
+
 func (a *app) pluginNameEditor(c *ui.Context, lib *library) {
 	in := &a.installer
 	if in.renamingID != lib.id {

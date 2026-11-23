@@ -19,6 +19,23 @@ class PluginRepositoryTest {
         assertNull(PluginRepository.universalRelease("Owner/Fixture", JSONObject("""{"assets":[{"name":"legacy.zip"}]}""")))
         assertThrows(PluginException::class.java) { PluginRepository.universalRelease("Owner/Fixture", metadata.put("tag_name", "../invalid")) }
     }
+    @Test fun catalogReadsOrdinaryWebPageAndDirectLinks() {
+        val address = checkNotNull(GitHubStarsList.address(" catalog.test/plugins/?group=audio#details "))
+        assertEquals("https://catalog.test/plugins/?group=audio", address.toString())
+        val html = """
+            <a href="mb://install-plugin?repo=Owner%2FAudio&amp;from=catalog">Install</a>
+            <a href="//github.com/owner/audio/releases">Duplicate</a>
+            <a href=https://github.com/Other/Video/releases/download/v1/plugin-universal.zip>Download</a>
+            <a href="https://github.com.fake.test/Other/Fake">Fake</a>
+            <a data-href="https://github.com/Other/Hidden" href="#details">Hidden</a>
+        """.trimIndent()
+        assertEquals(listOf("Owner/Audio", "Other/Video"), GitHubStarsList.read(html, address).repositories)
+        for (input in listOf("Owner/Audio", " github.com/Owner/Audio/releases ", "mb://install-plugin?repo=Owner%2FAudio")) {
+            assertEquals("Owner/Audio", GitHubStarsList.repository(input))
+        }
+        assertNull(GitHubStarsList.address("file:///tmp/plugin.zip"))
+    }
+
     @Test fun starsListReadsOnlyRepositoryHeadingsInsideTheListAndKeepsPaginationOnThatList() {
         val address = checkNotNull(GitHubStarsList.address("https://github.com/stars/example/lists/%E6%B5%8B%E8%AF%95"))
         val html = """
