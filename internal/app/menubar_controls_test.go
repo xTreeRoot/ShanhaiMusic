@@ -1,113 +1,99 @@
 package app
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"image/draw"
 	"os"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/egoist/mygo"
 	"mygo-music/internal/music"
 )
 
+type fakeMenuBarButton struct {
+	click  func()
+	icon   []byte
+	writes int
+}
+
+func (b *fakeMenuBarButton) OnClick(click func()) func() {
+	b.click = click
+	return func() { b.click = nil }
+}
+
+func (b *fakeMenuBarButton) SetIcon(icon []byte, _ bool) error {
+	b.icon = icon
+	b.writes++
+	return nil
+}
+
+func (b *fakeMenuBarButton) SetToolTip(string) {}
+func (b *fakeMenuBarButton) Destroy()          { b.click = nil }
+
 func TestMenuBarControlClicks(t *testing.T) {
 	a := newTestApp()
 	a.pl.Cue([]music.Track{song("first", "First"), song("last", "Last")})
-	width := 164
-	style := menuBarStyle{video: true, transport: menuBarPlaying}
-	a.trayLyrics.frame("歌词", 0, width, true, style)
-	bounds := mygo.Rectangle{X: -350, Y: 24, Width: style.imageWidth(width) + 14, Height: 24}
-	left := bounds.X + 7 + style.controlsStart(width)
-	click := func(offset int) bool {
-		action := a.trayLyrics.actionAt(bounds, mygo.Point{X: left + offset, Y: bounds.Y + 9})
-		return a.runMenuBarAction(action)
+	buttons := map[string]*fakeMenuBarButton{}
+	newButton := func(opts mygo.TrayOptions) (menuBarButton, error) {
+		if opts.Menu != nil {
+			t.Fatal("a native menu would consume the transport button's left click")
+		}
+		if button := buttons[opts.ID]; button != nil && button.click != nil {
+			t.Fatalf("duplicate live status item %s", opts.ID)
+		}
+		button := &fakeMenuBarButton{icon: opts.Icon}
+		buttons[opts.ID] = button
+		return button, nil
 	}
-	if click(-1) || click(3*menuBarControlWidth) {
-		t.Fatal("click outside the controls did not fall back to the menu")
+	show := func() { a.trayControls.show(a.menuBarTransport(), newButton, a.runMenuBarAction) }
+	show()
+	show()
+	previous, middle, next := buttons["mb-previous"], buttons["mb-play-pause"], buttons["mb-next"]
+	if previous == nil || middle == nil || next == nil || previous.click == nil || middle.click == nil || next.click == nil {
+		t.Fatal("transport controls are not independently clickable")
 	}
-	if !click(0) || a.pl.Current().ID != "last" || !a.pl.Playing() {
+	previous.click()
+	if a.pl.Current().ID != "last" || !a.pl.Playing() {
 		t.Fatal("previous control did not select the previous song")
 	}
-	if !click(menuBarControlWidth) || a.pl.Playing() {
-		t.Fatal("middle control did not pause")
+	a.trayControls.update(a.menuBarTransport())
+	playing := middle.icon
+	middle.click()
+	a.trayControls.update(a.menuBarTransport())
+	paused := middle.icon
+	if a.pl.Playing() || bytes.Equal(playing, paused) || previous.writes != 0 || next.writes != 0 {
+		t.Fatal("pausing should update only the middle button")
 	}
-	if !click(2*menuBarControlWidth-1) || !a.pl.Playing() {
+	middle.click()
+	a.trayControls.update(a.menuBarTransport())
+	if !a.pl.Playing() || !bytes.Equal(playing, middle.icon) {
 		t.Fatal("middle control did not resume")
 	}
-	if !click(2*menuBarControlWidth) || a.pl.Current().ID != "first" {
+	next.click()
+	if a.pl.Current().ID != "first" {
 		t.Fatal("next control did not select the next song")
 	}
-	a.trayLyrics.frame("", 0, width, false, style)
-	if click(menuBarControlWidth) || !a.pl.Playing() {
-		t.Fatal("disabled lyrics still captured control clicks")
+	a.trayControls.close()
+	if previous.click != nil || middle.click != nil || next.click != nil {
+		t.Fatal("hiding the controls did not detach the status items")
 	}
-}
-
-func TestMenuBarUsesNativeImageWidthForControlClicks(t *testing.T) {
-	width := 224
-	var renderer menuBarRenderer
-	style := menuBarStyle{video: true, transport: menuBarPlaying}
-	renderer.frame("歌词", 0, width, true, style)
-	for _, scale := range []float64{0.75, 1, 1.25, 2} {
-		nativeWidth := float64(style.imageWidth(width)) * scale
-		for index, want := range []menuBarAction{menuBarPrevious, menuBarToggle, menuBarNext} {
-			x := float64(style.controlsStart(width)+index*menuBarControlWidth+menuBarControlWidth/2) * scale
-			if got := renderer.actionAtImage(x, nativeWidth); got != want {
-				t.Fatalf("scale %.2f, control %d: got %v, want %v", scale, index, got, want)
-			}
-		}
-		if renderer.actionAtImage(float64(style.controlsStart(width)-1)*scale, nativeWidth) != menuBarOpenMenu {
-			t.Fatal("lyric click intercepted by a control")
-		}
-	}
-}
-
-func TestMenuBarControlsStayStillAndReflectPlayback(t *testing.T) {
-	const width = 164
-	var renderer menuBarRenderer
-	style := menuBarStyle{dark: true, transport: menuBarPlaying}
-	text := strings.Repeat("我不要你走 我不想放手 ", 5)
-	first, _ := renderer.frame(text, 0, width, true, style)
-	scrolled, changed := renderer.frame(text, 2*time.Second, width, true, style)
-	if !changed {
-		t.Fatal("fixture did not scroll")
-	}
-	style.transport = menuBarPaused
-	paused, changed := renderer.frame(text, 2*time.Second, width, true, style)
-	if !changed {
-		t.Fatal("pausing without a lyric change did not update the icon")
-	}
-	firstImage, scrolledImage, pausedImage := menuBarImage(t, first), menuBarImage(t, scrolled), menuBarImage(t, paused)
-	if firstImage.Bounds() != pausedImage.Bounds() {
-		t.Fatal("paused state resized the tray")
-	}
-	middleChanged := false
-	for y := range firstImage.Bounds().Dy() {
-		for x := style.controlsStart(width) * menuBarScale; x < firstImage.Bounds().Dx(); x++ {
-			if firstImage.At(x, y) != scrolledImage.At(x, y) {
-				t.Fatal("transport controls scrolled with the lyrics")
-			}
-			if pausedImage.At(x, y) != scrolledImage.At(x, y) {
-				control := (x/menuBarScale - style.controlsStart(width)) / menuBarControlWidth
-				if control != 1 {
-					t.Fatal("pausing repainted the previous or next icon")
-				}
-				middleChanged = true
-			}
-		}
-	}
-	if !middleChanged {
-		t.Fatal("play and pause glyphs are identical")
+	show()
+	buttons["mb-play-pause"].click()
+	if a.pl.Playing() {
+		t.Fatal("re-enabled status items did not get new callbacks")
 	}
 	if dir := os.Getenv("MM_FRAMES"); dir != "" {
-		sheet := image.NewRGBA(image.Rect(0, 0, firstImage.Bounds().Dx()+48, 124))
-		draw.Draw(sheet, sheet.Bounds(), image.NewUniform(color.RGBA{R: 45, G: 40, B: 37, A: 255}), image.Point{}, draw.Src)
-		for i, frame := range []image.Image{firstImage, pausedImage} {
-			draw.Draw(sheet, frame.Bounds().Add(image.Pt(24, 14+i*58)), frame, image.Point{}, draw.Over)
+		canvas := image.NewRGBA(image.Rect(0, 0, 180, 118))
+		draw.Draw(canvas, canvas.Bounds(), image.NewUniform(color.RGBA{R: 45, G: 40, B: 37, A: 255}), image.Point{}, draw.Src)
+		for row, center := range [][]byte{playing, paused} {
+			for column, icon := range [][]byte{previous.icon, center, next.icon} {
+				mask := menuBarImage(t, icon)
+				bounds := mask.Bounds().Add(image.Pt(18+column*54, 10+row*54))
+				draw.DrawMask(canvas, bounds, image.NewUniform(color.White), image.Point{}, mask, image.Point{}, draw.Over)
+			}
 		}
-		saveFrame(t, dir, "menubar-playback-controls.png", sheet)
+		saveFrame(t, dir, "menubar-playback-controls.png", canvas)
 	}
 }

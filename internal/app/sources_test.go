@@ -598,19 +598,10 @@ func TestErrSetupOffersSettings(t *testing.T) {
 	if !a.needsSetup {
 		t.Fatal("doesn't need setting up")
 	}
-	if _, ok := tt.Find("Open Settings"); !ok {
-		t.Errorf("the page offers no settings: %q", tt.Texts())
-	}
-
-	a.settingsPage = "plugins"
+	chooseSource(t, tt, T("Open Settings"))
 	settings := ui.NewTester(a.settingsView, 760, 1400)
 	settings.Frame()
-	// The field, under the title labelled as it is.
-	r, ok := settings.Find("API Key")
-	if !ok {
-		t.Fatal("no field")
-	}
-	settings.ClickAt(r.X+20, r.Y+r.H+18)
+	clickSettingRole(t, settings, ui.RoleTextField, "API Key")
 	settings.Type("secret")
 	settings.Key(0, ui.KeyEnter)
 	if got := wait(t, kept, "the setting"); got != "key=secret" {
@@ -647,6 +638,7 @@ func TestErrSetupSaysWhy(t *testing.T) {
 	a.settingsPage = "plugins"
 	settings := ui.NewTester(a.settingsView, 760, 1400)
 	settings.Frame()
+	chooseSource(t, settings, Tf("Settings for %s", a.library.name()))
 	if _, ok := settings.Find(why); !ok {
 		t.Errorf("the settings don't say why: %q", settings.Texts())
 	}
@@ -725,6 +717,7 @@ func TestSignInFromSettingsAsksThere(t *testing.T) {
 	settings := ui.NewTester(a.settingsView, 780, 1000)
 	main.Frame()
 	settings.Frame()
+	chooseSource(t, settings, Tf("Settings for %s", a.library.name()))
 	if err := settings.Click("Sign In"); err != nil {
 		t.Fatal(err)
 	}
@@ -750,6 +743,7 @@ func TestSettingsAskAnUnusedSourceItsAccount(t *testing.T) {
 	a.settingsPage = "plugins"
 	settings := ui.NewTester(a.settingsView, 780, 1000)
 	settings.Frame()
+	chooseSource(t, settings, Tf("Settings for %s", lib.name()))
 	until(t, ch, func() bool { return lib.account != nil })
 	settled(settings)
 	if _, ok := settings.Find("Sign Out"); !ok {
@@ -1008,11 +1002,12 @@ func TestSettingsAllowPrograms(t *testing.T) {
 	src := &guardedSource{fakeSource: newFakeSource("guarded")}
 	src.perms.Process = plugin.Programs{"*"}
 	src.perms.Network = []string{"api.example.com"}
-	addFake(a, src)
+	lib := addFake(a, src)
 
 	a.settingsPage = "plugins"
 	settings := ui.NewTester(a.settingsView, 760, 1400)
 	settings.Frame()
+	chooseSource(t, settings, Tf("Settings for %s", lib.name()))
 	if err := settings.Click("Allow Programs"); err != nil {
 		t.Fatal(err)
 	}
@@ -1234,6 +1229,7 @@ func TestTurnPluginOff(t *testing.T) {
 		return tt
 	}
 	tt := settings()
+	chooseSource(t, tt, Tf("Settings for %s", other.name()))
 	if err := tt.Click("Enable " + other.name()); err != nil {
 		t.Fatal(err)
 	}
@@ -1400,7 +1396,7 @@ func TestInstallPluginFromDisk(t *testing.T) {
 	}
 }
 
-// Any plugin can be removed from its menu in the plugins' settings, from this
+// Any plugin can be removed from its details, from this
 // computer too, once the listener says so: it's gone from the sources and its
 // folder goes to the Trash. Saying no leaves it.
 func TestRemovePluginFromSettings(t *testing.T) {
@@ -1428,16 +1424,11 @@ func TestRemovePluginFromSettings(t *testing.T) {
 	a.settingsPage = "plugins"
 	tt := ui.NewTester(a.settingsView, 780, 1400)
 	tt.Frame()
+	chooseSource(t, tt, Tf("Settings for %s", lib.name()))
 
 	remove := func() {
 		t.Helper()
-		if err := tt.Click("More for Disk"); err != nil {
-			t.Fatal(err)
-		}
-		if err := tt.ChooseMenuItem("Remove…"); err != nil {
-			t.Fatalf("%v; the menu shows %q", err, tt.Menu())
-		}
-		tt.Frame()
+		chooseSource(t, tt, T("Remove…"))
 	}
 	remove()
 	if !slices.Contains(a.allLibs, lib) {
@@ -1500,15 +1491,11 @@ func TestCheckPluginUpdateNow(t *testing.T) {
 	a.settingsPage = "plugins"
 	tt := ui.NewTester(a.settingsView, 780, 1000)
 	tt.Frame()
+	chooseSource(t, tt, Tf("Settings for %s", "GH"))
 
 	check := func() {
 		t.Helper()
-		if err := tt.Click("More for GH"); err != nil {
-			t.Fatal(err)
-		}
-		if err := tt.ChooseMenuItem("Check for Updates"); err != nil {
-			t.Fatalf("%v; the menu shows %q", err, tt.Menu())
-		}
+		chooseSource(t, tt, T("Check for Updates"))
 		runPost(t, ch)
 		tt.Frame()
 	}
@@ -1550,12 +1537,8 @@ func TestUpdatePluginReusesCheck(t *testing.T) {
 	a.settingsPage = "plugins"
 	tt := ui.NewTester(a.settingsView, 780, 1000)
 	tt.Frame()
-	if err := tt.Click("More for GH"); err != nil {
-		t.Fatal(err)
-	}
-	if err := tt.ChooseMenuItem("Check for Updates"); err != nil {
-		t.Fatalf("%v; the menu shows %q", err, tt.Menu())
-	}
+	chooseSource(t, tt, Tf("Settings for %s", "GH"))
+	chooseSource(t, tt, T("Check for Updates"))
 	runPost(t, ch)
 	tt.Frame()
 
@@ -1640,6 +1623,7 @@ func TestPluginRepoOpensGitHub(t *testing.T) {
 	a.settingsPage = "plugins"
 	tt := ui.NewTester(a.settingsView, 780, 1000)
 	tt.Frame()
+	chooseSource(t, tt, Tf("Settings for %s", "GH"))
 	if err := tt.Click("o/gh"); err != nil {
 		t.Fatal(err)
 	}

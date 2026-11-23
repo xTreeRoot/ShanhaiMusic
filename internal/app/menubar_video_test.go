@@ -244,7 +244,7 @@ func TestMenuBarNativeVideo(t *testing.T) {
 // Video loading, failures, and new frames keep the left slot and lyric viewport fixed.
 func TestMenuBarVideoWidthAndAppearance(t *testing.T) {
 	const width = 240
-	const expected = (width + menuBarVideoPoints + menuBarIconGap + menuBarControlGap + 3*menuBarControlWidth) * menuBarScale
+	const expected = (width + menuBarVideoPoints + menuBarIconGap) * menuBarScale
 	var renderer menuBarRenderer
 	preview := image.NewRGBA(image.Rect(0, 0, 64, 36))
 	for _, style := range []menuBarStyle{{video: true}, {video: true, preview: preview}, {video: true, dark: true, preview: preview}} {

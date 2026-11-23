@@ -252,7 +252,7 @@ func (a *app) sidebar(c *ui.Context) {
 			}
 		})
 
-		a.accountTool(c, iconPlug, T("Plugins"), a.openSourceSettings)
+		a.accountTool(c, iconPlug, T("Plugins"), func() { a.openSourceSettings("") })
 		a.accountTool(c, iconRefresh, T("Shanhai Service"), a.openEdgeSettings)
 		a.accountRow(c)
 	})
@@ -458,7 +458,7 @@ func (a *app) remedy(c *ui.Context) {
 		}
 	case lib.needsSetup:
 		if ui.PrimaryButton(c.Key("setup"), T("Open Settings")).Clicked() {
-			a.openSourceSettings()
+			a.openSourceSettings(lib.id)
 		}
 	}
 }

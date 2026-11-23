@@ -56,7 +56,7 @@ func TestDiscoveryEditorCancelAndSaveControlsLoading(t *testing.T) {
 	a.settingsPage = "plugins"
 	tt := ui.NewTester(a.settingsView, 940, 780)
 	settled(tt)
-	if err := tt.Click(T("Display Settings")); err != nil {
+	if err := tt.Click(Tf("Display Settings for %s", a.library.name())); err != nil {
 		t.Fatal(err)
 	}
 	settled(tt)

@@ -95,7 +95,10 @@ type pluginInstaller struct {
 	// open is whether the dialog shows: asking for a repository, with github,
 	// or about a plugin on its way, or what went wrong with one.
 	renamingID, localName string
+	detailsID             string
+	listScroll            ui.ScrollState
 	editingPlugins        bool
+	renaming, networkOpen bool
 	open, github          bool
 	catalogOpen           bool
 	catalog               []edge.Package
@@ -189,7 +192,7 @@ func (a *app) openLink(raw string) {
 	in.catalogOpen = false
 	in.open, in.github = true, true
 	a.showMain()
-	a.openSourceSettings()
+	a.openSourceSettings("")
 	if !in.busy {
 		a.installFromRepo()
 	}
@@ -815,16 +818,22 @@ func pluginFrom(lib *library) (from, url string) {
 	return T("From this computer"), ""
 }
 
+func (a *app) pluginUpdateVersion(lib *library) string {
+	if plug := pluginOf(lib); plug != nil {
+		if origin := plug.Origin(); origin != nil {
+			if version := a.settings.PluginUpdates[lib.id]; version != "" && plugin.IsNewer(version, origin.Version) {
+				return version
+			}
+		}
+	}
+	return ""
+}
+
 // pluginUpdateButton installs the new version of a plugin from GitHub, when
 // there's one.
 func (a *app) pluginUpdateButton(c *ui.Context, lib *library) {
-	plug := pluginOf(lib)
-	if plug == nil {
-		return
-	}
-	o := plug.Origin()
-	version, ok := a.settings.PluginUpdates[lib.id]
-	if o == nil || !ok || !plugin.IsNewer(version, o.Version) {
+	version := a.pluginUpdateVersion(lib)
+	if version == "" {
 		return
 	}
 	in := &a.installer
@@ -852,40 +861,4 @@ func (a *app) pluginUpdateError(c *ui.Context, lib *library, p palette) {
 	case checkFailed:
 		ui.Text(c, T("Couldn't check for updates")).FontSize(12).TextColor(p.accent)
 	}
-}
-
-// pluginMenu is what else can be done with an installed plugin.
-func (a *app) pluginMenu(c *ui.Context, lib *library, p palette) {
-	plug := pluginOf(lib)
-	if plug == nil {
-		return
-	}
-	more := iconButton(c.Key("plugin-more"), iconMore, 16, p.muted, Tf("More for %s", lib.name()))
-	more.Menu(func(m *ui.Menu) {
-		if m.Item(T("Rename Locally")).Disabled(a.pluginPrefsBusy).Chosen() {
-			a.installer.renamingID = lib.id
-			a.installer.localName = lib.localName
-		}
-		if m.Item(T("Move Up")).Disabled(a.pluginPrefsBusy).Chosen() {
-			a.movePlugin(lib, -1)
-		}
-		if m.Item(T("Move Down")).Disabled(a.pluginPrefsBusy).Chosen() {
-			a.movePlugin(lib, 1)
-		}
-		m.Separator()
-
-		if plug.Origin() != nil {
-			busy := a.installer.batch || a.installer.checked[lib.id] == checking || a.installer.updating[lib.id]
-			if m.Item(T("Check for Updates")).Disabled(busy).Chosen() {
-				a.checkPluginUpdate(lib)
-			}
-		}
-		if m.Item(T("Show Folder")).Chosen() {
-			revealFolder(plug.Dir())
-		}
-		m.Separator()
-		if m.Item(T("Remove…")).Disabled(len(a.allLibs) <= 1 || a.installer.batch || a.installer.updating[lib.id]).Chosen() {
-			confirmRemovePlugin(a, lib.name(), func() { a.removePlugin(lib) })
-		}
-	})
 }

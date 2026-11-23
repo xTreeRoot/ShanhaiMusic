@@ -51,6 +51,9 @@ func (a *app) openSettings() {
 	})
 	a.settingsWin.OnClosed(func() {
 		a.closeStars()
+		a.installer.detailsID = ""
+		a.installer.editingPlugins = false
+		a.installer.renaming = false
 		a.settingsWin = nil
 		a.cancelSkinEditor()
 		a.discoveryEditor.open = false
@@ -64,9 +67,10 @@ func (a *app) openSettings() {
 }
 
 // openSourceSettings shows the page of the settings where plugins are set up.
-func (a *app) openSourceSettings() {
-	a.settingsPage, a.settingsQuery = "plugins", ""
+func (a *app) openSourceSettings(id string) {
+	a.selectPluginSettings(id)
 	a.openSettings()
+	a.redraw()
 }
 
 // changed applies the settings everywhere and keeps them.
@@ -164,6 +168,10 @@ func (a *app) settingsView(c *ui.Context) {
 		}
 	}
 	query := strings.ToLower(strings.TrimSpace(a.settingsQuery))
+	var details *library
+	if current.id == "plugins" && query == "" {
+		details = a.installedLibrary(a.installer.detailsID)
+	}
 
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		// Under the window buttons where they sit over the sidebar. Where nothing
@@ -183,13 +191,27 @@ func (a *app) settingsView(c *ui.Context) {
 		// scrolls goes under a hard edge there, showing only once there's something under it.
 		pad := max(24, topBar(c)+6)
 		ui.Box(c).Grow(1).MinWidth(0).Children(func() {
-			ui.Scroll(c.Key(current.id+"\x00"+query)).Fill().Padding(pad, 28, 32, 28).Gap(8).Children(func() {
+			scrollKey := current.id + "\x00" + query
+			if details != nil {
+				scrollKey += "\x00" + details.id
+			} else if current.id == "plugins" && query == "" && a.installer.editingPlugins {
+				scrollKey = "plugins-edit"
+			}
+			scroll := ui.Scroll(c.Key(scrollKey)).Fill().Padding(pad, 28, 32, 28).Gap(8)
+			if current.id == "plugins" && query == "" && details == nil && !a.installer.editingPlugins {
+				scroll.TrackScroll(&a.installer.listScroll)
+			}
+			scroll.Children(func() {
 				mark := ui.Box(c.Key("start-mark")).Height(0).Bounds()
 				if mark.W > 0 {
 					a.settingsUnderTop = mark.Y < pad-0.5
 				}
 				if query == "" {
-					a.settingsGroup(c, p, current, "", "")
+					if details != nil {
+						a.pluginDetails(c, details, p)
+					} else {
+						a.settingsGroup(c, p, current, "", "")
+					}
 					return
 				}
 				found := false
@@ -214,25 +236,29 @@ func (a *app) settingsView(c *ui.Context) {
 			right := max(32, c.TitleBar().Right+12)
 			header := ui.Row(c.Key("header")).Absolute().Top(0).Left(0).Right(0).Height(topBar(c)).Padding(0, right, 0, 32).AlignItems(ui.Center).DragWindow()
 			header.Children(func() {
+				in := &a.installer
+				if details != nil {
+					iconButton(c.Key("back-to-plugins"), iconBack, 16, p.muted, T("Back to Plugins")).Margin(0, 6, 0, -8).OnClick(func() { in.detailsID = "" })
+					title = details.name()
+				}
 				ui.Text(c, title).FontSize(15).FontWeight(700).SingleLine().Shrink(1).MinWidth(0)
-				if query == "" && current.id == "plugins" {
+				if query == "" && current.id == "plugins" && details == nil {
 					ui.Box(c).Grow(1)
-					in := &a.installer
 					edit := T("Edit Plugins")
 					if in.editingPlugins {
 						edit = T("Finish Editing")
 					}
-					ui.Button(c.Key("edit-plugins"), edit).Margin(0, 8, 0, 0).Disabled(a.pluginPrefsBusy || in.busy || in.batch || len(in.updating) != 0).OnClick(func() {
+					noPlugins := !slices.ContainsFunc(a.allLibs, func(lib *library) bool { return lib.id != local.ID })
+					ui.Button(c.Key("edit-plugins"), edit).Disabled(!in.editingPlugins && (noPlugins || a.pluginPrefs == nil || in.busy || in.batch || len(in.updating) != 0)).OnClick(func() {
 						in.editingPlugins = !in.editingPlugins
-						if !in.editingPlugins {
-							in.renamingID = ""
-						}
 					})
-					if ui.Button(c.Key("stars-import"), T("Import / Replace Plugins")).Margin(0, 8, 0, 0).
-						Disabled(in.busy || in.batch || in.open || len(in.updating) != 0).Clicked() {
-						a.openStars()
+					if !in.editingPlugins {
+						if ui.Button(c.Key("stars-import"), T("Import / Replace Plugins")).Margin(0, 4, 0, 8).
+							Disabled(in.busy || in.batch || in.open || len(in.updating) != 0).Clicked() {
+							a.openStars()
+						}
+						a.installMenu(c, p)
 					}
-					a.installMenu(c, p)
 				}
 			})
 			// The pointer over it brings the edge up too, as AppKit's does.
@@ -243,6 +269,7 @@ func (a *app) settingsView(c *ui.Context) {
 	a.starsDialog(c, p)
 	a.signInDialog(c, p, true)
 	a.discoveryEditorView(c)
+	a.pluginNameDialog(c, p)
 	a.skinEditorView(c, p)
 }
 
@@ -261,7 +288,10 @@ func (a *app) settingsSearch(c *ui.Context, p palette) {
 		// The input fills the field, under its icon, so a click anywhere on
 		// the field focuses it.
 		ui.TextInputBase(c.Key("search"), &a.settingsQuery).Bind(&a.settingsSearchBox).Grow(1).MinWidth(0).PaddingStart(29).PaddingEnd(9).
-			Placeholder(T("Search")).FontSize(13).Label(T("Search Settings"))
+			Placeholder(T("Search")).FontSize(13).Label(T("Search Settings")).OnChange(func() {
+			a.installer.detailsID = ""
+			a.installer.editingPlugins = false
+		})
 		ui.Icon(c, iconSearch).Size(13, 13).TextColor(p.muted).Absolute().Left(9).Top(7.5).IgnoreInput(true)
 	})
 }
@@ -286,6 +316,8 @@ func (a *app) settingsNavItem(c *ui.Context, p palette, sec settingsSection, sel
 	})
 	if b.Clicked() {
 		a.settingsPage, a.settingsQuery = sec.id, ""
+		a.installer.detailsID = ""
+		a.installer.editingPlugins = false
 	}
 }
 
@@ -415,7 +447,6 @@ func (a *app) settingsSections(c *ui.Context, p palette) []settingsSection {
 				if ui.Switch(c.Key("menu-bar-lyrics"), &s.MenuBarLyrics).Label(T("Menu Bar Lyrics")).Changed() {
 					a.changed()
 					a.changeAppIcon()
-					a.syncPlaybackExtras()
 				}
 			})
 			row(T("Menu Bar Video"), "", func() {
@@ -599,7 +630,8 @@ func (a *app) anyCan(what string) bool {
 // and where more of them come from.
 func (a *app) sourceSettings(c *ui.Context, row settingsRow, block settingsBlock, p palette) {
 	in := &a.installer
-	if len(a.githubPluginTargets()) > 0 {
+	editing := in.editingPlugins && strings.TrimSpace(a.settingsQuery) == ""
+	if !editing && len(a.githubPluginTargets()) > 0 {
 		status := in.batchStatus
 		busy := in.batch || in.busy || in.pending != nil || len(in.updating) != 0
 		if in.batch {
@@ -619,16 +651,18 @@ func (a *app) sourceSettings(c *ui.Context, row settingsRow, block settingsBlock
 			})
 		})
 	}
-	for _, lib := range a.allLibs {
+	for index, lib := range a.allLibs {
 		if lib.id == local.ID {
-			a.localSettings(c, lib, row, block, p)
+			if !editing {
+				a.localSettings(c, lib, row, block, p)
+			}
 			continue
 		}
 		text := lib.name()
 		for _, st := range lib.src.Info().Settings {
 			text += " " + st.Label + " " + st.Help
 		}
-		block(text, func() { a.pluginSettings(c.Key(lib.id), lib, p) })
+		block(text, func() { a.pluginListRow(c.Key(lib.id), lib, index, editing, p) })
 	}
 }
 
@@ -680,81 +714,6 @@ func (a *app) localSettings(c *ui.Context, lib *library, row settingsRow, block 
 	}
 }
 
-// pluginSettings is a plugin: who's signed in, and what it asks of the listener.
-func (a *app) pluginSettings(c *ui.Context, lib *library, p palette) {
-	info := lib.src.Info()
-	enabled := a.pluginEnabled(lib)
-	ui.Column(c).Padding(12, 16).Gap(10).Children(func() {
-		a.pluginNameEditor(c, lib)
-		ui.Row(c).Gap(10).AlignItems(ui.Center).MinHeight(24).Children(func() {
-			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
-				name := lib.name()
-				if info.Version != "" {
-					name += " " + info.Version
-				}
-				ui.Text(c, name).FontSize(13.5).FontWeight(500)
-				// Where it came from, a link to its repository, and who's signed
-				// in, on one line.
-				from, url := pluginFrom(lib)
-				signedIn := ""
-				if enabled && !lib.needsSetup && lib.account != nil {
-					signedIn = Tf("Signed in as %s", lib.account.Name)
-				}
-				if from != "" || signedIn != "" {
-					ui.Row(c).MinWidth(0).Children(func() {
-						if url != "" {
-							ui.Link(c, from, url).FontSize(12).TextColor(p.muted).SingleLine().Shrink(0).Tooltip(T("Open on GitHub"))
-						} else if from != "" {
-							ui.Text(c, from).FontSize(12).TextColor(p.muted).SingleLine().Shrink(0)
-						}
-						if signedIn != "" {
-							if from != "" {
-								signedIn = " · " + signedIn
-							}
-							ui.Text(c, signedIn).FontSize(12).TextColor(p.muted).SingleLine().Shrink(1).MinWidth(0)
-						}
-					})
-				}
-				if enabled && lib.needsSetup {
-					ui.Text(c, setupNotice(lib, info)).FontSize(12).TextColor(p.accent).LineHeight(1.4)
-				}
-				a.pluginUpdateError(c, lib, p)
-			})
-			a.pluginUpdateButton(c, lib)
-			switch {
-			case !enabled:
-			case lib.account == nil && lib.accountUnknown():
-				// A source not yet used hasn't said who's signed in: asked now, its
-				// row offers no sign-in to someone who already is.
-				a.loadAccount(lib)
-			case lib.account != nil && lib.can("signOut"):
-				if ui.Button(c.Key("sign-out"), T("Sign Out")).Clicked() {
-					a.signOut(lib)
-				}
-			case lib.account == nil && lib.can("signIn"):
-				if ui.PrimaryButton(c.Key("sign-in"), T("Sign In")).Clicked() {
-					a.promptSignInInSettings(lib)
-				}
-			}
-			a.pluginMenu(c, lib, p)
-			a.pluginSwitch(c, lib)
-			ui.Button(c.Key("discovery-sections"), T("Display Settings")).OnClick(func() { a.openDiscoveryEditor(lib) })
-		})
-		if a.installer.editingPlugins {
-			a.pluginEditActions(c, lib)
-		}
-		if !enabled {
-			return
-		}
-		if g, ok := lib.src.(guarded); ok {
-			a.pluginPermissions(c.Key("permissions"), lib, g, p)
-		}
-		for _, st := range info.Settings {
-			a.sourceSetting(c.Key(st.Key), lib, st, p)
-		}
-	})
-}
-
 // setupNotice says what a plugin that needs setting up wants: what it said, or
 // else the settings still empty, or else only that it does. A plugin may need
 // something no field holds, such as a program installed or allowed, so the
@@ -796,16 +755,19 @@ type guarded interface {
 
 // pluginPermissions says what a plugin can reach, and asks before it may start
 // programs, which can do anything the listener can. It may not until they say.
-func (a *app) pluginPermissions(c *ui.Context, lib *library, g guarded, p palette) {
-	perms := g.Permissions()
+func (a *app) pluginPermissions(c *ui.Context, lib *library, g guarded, perms plugin.Permissions, p palette) {
 	if len(perms.Network) > 0 {
-		reach := Tf("Can reach %s", strings.Join(perms.Network, ", "))
-		if slices.Contains(perms.Network, "*") {
-			reach = T("Can reach any website")
-		}
-		ui.Text(c, reach).FontSize(12).TextColor(p.muted).LineHeight(1.4)
+		ui.Collapsible(c.Key("network"), T("Network Permissions"), &a.installer.networkOpen, func() {
+			if slices.Contains(perms.Network, "*") {
+				ui.Text(c, T("Can reach any website")).FontSize(12.5).TextColor(p.muted)
+				return
+			}
+			for _, host := range perms.Network {
+				ui.Text(c, host).FontSize(12.5).TextColor(p.muted)
+			}
+		})
 	}
-	if len(perms.Process) == 0 {
+	if !a.pluginEnabled(lib) || len(perms.Process) == 0 {
 		return
 	}
 	granted := g.Granted()

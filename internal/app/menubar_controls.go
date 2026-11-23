@@ -1,25 +1,22 @@
 package app
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"image/draw"
+	"image/png"
+	"log"
 	"sync"
 
 	"github.com/egoist/mygo"
-)
-
-const (
-	menuBarControlGap   = 4
-	menuBarControlWidth = 19
-	menuBarControlIcon  = 14 * menuBarScale
+	"github.com/egoist/mygo/ui"
 )
 
 type menuBarAction int
 
 const (
-	menuBarOpenMenu menuBarAction = iota
-	menuBarPrevious
+	menuBarPrevious menuBarAction = iota
 	menuBarToggle
 	menuBarNext
 )
@@ -32,73 +29,123 @@ const (
 	menuBarPlaying
 )
 
-var menuBarControlMasks = sync.OnceValue(func() [4]*image.RGBA {
-	return [4]*image.RGBA{
-		iconPrev.Image(menuBarControlIcon, menuBarControlIcon, nil),
-		iconPlay.Image(menuBarControlIcon, menuBarControlIcon, nil),
-		iconNext.Image(menuBarControlIcon, menuBarControlIcon, nil),
-		iconPause.Image(menuBarControlIcon, menuBarControlIcon, nil),
+var menuBarButtons = [...]struct{ id, label string }{
+	{"mb-previous", N("Previous")},
+	{"mb-play-pause", N("Play/Pause")},
+	{"mb-next", N("Next")},
+}
+
+type menuBarButton interface {
+	OnClick(func()) func()
+	SetIcon([]byte, bool) error
+	SetToolTip(string)
+	Destroy()
+}
+
+type menuBarControls struct {
+	buttons   [len(menuBarButtons)]menuBarButton
+	transport menuBarTransport
+}
+
+func openMenuBarButton(opts mygo.TrayOptions) (menuBarButton, error) {
+	return mygo.NewTray(opts)
+}
+
+func (c *menuBarControls) show(transport menuBarTransport, open func(mygo.TrayOptions) (menuBarButton, error), click func(menuBarAction)) {
+	c.update(transport)
+	for action := menuBarNext; action >= menuBarPrevious; action-- {
+		if c.buttons[action] != nil {
+			continue
+		}
+		item := menuBarButtons[action]
+		button, err := open(mygo.TrayOptions{ID: item.id, Icon: menuBarControlIcon(action, transport), IconIsTemplate: true, ToolTip: T(item.label)})
+		if err != nil {
+			log.Println("menu bar controls:", err)
+			continue
+		}
+		target := action
+		button.OnClick(func() { click(target) })
+		c.buttons[action] = button
 	}
+}
+
+func (c *menuBarControls) update(transport menuBarTransport) {
+	if c.transport == transport {
+		return
+	}
+	for index, button := range c.buttons {
+		action := menuBarAction(index)
+		if button != nil && (action == menuBarToggle || c.transport == menuBarIdle || transport == menuBarIdle) {
+			if err := button.SetIcon(menuBarControlIcon(action, transport), true); err != nil {
+				log.Println("menu bar controls:", err)
+			}
+		}
+	}
+	c.transport = transport
+}
+
+func (c *menuBarControls) refreshToolTips() {
+	for index, button := range c.buttons {
+		if button != nil {
+			button.SetToolTip(T(menuBarButtons[index].label))
+		}
+	}
+}
+
+func (c *menuBarControls) close() {
+	for index, button := range c.buttons {
+		if button != nil {
+			button.Destroy()
+			c.buttons[index] = nil
+		}
+	}
+	c.transport = menuBarIdle
+}
+
+var menuBarControlPNGs = sync.OnceValue(func() [4][2][]byte {
+	const size = menuBarHeightPoints * menuBarScale
+	const iconSize = 14 * menuBarScale
+	const inset = (size - iconSize) / 2
+	var images [4][2][]byte
+	for index, icon := range []*ui.SVG{iconPrev, iconPlay, iconNext, iconPause} {
+		mask := icon.Image(iconSize, iconSize, nil)
+		for variant, opacity := range []uint8{255, 100} {
+			canvas := image.NewRGBA(image.Rect(0, 0, size, size))
+			ink := image.NewUniform(color.NRGBA{A: opacity})
+			draw.DrawMask(canvas, image.Rect(inset, inset, inset+iconSize, inset+iconSize), ink, image.Point{}, mask, image.Point{}, draw.Over)
+			var encoded bytes.Buffer
+			_ = png.Encode(&encoded, canvas)
+			images[index][variant] = encoded.Bytes()
+		}
+	}
+	return images
 })
 
-func (style menuBarStyle) lyricStart() int {
-	if style.video {
-		return menuBarVideoPoints + menuBarIconGap
+func menuBarControlIcon(action menuBarAction, transport menuBarTransport) []byte {
+	glyph := int(action)
+	if action == menuBarToggle && transport == menuBarPlaying {
+		glyph = len(menuBarButtons)
 	}
-	return menuBarIconPoints + menuBarIconGap
+	variant := 0
+	if transport == menuBarIdle {
+		variant = 1
+	}
+	return menuBarControlPNGs()[glyph][variant]
 }
 
-func (style menuBarStyle) controlsStart(width int) int {
-	return style.lyricStart() + width + menuBarControlGap
-}
-
-func (style menuBarStyle) imageWidth(width int) int {
-	return style.controlsStart(width) + 3*menuBarControlWidth
-}
-
-func (style menuBarStyle) drawControls(canvas *image.RGBA, width int, ink *image.Uniform) {
-	masks := menuBarControlMasks()
-	if style.transport == menuBarPlaying {
-		masks[1] = masks[3]
-	}
-	if style.transport == menuBarIdle {
-		red, green, blue, _ := ink.C.RGBA()
-		ink = image.NewUniform(color.NRGBA{R: uint8(red >> 8), G: uint8(green >> 8), B: uint8(blue >> 8), A: 100})
-	}
-	for index, mask := range masks[:3] {
-		left := (style.controlsStart(width)+index*menuBarControlWidth)*menuBarScale + (menuBarControlWidth*menuBarScale-menuBarControlIcon)/2
-		top := (canvas.Bounds().Dy() - menuBarControlIcon) / 2
-		target := image.Rect(left, top, left+menuBarControlIcon, top+menuBarControlIcon)
-		draw.DrawMask(canvas, target, ink, image.Point{}, mask, image.Point{}, draw.Over)
-	}
-}
-
-func (m *menuBarRenderer) actionAt(bounds mygo.Rectangle, point mygo.Point) menuBarAction {
-	width := m.style.imageWidth(m.width)
-	if !m.enabled || bounds.Width < width || point.Y < bounds.Y || point.Y >= bounds.Y+bounds.Height {
-		return menuBarOpenMenu
-	}
-	imageLeft := bounds.X + (bounds.Width-width)/2
-	return m.actionAtImage(float64(point.X-imageLeft), float64(width))
-}
-
-func (m *menuBarRenderer) actionAtImage(x, nativeWidth float64) menuBarAction {
-	if !m.enabled || nativeWidth <= 0 {
-		return menuBarOpenMenu
-	}
-	offset := x*float64(m.style.imageWidth(m.width))/nativeWidth - float64(m.style.controlsStart(m.width))
-	if offset < 0 || offset >= 3*menuBarControlWidth {
-		return menuBarOpenMenu
-	}
-	return menuBarPrevious + menuBarAction(int(offset)/menuBarControlWidth)
-}
-
-func (a *app) runMenuBarAction(action menuBarAction) bool {
-	if action == menuBarOpenMenu {
-		return false
-	}
+func (a *app) menuBarTransport() menuBarTransport {
 	if a.pl == nil || a.pl.Current() == nil {
-		return true
+		return menuBarIdle
+	}
+	if a.pl.Playing() {
+		return menuBarPlaying
+	}
+	return menuBarPaused
+}
+
+func (a *app) runMenuBarAction(action menuBarAction) {
+	if a.pl == nil || a.pl.Current() == nil {
+		return
 	}
 	switch action {
 	case menuBarPrevious:
@@ -109,5 +156,4 @@ func (a *app) runMenuBarAction(action menuBarAction) bool {
 		a.pl.Next()
 	}
 	a.redraw()
-	return true
 }

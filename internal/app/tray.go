@@ -86,57 +86,34 @@ func (a *app) applyTray() {
 		if runtime.GOOS == "darwin" {
 			icon, template = trayTemplate, true
 		}
-		options := mygo.TrayOptions{ID: "mb", Icon: icon, IconIsTemplate: template, ToolTip: mygo.App.Name()}
-		if !a.trayHasInlineControls() {
-			options.Menu = a.trayMenu()
-		}
+		options := mygo.TrayOptions{ID: "mb", Icon: icon, IconIsTemplate: template, ToolTip: mygo.App.Name(), Menu: a.trayMenu()}
 		t, err := mygo.NewTray(options)
 		if err != nil {
 			log.Println("tray:", err)
 			return
 		}
-		t.OnClick(a.trayClick)
-		if runtime.GOOS == "darwin" {
-			t.OnRightClick(func() {
-				if a.trayHasInlineControls() {
-					a.trayMenu().Popup(nil)
-				}
-			})
-		}
+		t.OnClick(a.showMain)
 		t.OnAppearanceChange(a.updateTrayLyric)
 		a.tray = t
 		a.trayLyrics, a.trayTip = menuBarRenderer{}, ""
-		a.syncPlaybackExtras()
 	case !show && a.tray != nil:
 		a.trayVideo.release()
 		a.tray.Destroy()
 		a.tray = nil
 	}
-}
-
-func (a *app) trayHasInlineControls() bool {
-	return runtime.GOOS == "darwin" && a.settings.MenuBarLyrics
-}
-
-func (a *app) trayClick() {
-	if !a.trayHasInlineControls() || a.tray == nil {
-		a.showMain()
-		return
+	if runtime.GOOS == "darwin" && a.tray != nil && a.settings.MenuBarLyrics {
+		a.trayControls.show(a.menuBarTransport(), openMenuBarButton, a.runMenuBarAction)
+	} else {
+		a.trayControls.close()
 	}
-	action := a.trayTransportAction()
-	if !a.runMenuBarAction(action) {
-		a.trayMenu().Popup(nil)
-	}
+	a.syncPlaybackExtras()
 }
 
 // refreshTray gives the icon its menu anew, as in another language.
 func (a *app) refreshTray() {
 	if a.tray != nil {
-		if a.trayHasInlineControls() {
-			a.tray.SetMenu(nil)
-		} else {
-			a.tray.SetMenu(a.trayMenu())
-		}
+		a.tray.SetMenu(a.trayMenu())
+		a.trayControls.refreshToolTips()
 		a.updateTrayLyric()
 	}
 }
@@ -173,7 +150,6 @@ func (a *app) trayMenu() *mygo.Menu {
 				a.settings.MenuBarLyrics = item.IsChecked()
 				a.changed()
 				a.changeAppIcon()
-				a.syncPlaybackExtras()
 			}})
 	}
 	items = append(items,
