@@ -123,9 +123,12 @@ type app struct {
 	trackList      ui.ListState
 	sourceScroll   ui.ScrollState
 	revealedSource string
-	skin           *ui.Bitmap
+	skin           *backgroundSkin
 	skinBusy       bool
 	skinError      bool
+	skinDraft      *backgroundSkin
+	skinEditorOpen bool
+	skinPickID     uint64
 	// Where the page and the sidebar are scrolled, kept while Now Playing
 	// covers them, unbuilt.
 	pageScroll ui.ScrollState

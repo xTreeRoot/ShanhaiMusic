@@ -15,7 +15,7 @@ const sidebarWidth = 232
 
 func (a *app) view(c *ui.Context) {
 	t := *c.Theme()
-	a.pal = paletteFor(&t)
+	a.pal = a.appPalette(&t)
 	p := a.pal
 	useAccent(&t, p)
 	t.Selection = p.accent.Alpha(0.3)

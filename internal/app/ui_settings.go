@@ -52,6 +52,7 @@ func (a *app) openSettings() {
 	a.settingsWin.OnClosed(func() {
 		a.closeStars()
 		a.settingsWin = nil
+		a.cancelSkinEditor()
 		a.discoveryEditor.open = false
 		// Its sign-in dialog goes with it; a sign-in on its way still counts.
 		if a.signIn.here {
@@ -148,7 +149,7 @@ func settingsMatch(query string, texts ...string) bool {
 
 func (a *app) settingsView(c *ui.Context) {
 	t := *c.Theme()
-	p := paletteFor(&t)
+	p := a.appPalette(&t)
 	useAccent(&t, p)
 	c.SetTheme(&t)
 	c.Root().Background(p.bg)
@@ -231,6 +232,7 @@ func (a *app) settingsView(c *ui.Context) {
 	a.starsDialog(c, p)
 	a.signInDialog(c, p, true)
 	a.discoveryEditorView(c)
+	a.skinEditorView(c, p)
 }
 
 // settingsSidebarWidth is the width of the list of the settings' pages.
@@ -368,9 +370,11 @@ func (a *app) settingsSections(c *ui.Context, p palette) []settingsSection {
 		}
 		row(T("Background Skin"), skinDescription, func() {
 			ui.Row(c).Gap(6).Children(func() {
-				if ui.Button(c.Key("choose-skin"), T("Choose Background Image…")).Disabled(a.skinBusy).Clicked() {
-					a.chooseSkin()
+				label := T("Choose Background Image…")
+				if a.skin != nil {
+					label = T("Customize…")
 				}
+				ui.Button(c.Key("choose-skin"), label).Disabled(a.skinBusy).OnClick(func() { a.openSkinEditor(p.dark) })
 				if a.skin != nil || a.skinError {
 					if ui.Button(c.Key("clear-skin"), T("Restore Default Background")).Disabled(a.skinBusy).Clicked() {
 						a.clearSkin()

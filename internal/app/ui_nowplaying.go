@@ -257,6 +257,9 @@ func (a *app) nowPlayingView(c *ui.Context) {
 		tint = shown.tint
 	}
 	accent := tint.Mix(white, 0.45)
+	if a.skin != nil && a.skin.Style.Accent != "" {
+		accent = a.pal.accent
+	}
 
 	// Near the bar, the card is only its cover, the rest gone clear.
 	bg := ui.Hex("#0b0b0d")
@@ -276,7 +279,13 @@ func (a *app) nowPlayingView(c *ui.Context) {
 			bloom.Opacity(smoothstep(0.05, 0.55, t)).
 				TransformOrigin((from.X+from.W/2)/w, (from.Y+from.H/2)/h).Scale(s, s)
 		}
-		bloom.Children(func() { a.backdrop(c, shown, tint) })
+		bloom.Children(func() {
+			if a.skin != nil && a.skin.Style.ApplyToPlayer {
+				paintSkin(c, a.skin.bitmap, a.skin.Style)
+			} else {
+				a.backdrop(c, shown, tint)
+			}
+		})
 		// Over the backdrop, which is positioned too: positioned elements
 		// paint over those in the flow.
 		ui.Column(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Children(func() { a.nowPlayingBody(c, tr, art, accent, w, h, pointerIn) })
