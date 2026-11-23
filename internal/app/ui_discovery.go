@@ -103,7 +103,9 @@ func (a *app) saveDiscoveryEditor() {
 	}()
 }
 
-// 卡片按可见宽度先填满第一行，最多两行横滑，栏目标题左、更多右。
+const discoveryColumns = 5
+const discoveryCardLimit = 2 * discoveryColumns
+
 func (a *app) discoveryPage(c *ui.Context) {
 	top, bottom := a.insets(c)
 	ui.Scroll(c.Key(a.route)).Grow(1).Padding(top+pageGap, pagePad, bottom+32, pagePad).Children(func() {
@@ -117,7 +119,7 @@ func (a *app) discoveryPage(c *ui.Context) {
 		}
 		for index, section := range a.home.Sections {
 			c := c.Key(index)
-			a.browseTitle(c, &section, index == 0)
+			a.browseTitle(c, &section, index == 0, 0)
 			var cards []func(*ui.Context)
 			for i := range section.Tracks {
 				track := &section.Tracks[i]
@@ -153,23 +155,10 @@ func (a *app) discoveryPage(c *ui.Context) {
 				ui.Text(c, section.Empty).TextColor(a.pal.muted)
 				continue
 			}
-			viewport := ui.ScrollHorizontal(c).Margin(0, 0, 20, 0)
-			viewport.Children(func() {
-				columns := max(1, int((viewport.Bounds().W+18)/174))
-				capacity := columns * 2
-				ui.Row(c).Gap(18).Children(func() {
-					for start := 0; start < len(cards); start += capacity {
-						ui.Column(c.Key(start)).Gap(16).Children(func() {
-							for first := start; first < min(start+capacity, len(cards)); first += columns {
-								ui.Row(c.Key(first)).Gap(18).Children(func() {
-									for i := first; i < min(first+columns, len(cards)); i++ {
-										ui.Box(c.Key(i)).Width(156).Children(func() { cards[i](c) })
-									}
-								})
-							}
-						})
-					}
-				})
+			ui.Grid(c).Columns(discoveryColumns).GapX(18).GapY(16).Margin(0, 0, 20, 0).Children(func() {
+				for cardIndex, render := range cards[:min(len(cards), discoveryCardLimit)] {
+					render(c.Key(cardIndex))
+				}
 			})
 		}
 	})

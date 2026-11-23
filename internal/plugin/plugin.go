@@ -226,15 +226,7 @@ func Load(dir, dataDir string) (*Plugin, error) {
 	if !filepath.IsLocal(m.Main) {
 		return nil, fmt.Errorf("%s: main must be a file in the plugin's folder: %q", dir, m.Main)
 	}
-	source, err := os.ReadFile(filepath.Join(dir, m.Main))
-	if err != nil {
-		return nil, err
-	}
-	compile := moejs.Compile
-	if strings.HasSuffix(m.Main, ".ts") {
-		compile = moejs.CompileTS
-	}
-	mod, err := compile(m.Main, string(source))
+	mod, err := loadPluginModule(dir, m.Main)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", dir, err)
 	}

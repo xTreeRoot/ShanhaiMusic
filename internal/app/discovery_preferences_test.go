@@ -162,7 +162,7 @@ func TestDiscoveryShelfFillsRowsAndPreservesQueue(t *testing.T) {
 			tracks := framesTracks(a)[:count]
 			fake(a).info.Discovery = []music.DiscoverySection{{ID: "shelf", Title: "Shelf", Page: "shelf"}}
 			a.home = &music.Browse{Sections: []music.Section{{Title: "Shelf", Tracks: tracks}}}
-			tt := ui.NewTester(a.view, 680, 980)
+			tt := ui.NewTester(a.view, 880, 980)
 			settled(tt)
 			first, ok := tt.Find(tracks[0].Name)
 			if !ok {
@@ -174,17 +174,15 @@ func TestDiscoveryShelfFillsRowsAndPreservesQueue(t *testing.T) {
 					t.Fatalf("two cards must share the first row: %+v %+v", first, second)
 				}
 			}
-			if count > 2 {
-				third, ok := tt.Find(tracks[2].Name)
-				if !ok || third.Y <= first.Y || third.X != first.X {
-					t.Fatalf("third card starts second row: %+v %+v", first, third)
-				}
-				tt.SetSize(1180, 980)
-				settled(tt)
-				third, ok = tt.Find(tracks[2].Name)
-				first, _ = tt.Find(tracks[0].Name)
-				if !ok || third.Y != first.Y || third.X <= first.X {
-					t.Fatalf("wider viewport must fill first row: %+v %+v", first, third)
+			if count > 5 {
+				for _, width := range []int{880, 1180} {
+					tt.SetSize(width, 980)
+					settled(tt)
+					first, _ = tt.Find(tracks[0].Name)
+					sixth, ok := tt.Find(tracks[5].Name)
+					if !ok || sixth.Y <= first.Y || sixth.X != first.X {
+						t.Fatalf("the sixth card should start the second row: %+v %+v", first, sixth)
+					}
 				}
 			}
 			if dir := os.Getenv("MM_FRAMES"); dir != "" {

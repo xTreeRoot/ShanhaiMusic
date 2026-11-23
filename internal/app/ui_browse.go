@@ -293,7 +293,7 @@ func (a *app) browseRows(c *ui.Context, page *music.Browse, pageID string, heade
 			}
 			ui.Box(c).Padding(0, 12, below, 12).Children(func() { a.featureCard(c, sec, pageID, r.section, now) })
 		case rowTitle:
-			a.browseTitle(c, sec, r.section == 0)
+			a.browseTitle(c, sec, r.section == 0, 12)
 		case rowTrack:
 			a.trackRow(c, sec.Tracks, r.from, true, "")
 		case rowVideos:
@@ -326,12 +326,12 @@ func (a *app) browseRows(c *ui.Context, page *music.Browse, pageID string, heade
 }
 
 // browseTitle is a section's title, with a way to all of it if there's more.
-func (a *app) browseTitle(c *ui.Context, sec *music.Section, first bool) {
+func (a *app) browseTitle(c *ui.Context, sec *music.Section, first bool, inset float32) {
 	margin := float32(34)
 	if first {
 		margin = 0
 	}
-	ui.Row(c).Margin(margin, 12, 14, 12).AlignItems(ui.Baseline).Children(func() {
+	ui.Row(c).Margin(margin, inset, 14, inset).AlignItems(ui.Baseline).Children(func() {
 		ui.Text(c, sec.Title).FontSize(19).FontWeight(700).LetterSpacing(-0.3).Grow(1).Shrink(1).MinWidth(0)
 		if sec.MorePage != "" || sec.MoreBuiltin != "" {
 			more := ui.ButtonBase(c.Key("more")).Padding(2, 8).Radius(6).FocusRing(false).Label(T("See All"))

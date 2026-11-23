@@ -43,8 +43,63 @@ func TestDiscoveryCardsPlaySectionQueue(t *testing.T) {
 	}
 }
 
+func TestDiscoveryPreviewsDoNotScrollHorizontally(t *testing.T) {
+	for _, width := range []int{880, 1180, 1500} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			a := newTestApp()
+			tracks := make([]music.Track, 12)
+			for index := range tracks {
+				tracks[index] = music.Track{ID: fmt.Sprint(index + 1), Name: fmt.Sprintf("Preview track %d", index+1)}
+			}
+			fake(a).info.Discovery = []music.DiscoverySection{{ID: "recommended", Title: "Recommendations", Page: "recommended"}}
+			a.home = &music.Browse{Sections: []music.Section{{Title: "Recommendations", Tracks: tracks, MorePage: "recommended"}}}
+			tester := ui.NewTester(a.view, width, 880)
+			settled(tester)
+			if dir := os.Getenv("MM_FRAMES"); dir != "" && width == 1180 {
+				saveFrame(t, dir, "desktop-discovery-ten-cards.png", tester.Image())
+			}
+			var cards [10]ui.Rect
+			for index, track := range tracks {
+				card, visible := tester.AccessByRole(ui.RoleButton, track.Name)
+				if index >= len(cards) {
+					if visible {
+						t.Fatalf("showed an extra preview card: %s", track.Name)
+					}
+					continue
+				}
+				if !visible || card.Bounds.W <= 0 || card.Bounds.X+card.Bounds.W > float32(width) {
+					t.Fatalf("preview card %s does not fit: %+v", track.Name, card.Bounds)
+				}
+				cards[index] = card.Bounds
+			}
+			for column := range 5 {
+				if cards[column].Y != cards[0].Y || cards[column+5].Y != cards[5].Y || cards[column+5].X != cards[column].X || cards[column+5].Y <= cards[column].Y {
+					t.Fatalf("preview cards are not aligned in two rows: %+v", cards)
+				}
+			}
+			title, visible := tester.Access("Recommendations")
+			if !visible || title.Bounds.X != cards[0].X {
+				t.Fatalf("section title does not align with the grid: %+v, %+v", title.Bounds, cards[0])
+			}
+			tester.Scroll(cards[0].X+20, cards[0].Y+20, 640, 0)
+			settled(tester)
+			last, visible := tester.AccessByRole(ui.RoleButton, tracks[9].Name)
+			if !visible || last.Bounds.X != cards[9].X {
+				t.Fatalf("horizontal scrolling moved the preview cards: %+v", last.Bounds)
+			}
+			if err := tester.Click(tracks[9].Name); err != nil {
+				t.Fatal(err)
+			}
+			if current := a.pl.Current(); current == nil || current.ID != tracks[9].ID || len(a.pl.Queue()) != len(tracks) {
+				t.Fatal("preview limit changed the playback queue")
+			}
+		})
+	}
+}
+
 func TestDiscoverySeeAll(t *testing.T) {
 	a, ch, asked := browseApp()
+	fake(a).info.Discovery = []music.DiscoverySection{{ID: "recommended", Title: "For You", Page: "recommended"}}
 	a.home = discoveryHome(a)
 	tt := ui.NewTester(a.view, 1180, 780)
 	tt.Frame()
