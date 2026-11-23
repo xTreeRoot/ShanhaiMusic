@@ -31,10 +31,16 @@ internal data class PluginManifest(
             if (entry.startsWith('/') || '\\' in entry || '\u0000' in entry || ".." in entry.split('/') || !entry.endsWith(".js")) {
                 throw PluginException("Invalid entry path")
             }
-            val minAppVersion = json.optionalText("minAppVersion")
+            val defaultMinVersion = json.optionalText("minAppVersion")?.also { versionNumbers(it) }
+            val overrides = if (json.isNull("minAppVersionByPlatform")) null else
+                json.optJSONObject("minAppVersionByPlatform") ?: throw PluginException("Invalid minAppVersionByPlatform")
+            overrides?.keys()?.forEach { platform ->
+                if (platform !in setOf("desktop", "ios", "android")) throw PluginException("Invalid minAppVersionByPlatform key $platform")
+                versionNumbers(overrides.requiredText(platform))
+            }
+            val minAppVersion = overrides?.optionalText("android") ?: defaultMinVersion
             minAppVersion?.let { version ->
-                if (!versionPattern.matches(version)) throw PluginException("Invalid compatibility version")
-                val required = version.split('.').map { it.toIntOrNull() ?: throw PluginException("Invalid compatibility version") }
+                val required = versionNumbers(version)
                 val difference = required.zip(hostVersion).firstOrNull { (needed, available) -> needed != available }
                 if (difference != null && difference.first > difference.second) throw PluginException("Requires host $version")
             }
@@ -90,6 +96,11 @@ internal data class PluginManifest(
                 }
                 PluginHeaderRule(hosts, kinds.toSet(), headers)
             })
+        }
+
+        private fun versionNumbers(version: String): List<Int> {
+            if (!versionPattern.matches(version)) throw PluginException("Invalid compatibility version")
+            return version.split('.').map { it.toIntOrNull() ?: throw PluginException("Invalid compatibility version") }
         }
 
         private fun JSONObject.requiredText(key: String): String = optionalText(key) ?: throw PluginException("Missing $key")

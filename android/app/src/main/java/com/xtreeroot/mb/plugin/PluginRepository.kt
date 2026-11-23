@@ -61,6 +61,21 @@ internal object PluginRepository {
             ?: namesLower.indices.firstOrNull { index -> namesLower[index].endsWith(".zip") &&
                 listOf("darwin", "macos", "windows", "linux", "android", "ios").none { it in namesLower[index] } }
     }
+
+    fun universalRelease(repository: String, release: JSONObject): GitHubPluginRevision? {
+        val universalName = "plugin-universal.zip"
+        val assets = release.optJSONArray("assets") ?: return null
+        for (index in 0 until assets.length()) {
+            val asset = assets.optJSONObject(index) ?: continue
+            if (asset.opt("name") != universalName) continue
+            val assetID = (asset.opt("id") as? Number)?.toString()?.toLongOrNull()?.takeIf { it > 0 }
+            val tag = (release.opt("tag_name") as? String)?.takeIf { Regex("[A-Za-z0-9][A-Za-z0-9._-]*").matches(it) }
+            if (assetID == null || tag == null) throw PluginException("Invalid universal plugin release")
+            val archive = uri("https://github.com/$repository/releases/download/$tag/$universalName")
+            return GitHubPluginRevision("asset-$assetID", archive, (release.opt("body") as? String)?.takeIf(String::isNotBlank))
+        }
+        return null
+    }
 }
 
 internal class GitHubPluginPackages(private val transport: PluginHttpTransport, private val abis: List<String>) {
@@ -89,9 +104,11 @@ internal class GitHubPluginPackages(private val transport: PluginHttpTransport, 
         return repositories.values.toList().ifEmpty { throw PluginException("No repositories in this GitHub Stars list") }
     }
 
-    /** 按默认分支的固定 SHA 下载，避免旧 Release 和相同版本号漏掉更新。 */
     suspend fun latestRevision(input: String): GitHubPluginRevision {
-        val base = repositoryUrl(input)
+        val repository = PluginRepository.parse(input)
+        val base = repositoryUrl(repository)
+        metadata(uri(base.newBuilder().addPathSegments("releases/latest").build().toString()), allowMissing = true)
+            ?.let { PluginRepository.universalRelease(repository, it) }?.let { return it }
         val result = checkNotNull(metadata(uri(base.newBuilder().addPathSegments("commits/HEAD").build().toString())))
         val sha = (result.opt("sha") as? String)?.takeIf { Regex("[0-9a-f]{40}").matches(it) }
             ?: throw PluginException("GitHub commit response has no valid SHA")

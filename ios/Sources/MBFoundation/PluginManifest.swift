@@ -49,6 +49,7 @@ public struct PluginManifest: Codable, Sendable {
     public let version: String?
     public let main: String?
     public let minAppVersion: String?
+    public let minAppVersionByPlatform: [String: String]?
     public let playback: String?
     public let permissions: Permissions?
     public let settings: [Setting]?
@@ -57,12 +58,21 @@ public struct PluginManifest: Codable, Sendable {
     public let signInMethods: [SignInMethod]?
     public var entry: String { main ?? "index.js" }
     public var displayName: String { name ?? id }
+    public var requiredHostVersion: String? { minAppVersionByPlatform?["ios"] ?? minAppVersion }
     public func validate(hostVersion: String = "0.1.28") throws {
         guard id.range(of: "^[A-Za-z0-9][A-Za-z0-9_.-]*$", options: .regularExpression) != nil, !id.contains("..") else { throw PluginFailure.invalid("Invalid plugin ID") }
         guard !entry.hasPrefix("/"), !entry.split(separator: "/").contains(".."), entry.hasSuffix(".js") else { throw PluginFailure.invalid("Invalid entry path") }
-        if let minAppVersion {
-            guard let required = Self.version(minAppVersion), let host = Self.version(hostVersion) else { throw PluginFailure.invalid("Invalid compatibility version") }
-            if host.lexicographicallyPrecedes(required) { throw PluginFailure.invalid("Requires host \(minAppVersion)") }
+        if let minAppVersion, Self.version(minAppVersion) == nil { throw PluginFailure.invalid("Invalid compatibility version") }
+        for (platform, version) in minAppVersionByPlatform ?? [:] {
+            guard ["desktop", "ios", "android"].contains(platform),
+                  version.range(of: #"\A[0-9]+\.[0-9]+\.[0-9]+\z"#, options: .regularExpression) != nil,
+                  let parts = Self.version(version), parts.allSatisfy({ $0 <= Int32.max }) else {
+                throw PluginFailure.invalid("Invalid minAppVersionByPlatform")
+            }
+        }
+        if let requiredHostVersion {
+            guard let required = Self.version(requiredHostVersion), let host = Self.version(hostVersion) else { throw PluginFailure.invalid("Invalid compatibility version") }
+            if host.lexicographicallyPrecedes(required) { throw PluginFailure.invalid("Requires host \(requiredHostVersion)") }
         }
         try Self.validateDiscovery(discovery ?? [])
         let methods = signInMethods ?? []

@@ -152,7 +152,7 @@ struct PluginsView: View {
                                 LabeledContent("当前版本", value: current.manifest.version ?? "")
                             }
                             LabeledContent("版本", value: pending.manifest.version ?? "")
-                            LabeledContent("宿主兼容版本", value: pending.manifest.minAppVersion ?? "0.1.0")
+                            LabeledContent("宿主兼容版本", value: pending.manifest.requiredHostVersion ?? "0.1.0")
                         }
                         Section("新版说明") { Text(pending.releaseNotes ?? "此版本未提供更新说明").font(.callout).textSelection(.enabled) }
                         Section {

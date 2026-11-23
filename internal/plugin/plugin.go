@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -128,10 +129,13 @@ type Manifest struct {
 	Main string `json:"main,omitempty"`
 	// MinAppVersion is the oldest version of the app the plugin works with,
 	// such as 0.1.8. An older one won't install it, or load it.
-	MinAppVersion  string           `json:"minAppVersion,omitempty"`
-	Permissions    Permissions      `json:"permissions"`
-	RequestHeaders []RequestHeaders `json:"requestHeaders,omitempty"`
+	MinAppVersion           string            `json:"minAppVersion,omitempty"`
+	MinAppVersionByPlatform map[string]string `json:"minAppVersionByPlatform,omitempty"`
+	Permissions             Permissions       `json:"permissions"`
+	RequestHeaders          []RequestHeaders  `json:"requestHeaders,omitempty"`
 }
+
+var platformVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // appVersion is the app's version, which the app sets. With none, as when
 // it's built for development, any plugin loads.
@@ -216,9 +220,22 @@ func Load(dir, dataDir string) (*Plugin, error) {
 		if _, ok := versionNumbers(m.MinAppVersion); !ok {
 			return nil, fmt.Errorf("%s: minAppVersion isn't a version such as 0.1.8: %q", dir, m.MinAppVersion)
 		}
-		if _, ok := versionNumbers(appVersion); ok && IsNewer(m.MinAppVersion, appVersion) {
-			return nil, &NeedsNewerApp{Plugin: m.Name, Version: m.MinAppVersion}
+	}
+	for platform, version := range m.MinAppVersionByPlatform {
+		if platform != "desktop" && platform != "ios" && platform != "android" {
+			return nil, fmt.Errorf("%s: unknown minAppVersionByPlatform key %q", dir, platform)
 		}
+		numbers, ok := versionNumbers(version)
+		if !ok || !platformVersionPattern.MatchString(version) || slices.ContainsFunc(numbers, func(part int) bool { return part > 2147483647 }) {
+			return nil, fmt.Errorf("%s: invalid minAppVersionByPlatform version for %s: %q", dir, platform, version)
+		}
+	}
+	requiredVersion := m.MinAppVersion
+	if desktopVersion, ok := m.MinAppVersionByPlatform["desktop"]; ok {
+		requiredVersion = desktopVersion
+	}
+	if _, ok := versionNumbers(appVersion); requiredVersion != "" && ok && IsNewer(requiredVersion, appVersion) {
+		return nil, &NeedsNewerApp{Plugin: m.Name, Version: requiredVersion}
 	}
 	if err := checkRequestHeaders(&m); err != nil {
 		return nil, fmt.Errorf("%s: %w", dir, err)

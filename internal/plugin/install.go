@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -263,6 +264,9 @@ func Latest(repo string) (*Release, error) {
 // named for none. A release of zips for other platforms alone has none to offer,
 // and -1 leaves its source.
 func pickAsset(names []string, goos, goarch string) int {
+	if universal := slices.Index(names, "plugin-universal.zip"); universal >= 0 {
+		return universal
+	}
 	platforms := []string{"darwin", "linux", "windows"}
 	general := -1
 	for i, name := range names {

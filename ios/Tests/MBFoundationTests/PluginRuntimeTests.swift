@@ -149,6 +149,24 @@ private func withPlugin(_ source: String, extra: [String: String] = [:], isolati
     }
 }
 
+@Test func pluginChecksTheIOSHostRequirementWithoutIgnoringMalformedOverrides() throws {
+    func manifest(_ overrides: String) throws -> PluginManifest {
+        try JSONDecoder().decode(PluginManifest.self, from: Data("""
+        {"id":"fixture","minAppVersion":"0.1.28","minAppVersionByPlatform":\(overrides)}
+        """.utf8))
+    }
+    let shared = try manifest(#"{"desktop":"0.1.25"}"#)
+    #expect(shared.requiredHostVersion == "0.1.28")
+    try shared.validate()
+    #expect(throws: PluginFailure.self) { try shared.validate(hostVersion: "0.1.27") }
+    let override = try manifest(#"{"desktop":"0.1.25","ios":"0.1.27","android":"0.1.29"}"#)
+    #expect(override.requiredHostVersion == "0.1.27")
+    try override.validate(hostVersion: "0.1.27")
+    #expect(throws: PluginFailure.self) { try manifest(#"{"ios":"0.1.29"}"#).validate() }
+    #expect(throws: PluginFailure.self) { try manifest(#"{"desktop":"v0.1.25"}"#).validate() }
+    #expect(throws: PluginFailure.self) { try manifest(#"{"macos":"0.1.25"}"#).validate() }
+}
+
 @Test func desktopBilibiliPluginRunsUnmodifiedInIOSRuntimeWithSignedSearchContract() async throws {
     let directory = try #require(Bundle.module.url(forResource: "Fixtures/BilibiliPlugin", withExtension: nil))
     let data = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

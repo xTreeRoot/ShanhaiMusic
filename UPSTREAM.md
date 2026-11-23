@@ -34,4 +34,4 @@ mygo-music://install-plugin?repo=owner/repo
 
 开发包对应 `mb-dev://` 和 `mygo-music-dev://`，与正式包隔离。上游社区网页的现有安装按钮可唤起已注册协议的 MB；安装仍需在 MB 中确认。
 
-可在设置的插件页通过 GitHub 仓库、ZIP 或目录安装。当前兼容 MyGo Music `0.1.25` 的宿主契约；声明更高 `minAppVersion` 的插件仍会被拦截，第三方插件自己的服务和登录流程需分别验证。
+可在设置的插件页通过 GitHub 仓库、ZIP 或目录安装。桌面兼容 MyGo Music `0.1.25` 的宿主契约：插件要求高于该版本时拒绝加载，要求优先读 `minAppVersionByPlatform.desktop`，省略时读 `minAppVersion`。三端共用发行 ZIP 的规则见 `plugins/README.md`，第三方插件自己的服务和登录流程需分别验证。

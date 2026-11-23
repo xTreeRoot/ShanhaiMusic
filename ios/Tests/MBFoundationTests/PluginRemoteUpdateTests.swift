@@ -3,7 +3,7 @@ import Foundation
 import Testing
 import ZIPFoundation
 
-@Test func githubInstallationPinsDefaultBranchCommitInsteadOfOldRelease() async throws {
+@Test(arguments: [false, true]) func githubInstallationUsesUniversalReleaseOrPinnedDefaultBranch(_ universal: Bool) async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -21,16 +21,22 @@ import ZIPFoundation
         let url = try #require(request.url)
         let body: Data
         switch url.path {
-        case "/repos/Owner/Fixture/commits/HEAD": body = Data("{\"sha\":\"\(sha)\",\"commit\":{\"message\":\"修复推荐切换与分页\"}}".utf8)
-        case "/repos/Owner/Fixture/zipball/" + sha: body = bytes
+        case "/repos/Owner/Fixture/releases/latest":
+            let asset = universal ? "plugin-universal.zip" : "old-plugin.zip"
+            body = Data("""
+            {"tag_name":"v0.4.0","body":"统一发行包","assets":[{"name":"\(asset)","id":42}]}
+            """.utf8)
+        case "/Owner/Fixture/releases/download/v0.4.0/plugin-universal.zip" where universal: body = bytes
+        case "/repos/Owner/Fixture/commits/HEAD" where !universal: body = Data("{\"sha\":\"\(sha)\",\"commit\":{\"message\":\"修复推荐切换与分页\"}}".utf8)
+        case "/repos/Owner/Fixture/zipball/" + sha where !universal: body = bytes
         default: Issue.record("Unexpected request: \(url.path)"); throw NetworkFailure.response
         }
         return (body, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
     }
     let pending = try await installer.prepareGitHub("https://github.com/Owner/Fixture.git")
     #expect(pending.repository == "Owner/Fixture")
-    #expect(pending.releaseNotes == "修复推荐切换与分页")
-    #expect(pending.revision == sha && pending.manifest.version == "0.4.0")
+    #expect(pending.releaseNotes == (universal ? "统一发行包" : "修复推荐切换与分页"))
+    #expect(pending.revision == (universal ? "asset-42" : sha) && pending.manifest.version == "0.4.0")
 }
 
 @Test @MainActor func updateAllComparesRemoteRevisionKeepsDisabledDataAndContinuesAfterFailure() async throws {

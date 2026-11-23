@@ -380,6 +380,7 @@ func TestPickAsset(t *testing.T) {
 		want  int
 	}{
 		{[]string{"x-linux-amd64.zip", "x-darwin-arm64.zip", "x.zip"}, 1},
+		{[]string{"x-darwin-arm64.zip", "x.zip", "plugin-universal.zip"}, 2},
 		{[]string{"plugin.zip", "notes.txt"}, 0},
 		{[]string{"x-linux-amd64.zip"}, -1},
 		{[]string{"x-darwin-arm64.tar.gz"}, -1},

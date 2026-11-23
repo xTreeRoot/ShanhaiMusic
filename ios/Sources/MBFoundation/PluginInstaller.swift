@@ -157,19 +157,31 @@ public actor PluginInstaller {
         return repo
     }
 
-    /// 用默认分支的固定提交下载，避免旧 Release、相同版本号或移动的 HEAD 漏掉更新。
-    private func latest(_ repo: String) async throws -> Release {
-        let address = URL(string: "https://api.github.com/repos/" + repo + "/commits/HEAD")!
+    private func githubMetadata(_ address: URL, allowMissing: Bool = false) async throws -> PluginJSON? {
         var request = URLRequest(url: address)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("MB-iOS", forHTTPHeaderField: "User-Agent")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let (data, response) = try await fetch(request, 2 * 1_024 * 1_024)
         guard let response = response as? HTTPURLResponse else { throw NetworkFailure.response }
+        if allowMissing, response.statusCode == 404 { return nil }
         guard response.statusCode == 200 else { throw NetworkFailure.http(response.statusCode) }
-        let value = try JSONDecoder().decode(PluginJSON.self, from: data)
+        return try JSONDecoder().decode(PluginJSON.self, from: data)
+    }
+
+    private func latest(_ repo: String) async throws -> Release {
+        let base = "https://api.github.com/repos/" + repo
+        let universalName = "plugin-universal.zip"
+        if let release = try await githubMetadata(URL(string: base + "/releases/latest")!, allowMissing: true),
+           let asset = release["assets"].array.first(where: { $0["name"].string == universalName }) {
+            guard case .number(let identifier) = asset["id"], let assetID = Int64(exactly: identifier), assetID > 0,
+                  let tag = release["tag_name"].string, tag.range(of: #"\A[A-Za-z0-9][A-Za-z0-9._-]*\z"#, options: .regularExpression) != nil,
+                  let url = URL(string: "https://github.com/\(repo)/releases/download/\(tag)/\(universalName)") else { throw NetworkFailure.response }
+            return Release(revision: "asset-\(assetID)", address: url, notes: release["body"].string)
+        }
+        guard let value = try await githubMetadata(URL(string: base + "/commits/HEAD")!) else { throw NetworkFailure.response }
         guard let sha = value["sha"].string, sha.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil,
-              let url = URL(string: "https://api.github.com/repos/" + repo + "/zipball/" + sha) else { throw NetworkFailure.response }
+              let url = URL(string: base + "/zipball/" + sha) else { throw NetworkFailure.response }
         return Release(revision: sha, address: url, notes: value["commit"]["message"].string)
     }
 

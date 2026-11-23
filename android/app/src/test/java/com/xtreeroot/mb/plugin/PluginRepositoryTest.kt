@@ -1,5 +1,6 @@
 package com.xtreeroot.mb.plugin
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -8,6 +9,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginRepositoryTest {
+    @Test fun universalReleaseUsesOneAssetDespiteLegacyPlatformPackages() {
+        val metadata = JSONObject("""{"tag_name":"v1.2.3","body":"notes","assets":[
+            {"name":"plugin-android-arm64.zip","id":1},{"name":"plugin-universal.zip","id":2}]}""")
+        val release = checkNotNull(PluginRepository.universalRelease("Owner/Fixture", metadata))
+        assertEquals("asset-2", release.revision)
+        assertEquals("https://github.com/Owner/Fixture/releases/download/v1.2.3/plugin-universal.zip", release.archive.toString())
+        assertEquals("notes", release.notes)
+        assertNull(PluginRepository.universalRelease("Owner/Fixture", JSONObject("""{"assets":[{"name":"legacy.zip"}]}""")))
+        assertThrows(PluginException::class.java) { PluginRepository.universalRelease("Owner/Fixture", metadata.put("tag_name", "../invalid")) }
+    }
     @Test fun starsListReadsOnlyRepositoryHeadingsInsideTheListAndKeepsPaginationOnThatList() {
         val address = checkNotNull(GitHubStarsList.address("https://github.com/stars/example/lists/%E6%B5%8B%E8%AF%95"))
         val html = """

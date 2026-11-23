@@ -654,6 +654,42 @@ func TestMinAppVersion(t *testing.T) {
 	}
 }
 
+func TestMinAppVersionByPlatform(t *testing.T) {
+	defer SetAppVersion(appVersion)
+	SetAppVersion("0.1.25")
+	for _, scenario := range []struct {
+		name, overrides, required string
+		invalid                   bool
+	}{
+		{name: "desktop override", overrides: `{"desktop":"0.1.25","ios":"0.1.28","android":"0.1.28"}`},
+		{name: "mobile override only", overrides: `{"ios":"0.1.25"}`, required: "0.1.28"},
+		{name: "higher desktop requirement", overrides: `{"desktop":"0.1.26"}`, required: "0.1.26"},
+		{name: "unknown platform", overrides: `{"macos":"0.1.25"}`, invalid: true},
+		{name: "invalid unused override", overrides: `{"desktop":"0.1.25","ios":"v0.1.28"}`, invalid: true},
+		{name: "null override", overrides: `{"desktop":null}`, invalid: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			dir, data := write(t, `{"id":"x","minAppVersion":"0.1.28","minAppVersionByPlatform":`+scenario.overrides+`}`, `export function suggest() { return []; }`)
+			_, err := Load(dir, data)
+			var needs *NeedsNewerApp
+			switch {
+			case scenario.required != "":
+				if !errors.As(err, &needs) || needs.Version != scenario.required {
+					t.Fatalf("expected effective requirement %s, got %v", scenario.required, err)
+				}
+			case scenario.invalid:
+				if err == nil || errors.As(err, &needs) {
+					t.Fatalf("expected invalid manifest, got %v", err)
+				}
+			default:
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 // A plugin's name, settings and sidebar, and what it translates with host.t,
 // follow the listener's language as it changes, without the plugin starting
 // over; what it didn't translate stays in English.
