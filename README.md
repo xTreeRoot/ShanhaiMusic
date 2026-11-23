@@ -60,6 +60,13 @@ go tool mygo build -sign - -skip-notarize
 
 移动端构建、安装、行为测试与截图说明分别见 [iOS README](ios/README.md) 和 [Android README](android/README.md)。
 
+### 桌面更新
+
+- 旧版没有内置更新源，需要先从 [GitHub Releases](https://github.com/xTreeRoot/ShanhaiMusic/releases) 手动覆盖安装一次支持更新的正式包。安装到当前用户有写入权限的应用目录；应用标识和数据目录保持不变。
+- 设置 → 更新支持手动检查、每日自动检查和自动下载并安装。开启自动安装后不强制重启，更新在下次打开山海时生效。
+- 维护者在 `mygo.config.ts` 更新桌面版本、在 `CHANGELOG.md` 补充相应版本记录，然后从 `main` 运行 `Package Shanhai` 并开启 `stage_release`。工作流使用仓库 Actions Secret `MYGO_UPDATER_PRIVATE_KEY` 生成 macOS arm64 安装 ZIP、签名更新包及 `update-darwin-arm64.json`，创建 `mb-desktop-v<版本>` 草稿。验收后手动发布为正式版，不设为全仓库的最新发布。其他平台产物不进入桌面更新源。
+- 仓库只存更新公钥；签名私钥需安全备份，不能写进源码或日志。正式包目前覆盖 macOS Apple 芯片，其他桌面架构需要单独发布对应的更新产物。
+
 ## 自托管节点
 
 支持的客户端可在设置中接入自托管节点，应用没有默认服务器。节点管理员能够解密同步会话，因此只接入信任的节点。已有协议文档位于历史 [server 分支](https://github.com/xTreeRoot/ShanhaiMusic/blob/server/server/EDGE.md)；账号资料与登录会话使用不同同步路径，真实跨端同步的验证状态见各端文档。

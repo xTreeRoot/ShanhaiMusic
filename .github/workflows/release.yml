@@ -2,16 +2,23 @@ name: Package Shanhai
 
 on:
   workflow_dispatch:
+    inputs:
+      stage_release:
+        description: Create a signed macOS desktop release draft
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   package:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (!inputs.stage_release || github.repository == 'xTreeRoot/ShanhaiMusic')
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -21,10 +28,61 @@ jobs:
       - name: Test Go application
         run: CGO_ENABLED=0 go test ./...
       - name: Package macOS application
-        run: go tool mygo build -sign - -skip-notarize -skip-dmg
+        env:
+          STAGE_RELEASE: ${{ inputs.stage_release }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ inputs.stage_release && secrets.MYGO_UPDATER_PRIVATE_KEY || '' }}
+        run: |
+          set -euo pipefail
+          if [[ "$STAGE_RELEASE" == true && -z "$MYGO_UPDATER_PRIVATE_KEY" ]]; then
+            echo '::error::Configure the desktop update signing secret MYGO_UPDATER_PRIVATE_KEY first.'
+            exit 1
+          fi
+          go tool mygo build -platform darwin/arm64 -sign - -skip-notarize -skip-dmg
       - name: Archive application
-        run: ditto -c -k --keepParent build/darwin-arm64/山海.app build/Shanhai-macos-arm64.zip
+        run: |
+          mkdir -p build/release
+          ditto -c -k --keepParent build/darwin-arm64/山海.app build/release/Shanhai-macos-arm64.zip
+      - name: Collect signed update
+        if: inputs.stage_release
+        run: |
+          set -euo pipefail
+          manifest=build/darwin-arm64/update-darwin-arm64.json
+          version=$(jq -er '.version | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' "$manifest")
+          cp "$manifest" "build/darwin-arm64/mb-$version-darwin-arm64.tar.gz" build/release/
       - uses: actions/upload-artifact@v6
         with:
           name: Shanhai-macos-arm64
-          path: build/Shanhai-macos-arm64.zip
+          path: build/release/
+          if-no-files-found: error
+
+  draft-release:
+    if: inputs.stage_release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: Shanhai-macos-arm64
+          path: release
+      - name: Create desktop release draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          manifest=release/update-darwin-arm64.json
+          version=$(jq -er '.version | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' "$manifest")
+          tag="mb-desktop-v$version"
+          archive="mb-$version-darwin-arm64.tar.gz"
+          jq -e --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$archive" \
+            '.url == $url and (.signature | length > 0)' "$manifest" >/dev/null
+          existing_tag=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$tag")
+          if [[ -n "$existing_tag" ]]; then
+            echo "::error::Desktop tag $tag already exists. Bump the desktop version to stage a new release."
+            exit 1
+          fi
+          jq -er '.notes' "$manifest" > "$RUNNER_TEMP/desktop-release-notes.md"
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "山海 macOS $version" --draft --latest=false --notes-file "$RUNNER_TEMP/desktop-release-notes.md" \
+            release/Shanhai-macos-arm64.zip "release/$archive" "$manifest"
