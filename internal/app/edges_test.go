@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/draw"
+	"os"
 	"testing"
 	"time"
 
@@ -43,6 +44,31 @@ func TestScrollEdgesFollowContent(t *testing.T) {
 	}
 	if a.underBottom {
 		t.Error("bottom edge shows at the end of the page")
+	}
+}
+
+func TestDiscoveryScrollEdgesFollowCards(t *testing.T) {
+	a := newTestApp()
+	fake(a).info.Discovery = []music.DiscoverySection{{ID: "recommended", Title: "For You", Page: "recommended"}}
+	a.home = discoveryHome(a)
+	a.pl.Cue(a.home.Sections[0].Tracks)
+	tt := ui.NewTester(a.view, 1180, 600)
+	settled(tt)
+	if dir := os.Getenv("MM_FRAMES"); dir != "" {
+		saveFrame(t, dir, "discovery-player-bar.png", tt.Image())
+	}
+	if a.underTop || !a.underBottom {
+		t.Fatalf("at the top of Discovery: top edge %t, bottom edge %t", a.underTop, a.underBottom)
+	}
+	tt.Scroll(800, 400, 0, 10000)
+	settled(tt)
+	if !a.underTop || a.underBottom {
+		t.Fatalf("at the end of Discovery: top edge %t, bottom edge %t", a.underTop, a.underBottom)
+	}
+	tt.Scroll(800, 400, 0, -10000)
+	settled(tt)
+	if a.underTop || !a.underBottom {
+		t.Fatalf("after returning to the top: top edge %t, bottom edge %t", a.underTop, a.underBottom)
 	}
 }
 

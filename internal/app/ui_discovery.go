@@ -109,6 +109,8 @@ const discoveryCardLimit = 2 * discoveryColumns
 func (a *app) discoveryPage(c *ui.Context) {
 	top, bottom := a.insets(c)
 	ui.Scroll(c.Key(a.route)).Grow(1).Padding(top+pageGap, pagePad, bottom+32, pagePad).Children(func() {
+		a.startMark(c)
+		defer a.endMark(c)
 		a.homeHello(c, c.Now())
 		if a.homeLoading && a.home == nil {
 			a.homeSkeleton(c, a.pageShimmer(c), false)
