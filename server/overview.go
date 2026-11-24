@@ -1,6 +1,39 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
+
+// renameDevice changes only the authenticated device, never another grant.
+func (service *api) renameDevice(w http.ResponseWriter, r *http.Request, space, device string) {
+	var input struct {
+		Name string `json:"name"`
+	}
+	if !readJSON(w, r, 2048, &input) {
+		return
+	}
+	input.Name = strings.TrimSpace(input.Name)
+	if !validDevice(input.Name, "desktop") {
+		fail(w, 400, "invalid_device_name")
+		return
+	}
+	result, err := service.db.ExecContext(r.Context(), `UPDATE devices SET name=? WHERE space=? AND id=? AND revoked=0`, input.Name, space, device)
+	if err != nil {
+		databaseFailure(w, "rename device")
+		return
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		databaseFailure(w, "rename device result")
+		return
+	}
+	if count != 1 {
+		fail(w, 404, "not_found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
 
 type overviewEntry struct {
 	Kind     string `json:"kind"`

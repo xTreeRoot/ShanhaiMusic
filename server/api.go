@@ -47,6 +47,7 @@ func (service *api) handler() http.Handler {
 	mux.HandleFunc("PUT /v1/data/{plugin}/{key}", service.authenticated(service.change))
 	mux.HandleFunc("DELETE /v1/data/{plugin}/{key}", service.authenticated(service.change))
 	mux.HandleFunc("GET /v1/sync/devices", service.authenticatedDevice(service.deviceSettingsList))
+	mux.HandleFunc("PATCH /v1/sync/device", service.authenticatedDevice(service.renameDevice))
 	mux.HandleFunc("GET /v1/backups/{device}/{key}", service.authenticatedDevice(service.backupObject))
 	mux.HandleFunc("PUT /v1/backups/{device}/{key}", service.authenticatedDevice(service.backupObject))
 	mux.HandleFunc("DELETE /v1/backups/{device}/{key}", service.authenticatedDevice(service.backupObject))
