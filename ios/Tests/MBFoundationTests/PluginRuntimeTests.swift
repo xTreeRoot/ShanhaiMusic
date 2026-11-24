@@ -758,3 +758,16 @@ private actor PlaybackLaneGate {
         #expect(try await runtime.invoke("stream") == .null)
     }
 }
+
+@Test func retiredPluginRuntimeCannotClearOrOverwriteRestoredData() async throws {
+    try await withPlugin("export function touch(){host.storage.set('account','old'); return true;}") { runtime, root, _ in
+        _ = try await runtime.invoke("touch")
+        await runtime.retireForDataRestore()
+        let storage = root.appendingPathComponent("data/storage.json")
+        let restored = Data(#"{"account":"restored"}"#.utf8)
+        try restored.write(to: storage, options: .atomic)
+        await #expect(throws: CancellationError.self) { try await runtime.clearLoginCache() }
+        await #expect(throws: CancellationError.self) { try await runtime.invoke("touch") }
+        #expect(try Data(contentsOf: storage) == restored)
+    }
+}

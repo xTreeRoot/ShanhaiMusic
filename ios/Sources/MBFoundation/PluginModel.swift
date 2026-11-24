@@ -292,6 +292,17 @@ public enum PluginPreparation: Equatable {
 }
 
 extension PluginModel {
+    func retireBackupPlugin(_ id: String) async {
+        if let source = sources[id] { await source.runtime.retireForDataRestore() }
+        sources.removeValue(forKey: id)
+    }
+    func reloadRestoredPlugin(_ id: String) async throws {
+        sources.removeValue(forKey: id)
+        errorMessage = nil
+        await restore()
+        if let errorMessage { throw PluginFailure.invalid(errorMessage) }
+    }
+
     func reloadRestoredDevicePlugins() async throws {
         sources = [:]
         await restore()

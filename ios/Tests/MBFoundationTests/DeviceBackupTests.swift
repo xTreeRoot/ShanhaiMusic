@@ -123,3 +123,44 @@ private actor BackupObjects {
     await #expect(throws: (any Error).self) { try await DeviceArchiveFile().extract(missing, to: root.appendingPathComponent("missing-stage")) }
     #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("missing-stage").path))
 }
+
+@Test func selectedPluginRestoreReplacesPrivateDataKeepsCodeAndOtherPlugins() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let original = PluginInstaller(directory: root.appendingPathComponent("original"))
+    let target = PluginInstaller(directory: root.appendingPathComponent("target"))
+    for id in ["chosen", "other"] {
+        let code = root.appendingPathComponent("code-" + id)
+        try FileManager.default.createDirectory(at: code, withIntermediateDirectories: true)
+        try Data("{\"id\":\"\(id)\",\"name\":\"Fixture\",\"version\":\"1.0.0\",\"settings\":[{\"key\":\"mode\",\"type\":\"string\",\"label\":\"Mode\"}]}".utf8).write(to: code.appendingPathComponent("plugin.json"))
+        try Data("export function search(){return {tracks:[]};}".utf8).write(to: code.appendingPathComponent("index.js"))
+        let remote = try await original.install(original.prepare(code))
+        try await original.saveSettings(["mode": "from-B"], for: remote)
+        try Data(("from-B-" + id).utf8).write(to: remote.dataDirectory.appendingPathComponent("storage.json"))
+        let local = try await target.install(target.prepare(code))
+        try Data(("local-A-" + id).utf8).write(to: local.dataDirectory.appendingPathComponent("storage.json"))
+        try await target.rename(id, to: "local-" + id)
+    }
+    let (records, files) = try await original.deviceBackupPlugins(to: root)
+    let manifest = DeviceArchiveManifest(platform: "android", plugins: records)
+    let archive = root.appendingPathComponent("device.zip")
+    try await DeviceArchiveFile().write(manifest, entries: files, to: archive, scratch: root)
+    let stage = root.appendingPathComponent("content")
+    let read = try await DeviceArchiveFile().extract(archive, to: stage)
+    let chosen = try #require(await target.installed().first(where: { $0.id == "chosen" }))
+    let other = try #require(await target.installed().first(where: { $0.id == "other" }))
+    try Data("// installed newer code".utf8).write(to: chosen.directory.appendingPathComponent("index.js"))
+    try Data("local-only".utf8).write(to: chosen.dataDirectory.appendingPathComponent("old-file"))
+    let presentation = try await target.presentation()
+    await #expect(throws: (any Error).self) { try await target.restoreDevicePluginInfo(read, from: stage, id: "missing") }
+    #expect(try String(contentsOf: chosen.dataDirectory.appendingPathComponent("storage.json"), encoding: .utf8) == "local-A-chosen")
+    try await target.restoreDevicePluginInfo(read, from: stage, id: "chosen")
+    #expect(try String(contentsOf: chosen.dataDirectory.appendingPathComponent("storage.json"), encoding: .utf8) == "from-B-chosen")
+    #expect(try String(contentsOf: other.dataDirectory.appendingPathComponent("storage.json"), encoding: .utf8) == "local-A-other")
+    #expect(try String(contentsOf: chosen.directory.appendingPathComponent("index.js"), encoding: .utf8) == "// installed newer code")
+    #expect(try await target.settings(for: chosen)["mode"] == "from-B")
+    #expect(!FileManager.default.fileExists(atPath: chosen.dataDirectory.appendingPathComponent("old-file").path))
+    #expect(try await target.presentation() == presentation)
+    #expect(try await target.installed().count == 2)
+}

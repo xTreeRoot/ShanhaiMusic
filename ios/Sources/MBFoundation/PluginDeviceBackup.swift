@@ -2,6 +2,43 @@ import Foundation
 import ZIPFoundation
 
 extension PluginInstaller {
+    func restoreDevicePluginInfo(_ manifest: DeviceArchiveManifest, from stage: URL, id: String) throws {
+        guard let item = manifest.plugins.first(where: { $0.id == id }) else { throw PlatformDataFailure.invalid }
+        var candidate = try prepare(stage.appendingPathComponent("plugins/\(id)/package.zip"))
+        defer { discard(candidate) }
+        guard candidate.manifest.id == id else { throw PlatformDataFailure.invalid }
+        if let repository = item.repository, !repository.isEmpty {
+            guard let normalized = Self.normalizedRepository(repository) else { throw PlatformDataFailure.invalid }
+            candidate.repository = normalized
+        }
+        candidate.revision = item.revision
+        _ = try DeviceArchiveFile.tree(stage.appendingPathComponent("plugins/\(id)/data"), prefix: "data")
+        try Task.checkCancellation()
+        let current = try installed().first(where: { $0.id == id }) ?? install(candidate)
+        let values = item.settings.filter { key, _ in current.manifest.settings?.contains(where: { $0.key == key }) == true }
+        try Self.replaceBackupData(stage.appendingPathComponent("plugins/\(id)/data"), to: current.dataDirectory, settings: values)
+    }
+
+    /// Prepare a complete sibling directory before replacing the selected plugin's data.
+    private static func replaceBackupData(_ source: URL, to target: URL, settings: [String: String]) throws {
+        let fm = FileManager.default, parent = target.deletingLastPathComponent()
+        guard (try? target.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
+              (try? parent.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else { throw PlatformDataFailure.invalid }
+        try fm.createDirectory(at: parent, withIntermediateDirectories: true)
+        let next = parent.appendingPathComponent(".plugin-restore-" + UUID().uuidString)
+        let previous = parent.appendingPathComponent(".plugin-previous-" + UUID().uuidString)
+        try fm.createDirectory(at: next, withIntermediateDirectories: false)
+        defer { try? fm.removeItem(at: next) }
+        try copyMissingBackupData(source, to: next)
+        try JSONEncoder().encode(settings).write(to: next.appendingPathComponent("settings.json"), options: .atomic)
+        try Task.checkCancellation()
+        let existed = fm.fileExists(atPath: target.path)
+        if existed { try fm.moveItem(at: target, to: previous) }
+        do { try fm.moveItem(at: next, to: target) }
+        catch { if existed { try fm.moveItem(at: previous, to: target) }; throw error }
+        if existed { try fm.removeItem(at: previous) }
+    }
+
     func deviceBackupPlugins(to directory: URL) throws -> ([DeviceArchivePlugin], [DeviceArchiveEntry]) {
         let display = try presentation(), disabled = try disabled()
         var records: [DeviceArchivePlugin] = [], entries: [DeviceArchiveEntry] = []

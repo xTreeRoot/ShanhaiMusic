@@ -17,7 +17,11 @@ struct NodeDeviceSettingsView: View {
     @State private var preview: NodeDeviceSettings?
     @State private var message: String?
     @State private var work: Action?
-    private enum Action: Equatable { case initial, refresh, backup, preview(String), apply }
+    @State private var deviceName = ""
+    @State private var pluginChoices: [BackupPluginChoice] = []
+    @State private var pluginsLoaded = false
+    @State private var confirmPlugin: BackupPluginChoice?
+    private enum Action: Equatable { case initial, refresh, rename, backup, preview(String), apply, plugins, plugin(String) }
 
     private static let fieldNames = [
         "appearance": "外观",
@@ -65,6 +69,9 @@ struct NodeDeviceSettingsView: View {
 
     var body: some View {
         Section {
+            TextField("本机名称", text: $deviceName).accessibilityIdentifier("node-device-name")
+                .submitLabel(.done).onSubmit { if !deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { work = .rename } }
+            Button("保存名称") { work = .rename }.disabled(deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             Button("备份本机") { work = .backup }
             Button("从其他机器恢复") { showingRestore.toggle(); if showingRestore { work = .refresh } }
                 .accessibilityIdentifier("restore-other-device")
@@ -79,6 +86,20 @@ struct NodeDeviceSettingsView: View {
                 if selected == item.id, let preview {
                     if let backup = preview.backup { Text("完整备份 · \(backup.plugins) 个插件").foregroundStyle(.secondary) }
                     else { Text("旧备份 · 仅设置").foregroundStyle(.secondary) }
+                    if preview.backup != nil {
+                        Button("选择插件信息恢复") { work = .plugins }.accessibilityIdentifier("choose-plugin-restore")
+                        if pluginsLoaded && pluginChoices.isEmpty { Text("此备份中没有插件").foregroundStyle(.secondary) }
+                        ForEach(pluginChoices) { plugin in
+                            Button((names[plugin.id] ?? plugin.name) + " · 恢复插件信息") { confirmPlugin = plugin }
+                                .accessibilityIdentifier("restore-plugin-" + plugin.id)
+                                .alert("覆盖所选插件的信息", isPresented: Binding(get: { confirmPlugin?.id == plugin.id }, set: { if !$0 { confirmPlugin = nil } })) {
+                                    Button("覆盖此插件的信息", role: .destructive) { work = .plugin(plugin.id); confirmPlugin = nil }
+                                    Button("取消", role: .cancel) { confirmPlugin = nil }
+                                } message: {
+                                    Text("将用“\(item.name)”的“\(names[plugin.id] ?? plugin.name)”设置、登录信息和私有数据覆盖本机该插件。")
+                                }
+                        }
+                    }
                     settingGroup("App 设置", values: preview.app, plugin: nil)
                     ForEach(preview.plugins.keys.sorted(), id: \.self) { id in
                         settingGroup((names[id] ?? id) + " · 插件设置", values: preview.plugins[id] ?? [:], plugin: id)
@@ -107,15 +128,30 @@ struct NodeDeviceSettingsView: View {
                 let operation = action
                 if action == .initial {
                     devices = try await model.settingsDevices()
+                    deviceName = devices.first(where: \.current)?.name ?? ""
                     return
                 }
                 switch operation {
                 case .initial: return
                 case .refresh: devices = try await model.settingsDevices()
+                case .rename:
+                    try await model.renameCurrentDevice(deviceName)
+                    devices = try await model.settingsDevices()
+                    deviceName = devices.first(where: \.current)?.name ?? deviceName
+                    message = "设备名称已保存"
+                case .plugins:
+                    guard let selected, let preview else { return }
+                    pluginChoices = try await model.backupPluginChoices(key: selected, settings: preview)
+                    pluginsLoaded = true
+                case .plugin(let id):
+                    guard let selected, let preview else { return }
+                    try await model.restorePluginInformation(key: selected, settings: preview, id: id, plugins: plugins)
+                    message = "已覆盖所选插件的信息"
                 case .preview(let id):
                     let doc = try await model.readDeviceSettings(key: id)
                     try Task.checkCancellation()
                     selected = id; preview = doc
+                    pluginChoices = []; pluginsLoaded = false; confirmPlugin = nil
                 case .backup:
                     try await model.backupCurrentDevice(preferences: preferences, plugins: plugins, downloads: downloads, library: library, accounts: accounts)
                     selected = nil; preview = nil; message = "已备份本机，包含插件和插件信息"

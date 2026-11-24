@@ -42,6 +42,7 @@ public actor PluginRuntime {
     public typealias Transport = @Sendable (URLRequest, PluginManifest.Permissions) async throws -> (Data, HTTPURLResponse)
     public nonisolated let catalogCache: ResponseCache
     private let host: PluginHostState
+    private var retiredForDataRestore = false
     /// 两个 VM 均只在本 actor 执行，共享宿主存储；目录 IO 不再挡住播放解析。
     private final class Lane {
         var diagnostics: PluginSignInDiagnostics?
@@ -123,6 +124,14 @@ public actor PluginRuntime {
             throw PluginFailure.invalid(label)
         }
     }
+    /// Stop old timers and requests before replacing private data.
+    public func retireForDataRestore() async {
+        retiredForDataRestore = true
+        reset(catalog); reset(playback)
+        await acquire(catalog); await acquire(playback)
+        release(playback); release(catalog)
+        await catalogCache.invalidate()
+    }
     public func updateSettings(_ settings: [String: String]) async {
         reset(playback)
         host.settings = settings
@@ -131,11 +140,16 @@ public actor PluginRuntime {
     public func setPrompt(_ prompt: (@Sendable (SignInPrompt) -> Void)?) { host.prompt = prompt }
     /// 所有插件共用的宿主重置；先终止旧 VM，阻止迟到登录、定时器或请求恢复旧凭据。
     public func clearLoginCache() async throws {
+        guard !retiredForDataRestore else { throw CancellationError() }
         let diagnostics = accountDiagnostics(.clearLoginCache)
         reset(catalog); reset(playback)
         await acquire(catalog)
         await acquire(playback)
-        do { try Task.checkCancellation(); try host.clearLoginStorage() }
+        do {
+            try Task.checkCancellation()
+            guard !retiredForDataRestore else { throw CancellationError() }
+            try host.clearLoginStorage()
+        }
         catch {
             release(playback); release(catalog)
             await diagnostics.finish(error is CancellationError ? .cancelled : .failed, error: error)
@@ -149,6 +163,7 @@ public actor PluginRuntime {
         let lane = lane(for: name)
         await acquire(lane); defer { release(lane) }
         try Task.checkCancellation()
+        guard !retiredForDataRestore else { throw CancellationError() }
         try await load(lane)
         return name.withCString { mbjs_has_export(lane.context!.pointer, $0) != 0 }
     }
@@ -157,6 +172,7 @@ public actor PluginRuntime {
         let lane = lane(for: name)
         await acquire(lane); defer { release(lane) }
         try Task.checkCancellation()
+        guard !retiredForDataRestore else { throw CancellationError() }
         try await load(lane)
         if let verifiedNodeDigest, try nodeContentDigest() != verifiedNodeDigest { throw NodeSessionFailure.untrustedPlugin }
         guard let context = lane.context else { throw PluginFailure.execution("Runtime unavailable") }

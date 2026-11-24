@@ -233,8 +233,14 @@ struct PlatformDataClient: Sendable {
         let recovery = PlatformDataCodec.encode(Data(repeating: 1, count: 32))
         let device = PlatformDataCodec.encode(Data(repeating: 2, count: 16))
         let space = "preview"
-        node = PlatformNode(origin: origin, grant: .init(device: device, space: space, token: recovery, recovery: recovery, key: recovery, expires: .max))
+        let previewNode = PlatformNode(origin: origin, grant: .init(device: device, space: space, token: recovery, recovery: recovery, key: recovery, expires: .max))
+        node = previewNode
         address = origin.absoluteString
+        if ProcessInfo.processInfo.arguments.contains("--demo-plugin-restore") {
+            let fixture = NodeDeviceSettingsDemo(node: previewNode)
+            client = PlatformDataClient { request, _ in try await fixture.reply(request) }
+            return
+        }
         client = PlatformDataClient { request, _ in
             guard let url = request.url, url.host == origin.host, request.httpMethod == "GET" else { throw PlatformDataFailure.invalid }
             let body: Data

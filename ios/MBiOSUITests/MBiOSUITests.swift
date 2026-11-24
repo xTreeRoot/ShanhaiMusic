@@ -100,6 +100,47 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertTrue(quality.waitForExistence(timeout: 5))
     }
 
+    @MainActor func testDeviceNamingAndSelectedPluginRestore() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-device-settings", "--demo-plugin-restore", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        selectTab("我的", app: app)
+        let service = app.buttons["open-shanhai-service"]
+        if !service.isHittable { app.swipeUp() }
+        service.tap()
+        let form = app.collectionViews["node-service-form"]
+        func reveal(_ element: XCUIElement) {
+            for _ in 0..<6 {
+                if element.isHittable && form.frame.insetBy(dx: 0, dy: 12).contains(element.frame) { return }
+                form.swipeUp()
+            }
+        }
+        let name = app.textFields["node-device-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 8)); reveal(name)
+        name.tap(); name.typeText(" 回归设备\n")
+        XCTAssertTrue(app.staticTexts["设备名称已保存"].waitForExistence(timeout: 8))
+        XCTAssertTrue((name.value as? String)?.contains("回归设备") == true)
+        let others = app.buttons["restore-other-device"]; reveal(others); others.tap()
+        let source = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "书房 Mac")).firstMatch
+        XCTAssertTrue(source.waitForExistence(timeout: 5)); reveal(source); source.tap()
+        let choose = app.buttons["choose-plugin-restore"]
+        XCTAssertTrue(choose.waitForExistence(timeout: 8)); reveal(choose); choose.tap()
+        let selected = app.buttons["restore-plugin-preview-a"]
+        XCTAssertTrue(selected.waitForExistence(timeout: 15)); reveal(selected); selected.tap()
+        let cancel = app.buttons["取消"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5)); cancel.tap()
+        XCTAssertFalse(app.staticTexts["已覆盖所选插件的信息"].exists)
+        reveal(selected); selected.tap()
+        let confirm = app.buttons["覆盖此插件的信息"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5)); confirm.tap()
+        let result = app.staticTexts["已覆盖所选插件的信息"]
+        reveal(result); XCTAssertTrue(result.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["restore-plugin-preview-b"].exists)
+        capture("设备命名与单插件恢复", app: app)
+    }
+
     @MainActor func testTabletCenteredNavigationAndModeSwitch() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad)
         continueAfterFailure = false

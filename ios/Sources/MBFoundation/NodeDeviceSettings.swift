@@ -27,6 +27,15 @@ private struct SettingsEnvelope: Codable { let value: NodeDeviceSettings }
 private let deviceNamespace = "device-settings"
 
 extension PlatformDataModel {
+    public func renameCurrentDevice(_ name: String) async throws {
+        guard let node, node.active else { throw PlatformDataFailure.http(401, nil) }
+        struct Request: Encodable { let name: String }
+        _ = try await client.request(node.origin, "/v1/sync/device", method: "PATCH", expected: 204,
+            token: node.grant.token, body: JSONEncoder().encode(Request(name: name.trimmingCharacters(in: .whitespacesAndNewlines))))
+        try Task.checkCancellation()
+        guard self.node == node else { throw CancellationError() }
+    }
+
     public func settingsDevices() async throws -> [SettingsDevice] {
         guard let node, node.active else { throw PlatformDataFailure.http(401,nil) }
         struct Result: Decodable { let devices: [SettingsDevice] }
