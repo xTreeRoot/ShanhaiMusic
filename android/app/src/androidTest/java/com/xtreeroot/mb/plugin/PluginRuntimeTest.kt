@@ -29,6 +29,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -778,6 +779,9 @@ class PluginRuntimeTest {
             assertEquals(hash("/sensitive-route/33"), entries.getJSONObject(31).getString("pathHash"))
             assertEquals(403, entry.getInt("status"))
             assertEquals("[-1,42]", entry.getJSONArray("serviceCodes").toString())
+            assertFalse(entry.getBoolean("cookieHeaderPresent"))
+            assertTrue(entry.getBoolean("authorizationHeaderPresent"))
+            assertEquals(1, entry.getInt("setCookieCount"))
             assertFalse(contents.contains("fixture-"))
             assertFalse(contents.contains("sensitive-route"))
             assertEquals(403, runtime.invoke("home"))
@@ -821,10 +825,109 @@ class PluginRuntimeTest {
             attempt.cancelAndJoin()
             val report = JSONObject(File(data, "sign-in-diagnostics.json").readText())
             assertFalse(report.getBoolean("completed"))
+            assertEquals("cancelled", report.getString("outcome"))
             val entries = report.getJSONArray("entries")
             assertEquals(1, entries.length())
             assertEquals(202, entries.getJSONObject(0).getInt("status"))
             assertFalse(entries.getJSONObject(0).has("serviceCodes"))
+        }
+    }
+
+    @Test fun accountDiagnosticsDistinguishCacheMissNetworkFailureAndRejectedSession() {
+        val verifyStarted = CompletableDeferred<Unit>()
+        val finishVerify = CompletableDeferred<Unit>()
+        var serviceCode = 0
+        var timeout = false
+        val plugin = manifest.copy(version = "1.2.3")
+        fixture(
+            """
+            export function signIn() {
+                host.storage.set('fixture-storage-key', 'session=fixture-cookie');
+                return {id:'fixture-id',name:'fixture-account'};
+            }
+            export async function account() {
+                const session = host.storage.get('fixture-storage-key');
+                if (!session || host.storage.get('fixture-disabled')) return null;
+                const response = await fetch('https://api.example.test/fixture-path?token=fixture-query', {headers:{Cookie:session}});
+                if ((await response.json()).status_info.status_code === 0) return {id:'fixture-id',name:'fixture-account'};
+                host.storage.set('fixture-disabled', true);
+                return null;
+            }
+            export function stream() { return host.storage.get('fixture-storage-key') !== null; }
+            export function signOut() { host.storage.remove('fixture-storage-key'); }
+            """.trimIndent(), plugin = plugin,
+            transport = PluginTransport { request, _ ->
+                assertEquals("session=fixture-cookie", request.headers.entries.single { it.key.equals("cookie", true) }.value)
+                if (timeout) throw PluginException("fixture-network", pluginNetworkCode, SocketTimeoutException("fixture-timeout"))
+                if (serviceCode == 0) {
+                    verifyStarted.complete(Unit)
+                    finishVerify.await()
+                }
+                PluginFetchResponse(200, request.url, emptyMap(), listOf("next=fixture-set-cookie"),
+                    """{"status_info":{"status_code":$serviceCode,"status_msg":"fixture-message"}}""".encodeToByteArray())
+            },
+        ) { runtime, _, data ->
+            val file = File(data, "account-diagnostics.json")
+            fun history() = JSONArray(file.readText())
+            fun latest() = history().let { it.getJSONObject(it.length() - 1) }
+            fun entry(report: JSONObject) = report.getJSONArray("entries").getJSONObject(0)
+
+            assertEquals(JSONObject.NULL, runtime.invoke("account"))
+            val missing = latest()
+            assertEquals("noAccount", missing.getString("outcome"))
+            assertEquals(1, missing.getJSONObject("storage").getInt("misses"))
+            assertEquals(0, missing.getJSONArray("entries").length())
+
+            runtime.signIn {}
+            assertEquals(1, latest().getJSONObject("storage").getInt("writes"))
+            val signInReport = File(data, "sign-in-diagnostics.json").readText()
+            val verifying = async { runtime.invoke("account") }
+            verifyStarted.await()
+            assertEquals(true, runtime.stream(JSONObject()))
+            finishVerify.complete(Unit)
+            assertEquals("fixture-id", (verifying.await() as JSONObject).getString("id"))
+            val verified = latest()
+            assertEquals("1.2.3", verified.getString("pluginVersion"))
+            assertEquals("accountReturned", verified.getString("outcome"))
+            assertEquals(1, verified.getJSONObject("storage").getInt("hits"))
+            assertTrue(entry(verified).getBoolean("cookieHeaderPresent"))
+            assertFalse(entry(verified).getBoolean("authorizationHeaderPresent"))
+            assertEquals(1, entry(verified).getInt("setCookieCount"))
+
+            timeout = true
+            try {
+                runtime.invoke("account")
+                fail("Account request should fail on network timeout")
+            } catch (error: PlaybackIssueException) { assertEquals(PlaybackIssue.Network, error.issue) }
+            val failed = latest()
+            assertEquals("failed", failed.getString("outcome"))
+            assertEquals("SocketTimeoutException", entry(failed).getString("failureType"))
+            assertEquals(0, failed.getJSONObject("storage").getInt("writes"))
+
+            timeout = false
+            serviceCode = 1000016
+            assertEquals(JSONObject.NULL, runtime.invoke("account"))
+            val rejected = latest()
+            assertEquals("noAccount", rejected.getString("outcome"))
+            assertEquals(200, entry(rejected).getInt("status"))
+            assertEquals(1000016, entry(rejected).getJSONArray("serviceCodes").getInt(0))
+            assertEquals(1, rejected.getJSONObject("storage").getInt("hits"))
+            assertEquals(1, rejected.getJSONObject("storage").getInt("writes"))
+
+            runtime.invoke("signOut")
+            assertEquals("signOut", latest().getString("operation"))
+            assertEquals(1, latest().getJSONObject("storage").getInt("removals"))
+            runtime.clearLoginCache()
+            assertEquals("clearLoginCache", latest().getString("operation"))
+            assertEquals("completed", latest().getString("outcome"))
+            assertEquals("{}", File(data, "storage.json").readText())
+            assertFalse(file.readText().contains("fixture-"))
+            assertEquals(signInReport, File(data, "sign-in-diagnostics.json").readText())
+
+            repeat(24) { assertEquals(JSONObject.NULL, runtime.invoke("account")) }
+            val recent = history()
+            assertEquals(24, recent.length())
+            for (index in 0 until recent.length()) assertEquals("account", recent.getJSONObject(index).getString("operation"))
         }
     }
 

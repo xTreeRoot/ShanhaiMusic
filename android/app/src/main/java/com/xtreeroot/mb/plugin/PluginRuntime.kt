@@ -55,11 +55,12 @@ internal class PluginRuntime(
     private var language = language
     private var closed = false
 
-    private class Machine(val context: QuickJsContext) {
+    private class Machine(state: PluginHostState) {
         val events = mutableMapOf<Int, Job>()
         val wake = Channel<Unit>(Channel.CONFLATED)
         var signInRequests: MutableSet<Int>? = null
-        var signInDiagnostics: PluginSignInDiagnostics? = null
+        var accountDiagnostics: PluginSignInDiagnostics? = null
+        val context = QuickJsContext { operation, arguments -> state.call(operation, arguments, accountDiagnostics) }
         var status = 0
         var failure: Exception? = null
     }
@@ -106,7 +107,11 @@ internal class PluginRuntime(
     }
 
     suspend fun invoke(name: String, arguments: JSONObject = JSONObject(), timeoutMs: Long = 30_000): Any = useMachine(lane(name)) { runtime ->
-        try { invoke(runtime, name, arguments, timeoutMs) }
+        val operation = PluginSignInDiagnostics.Operation.entries.firstOrNull { it.name == name }
+        try {
+            if (operation == null) invoke(runtime, name, arguments, timeoutMs)
+            else withAccountDiagnostics(operation, runtime) { invoke(runtime, name, arguments, timeoutMs) }
+        }
         finally {
             if (name == "signOut" || name == "signOutAndClearCache") reset(playback)
             if (name == "signOutAndClearCache") reset(catalog)
@@ -122,19 +127,35 @@ internal class PluginRuntime(
 
     suspend fun signIn(arguments: JSONObject = JSONObject(), prompt: (PluginPrompt) -> Unit): Any = useMachine { runtime ->
         val requests = mutableSetOf<Int>()
-        val diagnostics = PluginSignInDiagnostics(dataDirectory)
         runtime.signInRequests = requests
-        runtime.signInDiagnostics = diagnostics
         hostState().onPrompt = prompt
-        var completed = false
-        try { invoke(runtime, "signIn", arguments, 300_000).also { completed = true } }
+        try {
+            withAccountDiagnostics(PluginSignInDiagnostics.Operation.signIn, runtime) {
+                invoke(runtime, "signIn", arguments, 300_000)
+            }
+        }
         finally {
-            runtime.signInDiagnostics = null
-            diagnostics.finish(completed)
             if (requests.isNotEmpty()) reset(catalog)
             reset(playback)
             runtime.signInRequests = null
             hostState().onPrompt = null
+        }
+    }
+
+    private suspend fun <T : Any> withAccountDiagnostics(operation: PluginSignInDiagnostics.Operation,
+                                                         runtime: Machine? = null, action: suspend () -> T): T {
+        val diagnostics = PluginSignInDiagnostics(dataDirectory, operation, manifest.version)
+        runtime?.accountDiagnostics = diagnostics
+        var result: T? = null
+        var failure: Throwable? = null
+        try {
+            return action().also { result = it }
+        } catch (error: Throwable) {
+            failure = error
+            throw error
+        } finally {
+            runtime?.accountDiagnostics = null
+            diagnostics.finish(result, failure)
         }
     }
 
@@ -165,11 +186,13 @@ internal class PluginRuntime(
     suspend fun clearLoginCache() {
         withContext(dispatcher) {
             check(!closed) { "Plugin runtime is closed" }
-            reset(catalog); reset(playback)
-            catalog.calls.withLock { playback.calls.withLock { hostState().clearLoginStorage() } }
+            withAccountDiagnostics(PluginSignInDiagnostics.Operation.clearLoginCache) {
+                reset(catalog); reset(playback)
+                catalog.calls.withLock { playback.calls.withLock { hostState().clearLoginStorage() } }
+                // 缓存加载可能正等待 VM，不能持有执行通道锁等待缓存锁。
+                catalogCache.invalidate()
+            }
         }
-        // 缓存加载可能正等待 VM，不能持有执行通道锁等待缓存锁。
-        catalogCache.invalidate()
     }
 
     private suspend fun <T> useMachine(lane: Lane = catalog, operation: suspend (Machine) -> T): T = withContext(dispatcher) {
@@ -191,8 +214,7 @@ internal class PluginRuntime(
     }
 
     private suspend fun load(lane: Lane): Machine {
-        val state = hostState()
-        val runtime = Machine(QuickJsContext(state)).also { lane.machine = it }
+        val runtime = Machine(hostState()).also { lane.machine = it }
         val bootstrap = assets.open("PluginBootstrap.js").bufferedReader().use { it.readText() }
         val platform = "platform: \"ios\", arch: \"arm64\""
         check(bootstrap.indexOf(platform) >= 0 && bootstrap.indexOf(platform) == bootstrap.lastIndexOf(platform)) {
@@ -250,19 +272,6 @@ internal class PluginRuntime(
         }
     }
 
-    private suspend fun fetch(event: JSONObject, diagnostics: PluginSignInDiagnostics?): String {
-        val request = PluginFetchRequest.parse(event, manifest)
-        try {
-            val response = transport.fetch(request, manifest)
-            return response.toJson().toString().also { diagnostics?.record(request.url, response = response) }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            diagnostics?.record(request.url, failure = error.cause ?: error)
-            throw error
-        }
-    }
-
     private fun schedule(runtime: Machine) {
         while (true) {
             val event = JSONObject(runtime.context.event() ?: return)
@@ -278,24 +287,34 @@ internal class PluginRuntime(
             if (id <= 0 || runtime.events.containsKey(id)) throw PluginException("Invalid plugin host request")
             val signInAllowed = (kind == "webSignIn" || kind == "oauthSignIn") &&
                 runtime.signInRequests?.takeIf { it.isEmpty() }?.add(id) == true
-            val diagnostics = runtime.signInDiagnostics
+            val diagnostics = runtime.accountDiagnostics?.takeIf { kind == "fetch" || kind == "webSignIn" || kind == "oauthSignIn" }
             val job = scope.launch(start = CoroutineStart.LAZY) {
+                val started = if (diagnostics != null) System.currentTimeMillis() else 0L
+                var address: URI? = null
+                var request: PluginFetchRequest? = null
+                var fetched: PluginFetchResponse? = null
+                var failure: Exception? = null
                 val (success, response) = try {
                     val value = when (kind) {
                         "timer" -> {
                             delay(event.optLong("delay").coerceIn(0, 300_000))
                             "null"
                         }
-                        "fetch" -> fetch(event, diagnostics)
+                        "fetch" -> {
+                            val input = PluginFetchRequest.parse(event, manifest).also { request = it }
+                            transport.fetch(input, manifest).also { fetched = it }.toJson().toString()
+                        }
                         "webSignIn" -> {
                             if (!signInAllowed) throw PluginException("Web sign-in requires an active sign-in request")
-                            val cookie = webSignIn(PluginWebSignIn.parse(event, manifest))
+                            val input = PluginWebSignIn.parse(event, manifest).also { address = it.url }
+                            val cookie = webSignIn(input)
                             JSONObject().put("cookie", cookie).toString()
                         }
                         "oauthSignIn" -> {
                             if (!signInAllowed) throw PluginException("OAuth requires an active sign-in request")
-                            val exchange = oauthSignIn(PluginOAuthRequest.parse(event, manifest))
-                            oauthToken(transport.fetch(exchange, manifest)).toString()
+                            val input = PluginOAuthRequest.parse(event, manifest).also { address = it.authorizationEndpoint }
+                            val exchange = oauthSignIn(input).also { request = it }
+                            oauthToken(transport.fetch(exchange, manifest).also { fetched = it }).toString()
                         }
                         "openURL" -> {
                             val address = (event.opt("url") as? String)?.let(::uri)?.takeIf(URI::isHttp)
@@ -310,13 +329,19 @@ internal class PluginRuntime(
                     true to value
                 } catch (error: CancellationException) {
                     if (!coroutineContext[Job]!!.isActive) return@launch
+                    failure = error
                     false to JSONObject.quote("Plugin host request timed out")
                 } catch (error: PluginException) {
+                    failure = error
                     false to JSONObject().put("message", error.message).put("code", error.code).toString()
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    failure = error
                     false to JSONObject.quote("Plugin host request failed")
                 }
                 if (catalog.machine !== runtime && playback.machine !== runtime) return@launch
+                if (failure !is CancellationException && coroutineContext[Job]!!.isActive) {
+                    diagnostics?.record(kind, started, address, request, fetched, failure)
+                }
                 runtime.events.remove(id)
                 if (signInAllowed) runtime.signInRequests?.remove(id)
                 try {

@@ -313,7 +313,8 @@ private func withPlugin(_ source: String, extra: [String: String] = [:], isolati
         #expect(report["completed"] == .bool(false))
         #expect(report["entries"].array.first?["errorCode"].integer == URLError.networkConnectionLost.rawValue)
         #expect(report["entries"].array.first?["pathHash"].string == PluginSignInDiagnostics.pathHash("/login/private-key"))
-        for secret in ["private-key", "private-token", "private-cookie", "Cookie", "/login"] { #expect(!text.contains(secret)) }
+        #expect(report["entries"].array.first?["cookieHeaderPresent"] == .bool(true))
+        for secret in ["private-key", "private-token", "private-cookie", #""Cookie":"#, "/login"] { #expect(!text.contains(secret)) }
     }
 }
 
@@ -333,6 +334,23 @@ private func withPlugin(_ source: String, extra: [String: String] = [:], isolati
         let report = try JSONDecoder().decode(PluginJSON.self, from: Data(text.utf8))
         #expect(report["entries"].array.first?["serviceCodes"].array.compactMap(\.integer) == [0, 1105, 2046])
         for secret in ["response-secret", "private-message", "private-account", "9876543211234567"] { #expect(!text.contains(secret)) }
+    }
+}
+
+@Test func accountDiagnosticHistoryRotatesWithoutReplacingLastSignInReport() async throws {
+    try await withPlugin("""
+    export function signIn() { return {id:'private-login-account',name:'Private account'}; }
+    export function account() { return null; }
+    """) { runtime, root, _ in
+        _ = try await runtime.invoke("signIn")
+        for _ in 0..<26 { _ = try await runtime.invoke("account") }
+        let directory = root.appendingPathComponent("data")
+        let history = try JSONDecoder().decode([PluginJSON].self, from: Data(contentsOf: directory.appendingPathComponent("account-diagnostics.json")))
+        #expect(history.count == 24)
+        #expect(history.allSatisfy { $0["operation"] == .string("account") })
+        let latestSignIn = try String(contentsOf: directory.appendingPathComponent("sign-in-diagnostics.json"), encoding: .utf8)
+        #expect(!latestSignIn.contains("private-login-account"))
+        #expect(try JSONDecoder().decode(PluginJSON.self, from: Data(latestSignIn.utf8))["completed"] == .bool(true))
     }
 }
 

@@ -13,7 +13,7 @@ import org.json.JSONObject
 
 internal data class PluginPrompt(val qrUrl: String?, val message: String)
 
-internal class PluginHostState(rootDirectory: File, dataDirectory: File, settings: Map<String, String>, language: String) : QuickJsHost {
+internal class PluginHostState(rootDirectory: File, dataDirectory: File, settings: Map<String, String>, language: String) {
     private val root = rootDirectory.canonicalFile
     private val data = dataDirectory.canonicalFile
     private val storageFile = File(data, "storage.json")
@@ -73,12 +73,17 @@ internal class PluginHostState(rootDirectory: File, dataDirectory: File, setting
         return result
     }
 
-    override fun call(operation: ByteArray, arguments: ByteArray): ByteArray {
+    fun call(operation: ByteArray, arguments: ByteArray, diagnostics: PluginSignInDiagnostics?): ByteArray {
+        val name = operation.decodeToString()
         val response = try {
-            JSONObject().put("value", call(operation.decodeToString(), JSONArray(arguments.decodeToString())))
+            val value = call(name, JSONArray(arguments.decodeToString()))
+            diagnostics?.recordStorage(name, value)
+            JSONObject().put("value", value)
         } catch (error: PluginException) {
+            diagnostics?.recordStorage(name)
             JSONObject().put("error", error.message)
         } catch (_: Exception) {
+            diagnostics?.recordStorage(name)
             JSONObject().put("error", "Invalid plugin host operation")
         }
         return response.toString().encodeToByteArray()

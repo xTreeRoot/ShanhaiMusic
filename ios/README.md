@@ -70,6 +70,8 @@ YouTube Music 0.1.6 使用 MB 自己的公开 iOS OAuth 客户端和 YouTube 权
 
 ## 模块与数据
 
+每个插件的数据目录保留最近 24 次登录、验号、退出和登录缓存清理的 `account-diagnostics.json`，以及最近一次扫码或授权的 `sign-in-diagnostics.json`。诊断记录操作结果、存储读写计数、请求耗时、HTTP 状态和有界平台错误码；只记录请求是否声明 Cookie / Authorization 头及服务端设置 Cookie 的数量，不记录值、存储键、账号资料、URL 路径原文或查询、请求及响应正文，也不上传节点。平台未返回具体原因时，错误码只能证明当次会话没有通过验证。
+
 | 目录 | 职责 |
 | --- | --- |
 | `MBiOS/` | App 入口、图标、系统配置、中英文资源 |

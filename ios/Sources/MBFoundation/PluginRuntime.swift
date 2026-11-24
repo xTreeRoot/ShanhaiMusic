@@ -3,9 +3,35 @@ import MBJavaScript
 import os
 
 private final class PluginContext: @unchecked Sendable {
+    final class HostCalls {
+        let host: PluginHostState
+        var storage: PluginSignInDiagnostics.StorageActivity?
+
+        init(_ host: PluginHostState) { self.host = host }
+
+        func call(_ operation: String, _ values: [PluginJSON]) throws -> PluginJSON {
+            do {
+                let value = try host.call(operation, values)
+                switch operation {
+                case "storage.get":
+                    if value == .null { storage?.misses += 1 } else { storage?.hits += 1 }
+                case "storage.set": storage?.writes += 1
+                case "storage.remove": storage?.removals += 1
+                default: break
+                }
+                return value
+            } catch {
+                if ["storage.get", "storage.set", "storage.remove"].contains(operation) { storage?.failures += 1 }
+                throw error
+            }
+        }
+    }
     let pointer: OpaquePointer
+    let hostCalls: HostCalls
     private let lifetime: OSAllocatedUnfairLock<OpaquePointer?>
-    init(_ pointer: OpaquePointer) { self.pointer = pointer; lifetime = OSAllocatedUnfairLock(uncheckedState: pointer) }
+    init(_ pointer: OpaquePointer, hostCalls: HostCalls) {
+        self.pointer = pointer; self.hostCalls = hostCalls; lifetime = OSAllocatedUnfairLock(uncheckedState: pointer)
+    }
     func cancel() { lifetime.withLock { if let pointer = $0 { mbjs_cancel(pointer) } } }
     deinit { lifetime.withLock { $0 = nil }; mbjs_destroy(pointer) }
 }
@@ -98,13 +124,19 @@ public actor PluginRuntime {
     public func setPrompt(_ prompt: (@Sendable (SignInPrompt) -> Void)?) { host.prompt = prompt }
     /// 所有插件共用的宿主重置；先终止旧 VM，阻止迟到登录、定时器或请求恢复旧凭据。
     public func clearLoginCache() async throws {
+        let diagnostics = accountDiagnostics(.clearLoginCache)
         reset(catalog); reset(playback)
         await acquire(catalog)
         await acquire(playback)
         do { try Task.checkCancellation(); try host.clearLoginStorage() }
-        catch { release(playback); release(catalog); throw error }
+        catch {
+            release(playback); release(catalog)
+            await diagnostics.finish(error is CancellationError ? .cancelled : .failed, error: error)
+            throw error
+        }
         release(playback); release(catalog)
         await catalogCache.invalidate()
+        await diagnostics.finish(.completed)
     }
     public func supports(_ name: String) async throws -> Bool {
         let lane = lane(for: name)
@@ -120,9 +152,12 @@ public actor PluginRuntime {
         try await load(lane)
         guard let context = lane.context else { throw PluginFailure.execution("Runtime unavailable") }
         let json = try arguments.encoded()
-        let diagnostics = name == "signIn" ? PluginSignInDiagnostics(directory: host.data) : nil
+        let operation = PluginSignInDiagnostics.Operation(rawValue: name)
+        let diagnostics = operation.map(accountDiagnostics)
+        if diagnostics != nil { context.hostCalls.storage = .init() }
         lane.diagnostics = diagnostics
         defer {
+            context.hostCalls.storage = nil
             lane.diagnostics = nil
             if ["signIn", "signOut", "signOutAndClearCache"].contains(name) { reset(playback) }
             if name == "signOutAndClearCache" { reset(catalog) }
@@ -132,13 +167,19 @@ public actor PluginRuntime {
                 let status = name.withCString { name in json.withCString { mbjs_start(context.pointer, name, $0, 100) } }
                 return try await finish(status, context: context, lane: lane, timeout: timeout)
             } onCancel: { context.cancel() }
-            await diagnostics?.finish(completed: true)
+            if let operation {
+                await diagnostics?.finish(.init(operation: operation, result: value), storage: context.hostCalls.storage)
+            }
             return value
         } catch {
-            await diagnostics?.finish(completed: false)
+            let outcome: PluginSignInDiagnostics.Outcome = error is CancellationError || Task.isCancelled ? .cancelled : .failed
+            await diagnostics?.finish(outcome, storage: context.hostCalls.storage, error: error)
             reset(lane)
             throw error
         }
+    }
+    private func accountDiagnostics(_ operation: PluginSignInDiagnostics.Operation) -> PluginSignInDiagnostics {
+        PluginSignInDiagnostics(directory: host.data, operation: operation, pluginVersion: host.manifest.version)
     }
     private func acquire(_ lane: Lane) async {
         if lane.busy { await withCheckedContinuation { lane.waiters.append($0) } } else { lane.busy = true }
@@ -148,18 +189,19 @@ public actor PluginRuntime {
     }
     private func load(_ lane: Lane) async throws {
         guard !lane.loaded else { return }
+        let hostCalls = PluginContext.HostCalls(host)
         let pointer = mbjs_create({ opaque, operation, arguments in
             guard let opaque, let operation, let arguments else { return nil }
-            let host = Unmanaged<PluginHostState>.fromOpaque(opaque).takeUnretainedValue()
+            let hostCalls = Unmanaged<PluginContext.HostCalls>.fromOpaque(opaque).takeUnretainedValue()
             let response: PluginJSON
             do {
                 let values = try JSONDecoder().decode([PluginJSON].self, from: Data(String(cString: arguments).utf8))
-                response = .object(["value": try host.call(String(cString: operation), values)])
+                response = .object(["value": try hostCalls.call(String(cString: operation), values)])
             } catch { response = .object(["error": .string(error.localizedDescription)]) }
             return strdup((try? response.encoded()) ?? "{\"error\":\"Invalid host response\"}")
-        }, Unmanaged.passUnretained(host).toOpaque(), 64 * 1_024 * 1_024)
+        }, Unmanaged.passUnretained(hostCalls).toOpaque(), 64 * 1_024 * 1_024)
         guard let pointer else { throw PluginFailure.execution("Runtime allocation failed") }
-        let context = PluginContext(pointer); lane.context = context
+        let context = PluginContext(pointer, hostCalls: hostCalls); lane.context = context
         do {
             guard let bootstrap = Bundle.module.url(forResource: "PluginBootstrap", withExtension: "js") else { throw PluginFailure.execution("Missing host bootstrap") }
             let source = try String(contentsOf: bootstrap, encoding: .utf8)
@@ -205,12 +247,13 @@ public actor PluginRuntime {
             let permissions = host.manifest.permissions, transport = transport, webSignIn = webSignIn, oauthSignIn = oauthSignIn, openURL = openURL, name = host.manifest.displayName, diagnostics = lane.diagnostics
             lane.events[Int32(id)] = Task { [weak self] in
                 let completed: Completed
+                let started = diagnostics == nil ? nil : Date()
                 do {
                     let value = try await Self.process(event, permissions: permissions, name: name, webSignIn: webSignIn, oauthSignIn: oauthSignIn, openURL: openURL, transport: transport)
-                    await diagnostics?.record(event, result: value, error: nil)
+                    if let started { await diagnostics?.record(event, started: started, result: value, error: nil) }
                     completed = Completed(id: Int32(id), success: true, value: value)
                 } catch {
-                    await diagnostics?.record(event, result: nil, error: error)
+                    if let started { await diagnostics?.record(event, started: started, result: nil, error: error) }
                     completed = Completed(id: Int32(id), success: false, value: .object([
                         "message": .string(error.localizedDescription),
                         "code": TrackProblem.isConnectionError(error) ? .string("network") : .null,

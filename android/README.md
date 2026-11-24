@@ -66,7 +66,7 @@ Debug APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。以上命令不�
 - 播放失败时，完整播放器会显示错误码；能够从异常类型识别时，附上 HTTP 状态、HTML 响应、DNS、TLS、连接失败或超时标记，不显示原始错误消息。系统拒绝音频焦点时，迷你和完整播放器会提示；可暂停占用音频的应用，再点播放，队列和进度不变。排查时可同时试播一首已导入的本地音频，区分本地播放与平台取流，不需要提供 Cookie 或带签名的媒体地址。
 - 隔离网页登录提示附带错误码：`WV-01` 无可用提供程序、`WV-02` 不支持隔离、`WV-03` 启动失败、`WV-04` 页面加载失败、`WV-05` 网站暂时不可用、`WV-06` 渲染器退出。独立进程找不到提供程序时，主进程会尝试可用的独立配置，不共用普通 WebView 的 Cookie。
 - 已授权的调试设备可在复现后运行 `adb -s <设备序列号> logcat -d -s MBPlayback:I MBPluginBrowser:I '*:S'`。这两个日志标签记录播放服务连接、播放错误码、WebView 提供程序和启动阶段，不记录曲目、请求地址、账号或 Cookie。
-- 插件登录结束后，可对调试包执行 `adb -s <设备序列号> shell run-as com.xtreeroot.mb cat files/plugins/data/<插件ID>/sign-in-diagnostics.json` 读取最近一次报告。仅记录插件登录脚本的已授权请求，最多 32 条：域名、路径 SHA-256、HTTP 状态码、约定的整数业务码或异常类型。不保存原始路径、查询参数、请求头、正文、Cookie 或账号信息，不进入可携带备份。
+- 插件数据目录保留最近 24 次登录、验号、退出、清理登录缓存的 `account-diagnostics.json`，以及最近一次登录的 `sign-in-diagnostics.json`。复现后可对调试包执行 `adb -s <设备序列号> shell run-as com.xtreeroot.mb cat files/plugins/data/<插件ID>/account-diagnostics.json`。报告包含时间、插件版本、操作结果和插件存储读写计数；每次最多 32 条请求，记录耗时、域名、路径 SHA-256、HTTP 状态码、有界整数业务码或异常类型，以及请求是否声明 Cookie / Authorization 头、响应返回的 Set-Cookie 数量。不保存存储键值、原始路径、查询参数、请求头值、正文、Cookie 或账号信息，不上传节点、不进入可携带备份。平台没返回明确原因时，日志不能推断会话是过期、被撤销还是风控拦截。
 - 听歌进度到 70% 时，山海会为自动播放的下一首先取地址和最多 256 KiB 音频，只临时放内存；下一首已有本地副本时不走网络，也不会提前播放。
 
 ## 模块
