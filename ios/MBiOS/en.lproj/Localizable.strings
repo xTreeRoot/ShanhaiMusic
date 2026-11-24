@@ -1,4 +1,6 @@
 "%lld 赞" = "%lld likes";
+"点赞" = "Like";
+"取消点赞" = "Unlike";
 "Flow · 流动" = "Flow";
 "Steps · 阶梯" = "Steps";
 "Tilt · 倾诉" = "Tilt";

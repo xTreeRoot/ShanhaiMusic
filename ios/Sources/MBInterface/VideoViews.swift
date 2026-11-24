@@ -179,6 +179,7 @@ private struct VideoQueueView: View {
                     VideoTrackRow(track: track, selected: playback.queue.index == index)
                 }.buttonStyle(.plain).accessibilityLabel("队列选择 \(track.title)")
             }
+            QueuePageFooter(playback: playback)
         }
     }
 }

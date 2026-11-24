@@ -243,10 +243,11 @@ private let fakeDownload: @Sendable (MediaResource) async throws -> URL = { _ in
     let (pages, send) = AsyncStream<Track>.makeStream()
     let final = audioTracks[1]
     model.select([audioTracks[0]], index: 0)
-    model.attachPages(PlaybackPageLoader {
+    let next = PlaybackPageLoader {
         var stream = pages.makeAsyncIterator()
         return (await stream.next().map { [audioTracks[0], $0] } ?? [], nil)
-    })
+    }
+    model.attachPages(PlaybackPageLoader { ([audioTracks[0]], next) })
     await model.waitUntilLoaded()
     #expect(model.queue.current == audioTracks[0])
     engine.finished = true
@@ -262,6 +263,21 @@ private let fakeDownload: @Sendable (MediaResource) async throws -> URL = { _ in
     engine.finished = true; model.tick()
     #expect(model.state == .paused)
     #expect(model.queue.current == final)
+}
+
+@Test @MainActor func queueScrollLoadsTheNextPageBeforePlaybackReachesTheTail() async {
+    let model = PlaybackModel(source: AudioSourceFixture(), engine: TestAudio(), download: fakeDownload)
+    let third = Track(sourceID: "test", sourceTrackID: "three", title: "three", artist: "UP")
+    let fourth = Track(sourceID: "test", sourceTrackID: "four", title: "four", artist: "UP")
+    model.select(audioTracks + [third], index: 0, autoplay: false)
+    model.attachPages(PlaybackPageLoader { ([third, fourth], nil) })
+    #expect(!model.isLoadingQueuePage)
+    model.loadNextQueuePage()
+    for _ in 0..<1000 where model.isLoadingQueuePage { await Task.yield() }
+    #expect(model.queue.tracks == audioTracks + [third, fourth])
+    #expect(model.queue.current == audioTracks[0])
+    #expect(model.state == .paused)
+    #expect(!model.hasNextQueuePage)
 }
 
 @Test @MainActor func oldAudioDoesNotReplaceTheNewSelection() async {

@@ -44,6 +44,18 @@ private actor SystemSource: PlaybackSource {
     func releaseCaptions() { pending?.resume(); pending = nil }
 }
 
+private actor SystemLikeSource: InteractionSource {
+    nonisolated let displayName = "feedback"
+    private var liked: Set<String> = []
+    func search(query: String, page: Int) -> TrackPage { TrackPage(tracks: [], hasMore: false) }
+    func isLiked(trackID: String) -> Bool { liked.contains(trackID) }
+    func like(trackID: String, enabled: Bool) {
+        if enabled { liked.insert(trackID) } else { liked.remove(trackID) }
+    }
+    func comments(trackID: String, page: Int) -> CommentPage { CommentPage(comments: [], total: 0, hasMore: false) }
+    func postComment(trackID: String, text: String) throws -> TrackComment { throw PluginFailure.unavailable }
+}
+
 @MainActor private final class SystemClock: AudioEngine, AudioEngineEvents, AudioEngineStreaming {
     var onUpdate: (() -> Void)?
     var position: Int64 = 0
@@ -72,19 +84,44 @@ private actor SystemSource: PlaybackSource {
     let info = SystemInfo()
     let playback: PlaybackModel
     let coordinator: SystemPlaybackCoordinator
-    init(source: SystemSource = SystemSource(), store: (any PlaybackSessionStore)? = nil) {
+    init(source: SystemSource = SystemSource(), store: (any PlaybackSessionStore)? = nil,
+         resolveInteractions: (@MainActor (Track) async -> (any InteractionSource)?)? = nil) {
         playback = PlaybackModel(source: source, engine: clock, store: store)
         let info = self.info
         coordinator = SystemPlaybackCoordinator { value, state in
             info.value = value; info.state = state; info.writes += 1
         }
-        coordinator.connect(playback)
+        coordinator.connect(playback, resolveInteractions: resolveInteractions)
     }
 }
 
 @Suite(.serialized) struct SystemPlaybackTests {
     // 系统允许任意队列请求封面；此包装只用于模拟 MediaPlayer 的跨队列调用。
     private struct ArtworkRequest: @unchecked Sendable { let artwork: MPMediaItemArtwork }
+
+    @Test @MainActor func remoteFeedbackUsesTheSelectedTracksSourceAndKeepsSeeking() async {
+        let first = SystemLikeSource(), second = SystemLikeSource()
+        let track = Track(sourceID: "other", sourceTrackID: systemTracks[0].sourceTrackID, title: "Other source", artist: "Test")
+        let f = SystemFixture(resolveInteractions: { $0.sourceID == "test" ? first : second })
+        defer { f.coordinator.disconnect() }
+        let commands = MPRemoteCommandCenter.shared()
+        f.playback.select([systemTracks[0], track], index: 0, autoplay: false)
+        for _ in 0..<1000 where !commands.likeCommand.isEnabled { await Task.yield() }
+        #expect(commands.nextTrackCommand.isEnabled && commands.previousTrackCommand.isEnabled)
+        #expect(commands.changePlaybackPositionCommand.isEnabled)
+        #expect(!commands.skipForwardCommand.isEnabled && !commands.skipBackwardCommand.isEnabled)
+        await f.coordinator.setCurrentLike(true)
+        #expect(await first.isLiked(trackID: track.sourceTrackID))
+        #expect(commands.likeCommand.isActive)
+        f.playback.jump(to: 1, autoplay: false)
+        for _ in 0..<1000 where !commands.likeCommand.isEnabled { await Task.yield() }
+        #expect(!commands.likeCommand.isActive)
+        await f.coordinator.setCurrentLike(true)
+        #expect(await second.isLiked(trackID: track.sourceTrackID))
+        await f.coordinator.setCurrentLike(false)
+        #expect(await first.isLiked(trackID: track.sourceTrackID))
+        #expect(!(await second.isLiked(trackID: track.sourceTrackID)))
+    }
 
     @Test @MainActor func systemArtworkCanBeRequestedOffMainActor() async throws {
         let data = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6fJ0AAAAASUVORK5CYII="))

@@ -68,8 +68,11 @@ public final class PlaybackModel {
     @ObservationIgnored private var stationTask: Task<Void, Never>?
     @ObservationIgnored private var stationRevision = 0
     @ObservationIgnored private var stationAdvance = false
-    @ObservationIgnored private var pageLoader: PlaybackPageLoader?
-    @ObservationIgnored private var pageTask: Task<Void, Never>?
+    private var pageLoader: PlaybackPageLoader?
+    private var pageTask: Task<Void, Never>?
+    public var hasNextQueuePage: Bool { pageLoader != nil }
+    public var isLoadingQueuePage: Bool { pageTask != nil }
+    public private(set) var queuePageFailed = false
     @ObservationIgnored private var pageRevision = 0
     @ObservationIgnored private var pageAdvance: PlaybackSelectionIntent?
 
@@ -163,19 +166,23 @@ public final class PlaybackModel {
         endPages()
         pageLoader = loader
         refillPages()
+        stateDidChange?()
     }
 
     private func endPages() {
-        pageRevision += 1; pageTask?.cancel(); pageTask = nil; pageLoader = nil; pageAdvance = nil
+        pageRevision += 1; pageTask?.cancel(); pageTask = nil; pageLoader = nil; pageAdvance = nil; queuePageFailed = false
     }
 
     private var pageTail: Bool { queue.index != nil && queue.index == queue.playOrder.last }
 
-    private func refillPages(advance: PlaybackSelectionIntent? = nil) {
+    public func loadNextQueuePage() { refillPages(requested: true) }
+
+    private func refillPages(advance: PlaybackSelectionIntent? = nil, requested: Bool = false) {
         guard let loader = pageLoader, let index = queue.index,
               let position = queue.playOrder.firstIndex(of: index) else { return }
         if let advance { pageAdvance = advance }
-        guard pageTask == nil, advance != nil || queue.playOrder.count - position <= 2 else { return }
+        guard pageTask == nil, requested || advance != nil || (!queuePageFailed && queue.playOrder.count - position <= 2) else { return }
+        queuePageFailed = false
         let revision = pageRevision
         pageTask = Task {
             var cursor: PlaybackPageLoader? = loader
@@ -188,10 +195,7 @@ public final class PlaybackModel {
                     var seen = Set(queue.tracks.map(\.id))
                     let fresh = batch.tracks.filter { seen.insert($0.id).inserted }
                     for track in fresh { queue.append(track) }
-                    if !batch.tracks.isEmpty {
-                        if fresh.isEmpty { cursor = nil }
-                        break
-                    }
+                    if !fresh.isEmpty { break }
                 }
                 if pageTail { cursor = nil }
                 pageLoader = cursor
@@ -206,6 +210,7 @@ public final class PlaybackModel {
             } catch {
                 guard revision == pageRevision, !Task.isCancelled else { return }
                 pageTask = nil; pageLoader = cursor
+                queuePageFailed = true
                 if pageAdvance != nil { errorMessage = error.localizedDescription; stateDidChange?() }
                 pageAdvance = nil
             }

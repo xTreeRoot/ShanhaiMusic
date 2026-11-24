@@ -393,6 +393,7 @@ struct QueueView: View {
                 }
                 .onDelete { playback.removeQueue($0) }
                 .onMove { playback.moveQueue($0, to: $1) }
+                QueuePageFooter(playback: playback)
             }
             .overlay {
                 if playback.queue.tracks.isEmpty { ContentUnavailableView("播放队列为空", systemImage: "music.note.list") }
@@ -410,6 +411,21 @@ struct QueueView: View {
             #if os(iOS)
             .toolbar { ToolbarItem(placement: .primaryAction) { EditButton() } }
             #endif
+        }
+    }
+}
+
+struct QueuePageFooter: View {
+    let playback: PlaybackModel
+
+    var body: some View {
+        if playback.hasNextQueuePage {
+            if playback.queuePageFailed {
+                Button("重试") { playback.loadNextQueuePage() }
+            } else {
+                ProgressView().frame(maxWidth: .infinity)
+                    .task(id: playback.queue.tracks.count) { playback.loadNextQueuePage() }
+            }
         }
     }
 }

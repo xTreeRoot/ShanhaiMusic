@@ -21,6 +21,12 @@ import AppKit
     }
     private weak var playback: PlaybackModel?
     private var commands: [(MPRemoteCommand, Any)] = []
+    private var resolveInteractions: (@MainActor (Track) async -> (any InteractionSource)?)?
+    private var likeTrackID: String?
+    private var likeRevision = 0
+    private var likeStatusTask: Task<Void, Never>?
+    private var likeSource: (any InteractionSource)?
+    private var changingLike = false
     private var interruptedRevision: Int?
     private var interruptedTrack: String?
     private var infoKey: InfoKey?
@@ -54,9 +60,12 @@ import AppKit
         update()
     }
 
-    public func connect(_ playback: PlaybackModel, onCarAudioChanged: (@MainActor (Bool) -> Void)? = nil) {
+    public func connect(_ playback: PlaybackModel,
+                        resolveInteractions: (@MainActor (Track) async -> (any InteractionSource)?)? = nil,
+                        onCarAudioChanged: (@MainActor (Bool) -> Void)? = nil) {
         guard self.playback == nil else { return }
         self.playback = playback
+        self.resolveInteractions = resolveInteractions
         playback.stateDidChange = { [weak self] in self?.update() }
         let center = MPRemoteCommandCenter.shared()
         bind(center.playCommand) { $0.play() }
@@ -64,10 +73,19 @@ import AppKit
         bind(center.togglePlayPauseCommand) { $0.toggle() }
         bind(center.nextTrackCommand) { $0.next() }
         bind(center.previousTrackCommand) { $0.previous() }
-        bind(center.skipForwardCommand) { $0.seek(to: $0.positionMilliseconds + 15_000) }
-        bind(center.skipBackwardCommand) { $0.seek(to: $0.positionMilliseconds - 15_000) }
-        center.skipForwardCommand.preferredIntervals = [15]
-        center.skipBackwardCommand.preferredIntervals = [15]
+        center.skipForwardCommand.isEnabled = false
+        center.skipBackwardCommand.isEnabled = false
+        center.seekForwardCommand.isEnabled = false
+        center.seekBackwardCommand.isEnabled = false
+        if resolveInteractions != nil {
+            let token = center.likeCommand.addTarget { @Sendable [weak self] event in
+                guard let feedback = event as? MPFeedbackCommandEvent else { return .commandFailed }
+                let enabled = !feedback.isNegative
+                Task { @MainActor in await self?.setCurrentLike(enabled) }
+                return .success
+            }
+            commands.append((center.likeCommand, token))
+        }
         center.changePlaybackPositionCommand.isEnabled = true
         let token = center.changePlaybackPositionCommand.addTarget { @Sendable [weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent, event.positionTime.isFinite,
@@ -102,7 +120,50 @@ import AppKit
         commands.append((command, token))
     }
 
+    public func refreshLike() {
+        guard let resolveInteractions else { return }
+        likeRevision += 1
+        let revision = likeRevision
+        likeStatusTask?.cancel()
+        likeStatusTask = nil
+        likeSource = nil
+        changingLike = false
+        let track = playback?.queue.current
+        likeTrackID = track?.id
+        let command = MPRemoteCommandCenter.shared().likeCommand
+        command.isEnabled = false
+        updateLikeState(false)
+        guard let track else { return }
+        likeStatusTask = Task { [weak self] in
+            guard let source = await resolveInteractions(track), await source.capabilities().likes else { return }
+            let liked = try? await source.isLiked(trackID: track.sourceTrackID)
+            guard !Task.isCancelled, let self, self.likeRevision == revision else { return }
+            self.likeSource = source
+            self.updateLikeState(liked == true)
+            command.isEnabled = true
+        }
+    }
+
+    func setCurrentLike(_ enabled: Bool) async {
+        let revision = likeRevision
+        guard let source = likeSource, let track = playback?.queue.current,
+              track.id == likeTrackID, !changingLike else { return }
+        changingLike = true
+        defer { if likeRevision == revision { changingLike = false } }
+        do {
+            try await source.like(trackID: track.sourceTrackID, enabled: enabled)
+            if likeRevision == revision { updateLikeState(enabled) }
+        } catch { return }
+    }
+
+    private func updateLikeState(_ liked: Bool) {
+        let command = MPRemoteCommandCenter.shared().likeCommand
+        command.isActive = liked
+        command.localizedTitle = AppLocalization.text(liked ? "取消点赞" : "点赞")
+    }
+
     private func update() {
+        if resolveInteractions != nil, playback?.queue.current?.id != likeTrackID { refreshLike() }
         let hasTrack = playback?.queue.current != nil
         #if os(iOS)
         let state = hasTrack ? playback?.state : nil
@@ -117,8 +178,8 @@ import AppKit
             }
         }
         #endif
-        for (command, _) in commands { command.isEnabled = hasTrack }
-        MPRemoteCommandCenter.shared().nextTrackCommand.isEnabled = hasTrack && ((playback?.queue.tracks.count ?? 0) > 1 || playback?.station != nil)
+        for (command, _) in commands where command !== MPRemoteCommandCenter.shared().likeCommand { command.isEnabled = hasTrack }
+        MPRemoteCommandCenter.shared().nextTrackCommand.isEnabled = hasTrack && ((playback?.queue.tracks.count ?? 0) > 1 || playback?.station != nil || playback?.hasNextQueuePage == true)
         MPRemoteCommandCenter.shared().previousTrackCommand.isEnabled = hasTrack && (playback?.queue.tracks.count ?? 0) > 1
         guard let playback, let track = playback.queue.current else {
             artworkTask?.cancel(); artworkTask = nil; artwork = nil; artworkTrack = nil
@@ -187,6 +248,7 @@ import AppKit
         #endif
         artworkTask?.cancel(); artworkTask = nil
         playback?.stateDidChange = nil; playback = nil
+        if resolveInteractions != nil { refreshLike(); resolveInteractions = nil }
         artwork = nil; artworkTrack = nil; infoKey = nil
         publish(nil, .stopped)
     }

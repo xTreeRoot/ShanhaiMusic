@@ -218,7 +218,9 @@ public struct MBRootView: View {
                 if demo { await router.register(initialSource, id: initialSourceID) }
                 if !demo {
                     #if os(iOS)
-                    systemPlayback.connect(playback) { [video, pictureInPicture] audioOnly in
+                    systemPlayback.connect(playback, resolveInteractions: { [router] track in
+                        await router.source(for: track) as? any InteractionSource
+                    }) { [video, pictureInPicture] audioOnly in
                         video.setAudioOnly(audioOnly)
                         if audioOnly { pictureInPicture.stop() }
                     }
@@ -262,6 +264,8 @@ public struct MBRootView: View {
                 currentPluginSource = nil
                 let track = playback.queue.current
                 await registerPlugins()
+                guard !Task.isCancelled, playback.queue.current?.id == track?.id else { return }
+                systemPlayback.refreshLike()
                 guard let track, let provider = await router.source(for: track), !Task.isCancelled,
                       playback.queue.current?.id == track.id else { return }
                 currentLibrarySource = provider as? any LibrarySource
@@ -291,7 +295,7 @@ public struct MBRootView: View {
             }
             .onChange(of: selectedTab) { _, _ in inputFocused = false }
             .onChange(of: plugins.revision) { _, _ in video.invalidatePreload(); Task { await registerPlugins() } }
-            .onChange(of: account.revision) { _, _ in video.invalidatePreload() }
+            .onChange(of: account.revision) { _, _ in video.invalidatePreload(); systemPlayback.refreshLike() }
             .background {
                 if !video.isAudioOnly { PlaybackClockObserver(playback: playback, sync: syncVideoClock) }
             }
