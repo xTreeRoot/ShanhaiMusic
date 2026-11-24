@@ -113,6 +113,31 @@ internal class PluginSource(
     override suspend fun supportsSignIn(): Boolean = runtime.supports("signIn")
     override suspend fun supportsSignOut(): Boolean = runtime.supports("signOut")
 
+    suspend fun supportsSessionSync(): Boolean = listOf("exportSession", "validateSession", "commitSession").all { runtime.supports(it) }
+
+    suspend fun verifyNodeSessionPlugin(client: com.xtreeroot.mb.edge.NodeClient, binding: com.xtreeroot.mb.edge.NodeBinding): String {
+        val version = manifest.version ?: throw com.xtreeroot.mb.edge.NodeException(com.xtreeroot.mb.edge.NodeFailure.UntrustedPlugin)
+        val digest = runtime.nodeContentDigest()
+        client.verifySessionPlugin(binding, id, version, digest)
+        return digest
+    }
+
+    suspend fun exportNodeSession(accountId: String, digest: String): com.xtreeroot.mb.edge.NodeSession {
+        val value = runtime.invoke("exportSession", verifiedNodeDigest = digest) as? JSONObject ?: error("插件没有返回可同步的会话")
+        val session = com.xtreeroot.mb.edge.NodeSession.parse(value, value.get("format") as? Int ?: error("会话格式无效"))
+        check(session.accountId == accountId) { "会话与本机登录账号不匹配" }
+        return session
+    }
+
+    suspend fun applyNodeSession(session: com.xtreeroot.mb.edge.NodeSession, digest: String, stillCurrent: () -> Boolean): SourceAccount? {
+        val verified = runtime.invoke("validateSession", session.arguments(), verifiedNodeDigest = digest) as? JSONObject ?: return null
+        if (verified.optString("id") != session.accountId || !stillCurrent()) return null
+        val committed = account(runtime.invoke("commitSession", session.arguments(verified), verifiedNodeDigest = digest)) ?: return null
+        if (committed.id != session.accountId || !stillCurrent()) return null
+        rememberAccount(committed, force = true)
+        return committed
+    }
+
     override suspend fun account(): SourceAccount? {
         if (!runtime.supports("account")) return null
         val revision = synchronized(accountCacheLock) { accountGeneration }

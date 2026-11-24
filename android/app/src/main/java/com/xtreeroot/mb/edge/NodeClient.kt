@@ -35,9 +35,11 @@ internal fun nodeOrigin(input: String): HttpUrl {
     return url
 }
 
-internal enum class NodeFailure { Unauthorized, BadPassword, Unsupported, Protocol, Conflict, Rejected, Retryable, Deleted, OtherAccount, KeyChanged }
+internal enum class NodeFailure { Unauthorized, BadPassword, Unsupported, Protocol, Conflict, Rejected, Retryable, Deleted, OtherAccount, KeyChanged, UntrustedPlugin }
 
 internal class NodeException(val failure: NodeFailure, val status: Int? = null) : IOException(failure.name)
+internal data class CloudRecord(val kind: String, val platform: String, val key: String?, val count: Int)
+internal data class SessionRecord(val ref: String, val tag: String, val format: Int, val deleted: Boolean)
 
 internal sealed interface PlatformRecord {
     data object Missing : PlatformRecord
@@ -83,14 +85,74 @@ internal class NodeClient(http: OkHttpClient) {
     suspend fun delete(binding: NodeBinding, key: PlatformDataKey, tag: String): String =
         change(request(binding, key).header("If-Match", verifiedTag(tag)).delete(), 204)
 
+    suspend fun overview(binding: NodeBinding): List<CloudRecord> = exchange(request(binding, "v1/sync/overview").build()) { response ->
+        if (response.code != 200) throw response.failure()
+        parseResponse {
+            val records = response.json().getJSONArray("records")
+            List(records.length()) { index ->
+                val value = records.getJSONObject(index)
+                val record = CloudRecord(value.getString("kind"), value.getString("platform"),
+                    value.optString("key").takeIf(String::isNotEmpty), value.getInt("count"))
+                PlatformDataKey(record.platform, record.key ?: "sessions")
+                require(record.kind == "sessions" && record.key == null && record.count > 0 ||
+                    record.kind == "data" && record.key != null && record.count == 1)
+                record
+            }.also { records -> require(records.distinctBy { Triple(it.kind, it.platform, it.key) }.size == records.size) }
+        }
+    }
+
+    suspend fun verifySessionPlugin(binding: NodeBinding, id: String, version: String, digest: String) {
+        val url = binding.origin.newBuilder().addPathSegments("v1/catalog").build()
+        exchange(Request.Builder().url(url).header("Cache-Control", "no-store").build()) { response ->
+            if (response.code != 200) throw response.failure()
+            val allowed = runCatching { NodePluginContent.matches(response.json(1 shl 20), binding.catalogPublicKey, id, version, digest) }.getOrDefault(false)
+            if (!allowed) throw NodeException(NodeFailure.UntrustedPlugin)
+        }
+    }
+
+    suspend fun sessions(binding: NodeBinding, platform: String): List<SessionRecord> = exchange(sessionRequest(binding, platform).build()) { response ->
+        if (response.code != 200) throw response.failure()
+        parseResponse {
+            val records = response.json().getJSONArray("sessions")
+            List(records.length()) { index ->
+                val value = records.getJSONObject(index)
+                SessionRecord(value.getString("account_ref"), verifiedTag(value.getString("etag")), value.getInt("format"), value.getBoolean("deleted")).also {
+                    require(decodeBase64(it.ref).size == 32 && if (it.deleted) it.format == 0 else it.format in 1..65535)
+                }
+            }.also { records -> require(records.distinctBy { it.ref }.size == records.size) }
+        }
+    }
+
+    suspend fun fetchSession(binding: NodeBinding, platform: String, record: SessionRecord): PlatformEnvelope =
+        exchange(sessionRequest(binding, platform, record.ref).build()) { response ->
+            if (response.code != 200) throw response.failure()
+            if (response.tag() != record.tag) throw NodeException(NodeFailure.Conflict)
+            parseResponse { PlatformEnvelope.parse(response.json()).also { require(it.format == record.format) } }
+        }
+
+    suspend fun publishSession(binding: NodeBinding, platform: String, ref: String, previous: SessionRecord?, envelope: PlatformEnvelope) {
+        if (previous?.deleted == true) throw NodeException(NodeFailure.Deleted)
+        val request = sessionRequest(binding, platform, ref).put(envelope.encode().toRequestBody(jsonType))
+        if (previous == null) change(request.header("If-None-Match", "*"), 201)
+        else change(request.header("If-Match", previous.tag), 204)
+    }
+
+    private fun sessionRequest(binding: NodeBinding, platform: String, ref: String? = null): Request.Builder {
+        PlatformDataKey(platform, "sessions")
+        if (ref != null) require(decodeBase64(ref).size == 32)
+        return request(binding, "v1/sessions/$platform" + (ref?.let { "/$it" } ?: ""))
+    }
+
     private suspend fun change(request: Request.Builder, expected: Int): String = exchange(request.build()) { response ->
         if (response.code != expected) throw response.failure()
         response.tag()
     }
 
-    private fun request(binding: NodeBinding, key: PlatformDataKey): Request.Builder {
+    private fun request(binding: NodeBinding, key: PlatformDataKey): Request.Builder = request(binding, "v1/data/${key.platform}/${key.info}")
+
+    private fun request(binding: NodeBinding, path: String): Request.Builder {
         if (binding.expiresAt <= System.currentTimeMillis() / 1_000) throw NodeException(NodeFailure.Unauthorized)
-        val address = binding.origin.newBuilder().addPathSegments("v1/data").addPathSegment(key.platform).addPathSegment(key.info).build()
+        val address = binding.origin.newBuilder().addPathSegments(path).build()
         return Request.Builder().url(address).header("Authorization", "Bearer ${binding.token}")
             .header("Cache-Control", "no-store")
     }
@@ -114,9 +176,9 @@ internal class NodeClient(http: OkHttpClient) {
             })
         }
 
-    private fun Response.json(): JSONObject {
+    private fun Response.json(limit: Int = maxPlatformEnvelope): JSONObject {
         val source = body?.source() ?: throw NodeException(NodeFailure.Protocol, code)
-        if (source.request(maxPlatformEnvelope.toLong() + 1)) throw NodeException(NodeFailure.Protocol, code)
+        if (source.request(limit.toLong() + 1)) throw NodeException(NodeFailure.Protocol, code)
         return JSONObject(source.readByteArray().decodeToString(throwOnInvalidSequence = true))
     }
 
@@ -129,6 +191,7 @@ internal class NodeClient(http: OkHttpClient) {
     private fun Response.failure() = NodeException(when (code) {
         401 -> NodeFailure.Unauthorized
         404 -> NodeFailure.Unsupported
+        410 -> NodeFailure.Deleted
         412 -> NodeFailure.Conflict
         408, 429, in 500..599 -> NodeFailure.Retryable
         in 400..499 -> if (code == 404 || code == 410) NodeFailure.Protocol else NodeFailure.Rejected

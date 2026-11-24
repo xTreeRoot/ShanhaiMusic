@@ -43,7 +43,7 @@ class NodeFormDeviceTest {
                         com.xtreeroot.mb.ui.components.MBTheme(false) {
                             CompositionLocalProvider(LocalMBEnglish provides true) {
                                 Surface(Modifier.fillMaxSize().safeDrawingPadding()) {
-                                    NodeSettingsView(app, NodeProfileSyncState.Idle, false, {}, MaterialTheme.colorScheme.background, {})
+                                    NodeSettingsView(app, NodeProfileSyncState.Idle, false, {}, MaterialTheme.colorScheme.background) {}
                                 }
                             }
                         }

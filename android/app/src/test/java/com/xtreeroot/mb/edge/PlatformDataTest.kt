@@ -8,13 +8,17 @@ import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONObject
+import org.bouncycastle.math.ec.rfc8032.Ed25519
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 
 class PlatformDataTest {
+    @get:Rule val temporary = TemporaryFolder()
     private val recovery = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
     private val space = "test-space"
     private val key = PlatformDataKey("soda", "profile")
@@ -23,6 +27,49 @@ class PlatformDataTest {
         "1CiWbBgaQJw8-59H-Td2k9vAIU8_zVxQKtQ5h2qz8sxykNcXpd4_KjnyCXHP5GHzDDuqEw")
     private val origin = nodeOrigin("fixture.example")
     private val binding = NodeBinding(origin, "test-device", space, "dGVzdC10b2tlbg", Long.MAX_VALUE, recovery, recovery)
+
+    @Test fun opensTheDesktopSessionVectorAndRejectsWrongPlugin() {
+        val ref = "rQgGydt1-xJIAjpM4GXEO4Q0GyBkb4Sro0a5saijxaY"
+        val wire = PlatformEnvelope(1, "AAECAwQFBgcICQoL",
+            "4pKzDTCYmD-RlfPCsaqP3vVTdyYeYH7RZNXWMsAplG6Y_w3pJB2uUQ-IuPszwsAhbCxTVArDavI3up94c68j9YUzB1KJ1Tnm")
+        val codec = NodeSessionCodec(binding, "example")
+        val restored = codec.open(wire, ref)
+        assertEquals("user-123", restored.accountId)
+        assertEquals("synthetic", restored.data.getString("demo"))
+        assertEquals(ref, codec.reference(restored.accountId))
+        assertThrows(AEADBadTagException::class.java) { NodeSessionCodec(binding, "other").open(wire, ref) }
+        val sealed = codec.seal(restored, ref)
+        assertNotEquals(wire.nonce, sealed.nonce)
+        assertEquals(restored.accountId, codec.open(sealed, ref).accountId)
+    }
+
+    @Test fun verifiesCatalogBeforeTrustingAnInstalledPluginOfTheSameId() = runBlocking {
+        val privateKey = ByteArray(32) { index -> index.toByte() }
+        val publicKey = ByteArray(32).also { Ed25519.generatePublicKey(privateKey, 0, it, 0) }
+        val encoding = Base64.getUrlEncoder().withoutPadding()
+        val node = NodeBinding(origin, binding.device, space, binding.token, Long.MAX_VALUE, recovery, encoding.encodeToString(publicKey))
+        val folder = temporary.newFolder()
+        folder.resolve("plugin.json").writeText("{}")
+        folder.resolve("index.js").writeText("example")
+        folder.resolve(".mb-origin.json").writeText("metadata")
+        val digest = NodePluginContent.digest(folder)
+        assertEquals("390039247f1da0ab6446e475561ec319f02d20fe8fca759719d02e75358c4bee", digest)
+        val payload = """{"protocol":1,"revision":1,"plugins":[{"id":"example","version":"1.0.0","content_sha256":"$digest"}]}""".encodeToByteArray()
+        val signature = ByteArray(64).also { Ed25519.sign(privateKey, 0, payload, 0, payload.size, it, 0) }
+        fun signed(bytes: ByteArray): String = JSONObject().put("payload", encoding.encodeToString(bytes))
+            .put("signature", encoding.encodeToString(signature)).toString()
+        withServer { server, client ->
+            server.enqueue(MockResponse().setBody(signed(payload)))
+            client.verifySessionPlugin(node, "example", "1.0.0", digest)
+            val request = server.takeRequest()
+            assertEquals("/v1/catalog", request.path)
+            assertNull(request.getHeader("Authorization"))
+            server.enqueue(MockResponse().setBody(signed(payload)))
+            expect(NodeFailure.UntrustedPlugin) { client.verifySessionPlugin(node, "example", "1.0.0", "b".repeat(64)) }
+            server.enqueue(MockResponse().setBody(signed(payload + 32.toByte())))
+            expect(NodeFailure.UntrustedPlugin) { client.verifySessionPlugin(node, "example", "1.0.0", digest) }
+        }
+    }
 
     @Test fun profileCreationAndExplicitRenameUseTheIosProfileContract() = runBlocking {
         withServer { server, client ->

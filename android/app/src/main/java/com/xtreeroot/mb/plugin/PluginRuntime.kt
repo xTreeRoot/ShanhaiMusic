@@ -56,6 +56,7 @@ internal class PluginRuntime(
     private var closed = false
 
     private class Machine(state: PluginHostState) {
+        var contentDigest: String? = null
         val events = mutableMapOf<Int, Job>()
         val wake = Channel<Unit>(Channel.CONFLATED)
         var signInRequests: MutableSet<Int>? = null
@@ -66,6 +67,18 @@ internal class PluginRuntime(
     }
 
     suspend fun supports(name: String): Boolean = useMachine(lane(name)) { it.context.supports(name) }
+
+    suspend fun nodeContentDigest(): String = useMachine { machine ->
+        nodeContentDigest(machine)
+    }
+
+    private fun nodeContentDigest(machine: Machine): String {
+        val digest = machine.contentDigest
+        if (digest == null || digest != runCatching { com.xtreeroot.mb.edge.NodePluginContent.digest(directory) }.getOrNull()) {
+            throw com.xtreeroot.mb.edge.NodeException(com.xtreeroot.mb.edge.NodeFailure.UntrustedPlugin)
+        }
+        return digest
+    }
 
     suspend fun headersFor(address: URI, kind: String): Map<String, String> = withContext(dispatcher) {
         check(!closed) { "Plugin runtime is closed" }
@@ -106,14 +119,17 @@ internal class PluginRuntime(
         }
     }
 
-    suspend fun invoke(name: String, arguments: JSONObject = JSONObject(), timeoutMs: Long = 30_000): Any = useMachine(lane(name)) { runtime ->
+    suspend fun invoke(name: String, arguments: JSONObject = JSONObject(), timeoutMs: Long = 30_000, verifiedNodeDigest: String? = null): Any = useMachine(lane(name)) { runtime ->
+        if (verifiedNodeDigest != null && nodeContentDigest(runtime) != verifiedNodeDigest) {
+            throw com.xtreeroot.mb.edge.NodeException(com.xtreeroot.mb.edge.NodeFailure.UntrustedPlugin)
+        }
         val operation = PluginSignInDiagnostics.Operation.entries.firstOrNull { it.name == name }
         try {
             if (operation == null) invoke(runtime, name, arguments, timeoutMs)
             else withAccountDiagnostics(operation, runtime) { invoke(runtime, name, arguments, timeoutMs) }
         }
         finally {
-            if (name == "signOut" || name == "signOutAndClearCache") reset(playback)
+            if (name == "signOut" || name == "signOutAndClearCache" || name == "commitSession") reset(playback)
             if (name == "signOutAndClearCache") reset(catalog)
         }
     }
@@ -214,6 +230,7 @@ internal class PluginRuntime(
     }
 
     private suspend fun load(lane: Lane): Machine {
+        val digest = if (lane === catalog) runCatching { com.xtreeroot.mb.edge.NodePluginContent.digest(directory) }.getOrNull() else null
         val runtime = Machine(hostState()).also { lane.machine = it }
         val bootstrap = assets.open("PluginBootstrap.js").bufferedReader().use { it.readText() }
         val platform = "platform: \"ios\", arch: \"arm64\""
@@ -236,6 +253,8 @@ internal class PluginRuntime(
             runtime.status = runtime.context.evaluate("export * from $entry;", ".mb-android-entry.js", true, 500)
             finish(runtime)
         }
+        if (digest != null && runtime.context.supports("validateSession") &&
+            digest == runCatching { com.xtreeroot.mb.edge.NodePluginContent.digest(directory) }.getOrNull()) runtime.contentDigest = digest
         return runtime
     }
 

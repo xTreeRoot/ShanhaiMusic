@@ -70,6 +70,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.view.WindowCompat
 import com.xtreeroot.mb.MBApplication
@@ -261,6 +262,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         val pluginUser by pluginAccount.account.collectAsStateWithLifecycle()
         val nodeBinding by settings.nodeBinding.collectAsStateWithLifecycle()
         val nodeProfileState by nodeProfile.state.collectAsStateWithLifecycle()
+        val nodeSignInState by pluginAccount.nodeSignIn.collectAsStateWithLifecycle()
         val accountSource = activeSource as? AccountSource
         val selectedAccount = pluginAccount
         val visibleAccount = pluginUser
@@ -275,6 +277,10 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
             return NodeProfileTarget.verified(settings.nodeBinding.value, sourceId, selectedAccount.account.value.verifiedFor(accountSource))
         }
         LaunchedEffect(nodeTarget) { nodeProfile.select(nodeTarget) { currentNodeTarget() == nodeTarget } }
+        LaunchedEffect(nodeBinding, visibleAccount.verifiedSource) {
+            pluginAccount.syncSignInIfNeeded()
+        }
+        LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { pluginAccount.syncSignInIfNeeded() }
         val webSignIn by app.pluginWebSignIn.requests.collectAsStateWithLifecycle(initialValue = null)
         val oauthSignIn by app.pluginOAuth.requests.collectAsStateWithLifecycle(initialValue = null)
         val webLink by app.pluginWebLink.collectAsStateWithLifecycle()
@@ -389,7 +395,11 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                 NodeSettingsView(app, nodeProfileState, nodeTarget != null, {
                     val target = currentNodeTarget()
                     nodeProfile.publish(target) { currentNodeTarget() == target }
-                }, surface) { showService = false }
+                }, surface, sourceId = sourceId, sourceName = pluginSource?.manifest?.name, localName = visibleAccount.verifiedFor(accountSource)?.name,
+                    canSyncSignIn = visibleAccount.canSyncSignIn, nodeSignIn = nodeSignInState,
+                    signInChecked = accountSource != null && visibleAccount.verifiedSource === accountSource && !visibleAccount.loading &&
+                        !visibleAccount.signingIn && visibleAccount.error == null,
+                    syncSignIn = { publish -> pluginAccount.syncSignIn(publish, manual = true) }) { showService = false }
             }
         } else if (showSettings) {
             run {

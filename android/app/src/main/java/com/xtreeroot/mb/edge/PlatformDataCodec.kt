@@ -63,7 +63,7 @@ internal class PlatformDataCodec(recoveryKey: String, private val space: String,
     }
 }
 
-internal fun derivePlatformKey(recoveryKey: String, space: String): ByteArray {
+internal fun derivePlatformKey(recoveryKey: String, space: String, purpose: String = "platform-data"): ByteArray {
     require(space.isNotBlank() && '\n' !in space && '\r' !in space)
     val material = decodeBase64(recoveryKey)
     require(material.size == 32)
@@ -71,7 +71,7 @@ internal fun derivePlatformKey(recoveryKey: String, space: String): ByteArray {
     mac.init(SecretKeySpec("mb-sync-v1\n$space".encodeToByteArray(), "HmacSHA256"))
     val extracted = mac.doFinal(material)
     mac.init(SecretKeySpec(extracted, "HmacSHA256"))
-    return mac.doFinal("platform-data\u0001".encodeToByteArray())
+    return mac.doFinal("$purpose\u0001".encodeToByteArray())
 }
 
 internal fun decodeBase64(value: String): ByteArray = Base64.getUrlDecoder().decode(value).also {
