@@ -4,7 +4,7 @@
 
 ## 工作与 Git
 
-- 固定四条分支、四个 Git 工作树，一一对应：
+- 允许使用 Git worktree。改哪个端，就在那个端对应的工作树里做；优先复用现有工作树。四条分支与四个工作树固定对应：
 
   | 用途 | 分支 | 本机工作树 |
   | --- | --- | --- |
@@ -15,7 +15,8 @@
 
 - 开工前用 `git worktree list` 和 `git status --short --branch` 核对路径与分支，推送前再核对目标。开发、验证、提交、推送与发布均在对应工作树进行；`main` 不保留 `ios/`、`android/` 或 `server/` 的工程副本。
 - 禁止跨工作树混用源码、未提交改动、暂存区、可写构建目录或发布产物。不要在固定工作树里切到别的分支，也不要随手创建第五个工作树。跨端任务拆分提交，只同步并验证实际共用的依赖或测试素材，不整支合并。禁止擅自删除工作树或分支、强推已发布历史或重打已有 Release 标签。
-- 上游更新遵循 `UPSTREAM.md`：保留 MB 现有功能，逐项审阅并合并上游修复；产品版本和插件宿主兼容版本独立维护，不通过整次 ours 合并或强制覆盖处理后续更新。
+- 通用规则以 `main` 的 `AGENTS.md` 为准；变更时同步到 `ios`、`android`、`server` 各自的 `AGENTS.md`。各分支只在末尾的「分支专属约定」中补充本端要求，不为同步规则而合并 `main` 或改动其他文件。
+- 桌面上游更新遵循 `main` 分支的 `UPSTREAM.md`：保留 MB 现有功能，逐项审阅并合并上游修复；产品版本和插件宿主兼容版本独立维护，不通过整次 ours 合并或强制覆盖处理后续更新。
 - 仅在 Codex 内使用 Computer Use，不控制用户电脑上的其他应用。
 - 先读现有实现和真实接口合同，不猜测平台端点、状态、参数和字段。修改聚焦需求，不批量重构无关代码。
 - 哔哩哔哩接口先对照 `/Users/xugenyin/file/bilibil-bot` 和 SocialCrawlerHub 的已验证实现；旧项目只读，不复制账号、Cookie 或档案。
@@ -101,5 +102,5 @@
 ### 构建入口
 
 - 在各自工作树运行：桌面用 `npm run build -- …` 或 `bash scripts/build-desktop.sh`；Android 用本分支的 Gradle 构建入口；iOS 用 `ios/scripts/` 的验证、打包与安装入口；服务端进入独立的 `server/` Go 模块，按该目录 `README.md` 构建和测试。不要另拷工程执行这些命令。
-- `python3 scripts/artifacts.py` 预览；`python3 scripts/artifacts.py --apply` 执行受管清理。构建结束只滚动同类成功产物，不清理失败证据、固定缓存或接管前的历史目录。
-- 从 `python3 scripts/artifacts.py latest <任务>` 定位成功产物。需要交付、回退或等待验收时，在成功目录内创建 `.keep`，或把需要的产物与摘要移到独立交付目录；未标记的旧成功产物会轮转。
+- 当前工作树有 `scripts/artifacts.py` 时，用 `python3 scripts/artifacts.py` 预览，用 `python3 scripts/artifacts.py --apply` 执行受管清理；没有该脚本时，不借用其他工作树的清理入口。构建结束只滚动同类成功产物，不清理失败证据、固定缓存或接管前的历史目录。
+- 使用受管产物时，从 `python3 scripts/artifacts.py latest <任务>` 定位成功产物。需要交付、回退或等待验收时，在成功目录内创建 `.keep`，或把需要的产物与摘要移到独立交付目录；未标记的旧成功产物会轮转。
