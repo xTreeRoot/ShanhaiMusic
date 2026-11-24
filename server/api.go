@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -45,6 +46,7 @@ func (service *api) handler() http.Handler {
 	mux.HandleFunc("GET /v1/data/{plugin}/{key}", service.authenticated(service.get))
 	mux.HandleFunc("PUT /v1/data/{plugin}/{key}", service.authenticated(service.change))
 	mux.HandleFunc("DELETE /v1/data/{plugin}/{key}", service.authenticated(service.change))
+	mux.HandleFunc("GET /v1/sync/devices", service.authenticatedDevice(service.deviceSettingsList))
 	mux.HandleFunc("GET /v1/sync/overview", service.authenticated(service.overview))
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
@@ -151,13 +153,17 @@ func (service *api) pair(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (service *api) authenticated(next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+	return service.authenticatedDevice(func(w http.ResponseWriter, r *http.Request, space, device string) { next(w, r, space) })
+}
+
+func (service *api) authenticatedDevice(next func(http.ResponseWriter, *http.Request, string, string)) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		scheme, token, found := strings.Cut(request.Header.Get("Authorization"), " ")
-		var space string
+		var space, device string
 		err := sql.ErrNoRows
 		if found && strings.EqualFold(scheme, "Bearer") && validToken(token, 32) {
-			err = service.db.QueryRowContext(request.Context(), `SELECT space FROM devices WHERE digest=? AND revoked=0 AND expires>?`,
-				digest(token), time.Now().Unix()).Scan(&space)
+			err = service.db.QueryRowContext(request.Context(), `SELECT space,id FROM devices WHERE digest=? AND revoked=0 AND expires>?`,
+				digest(token), time.Now().Unix()).Scan(&space, &device)
 		}
 		if errors.Is(err, sql.ErrNoRows) {
 			writer.Header().Set("WWW-Authenticate", "Bearer")
@@ -173,7 +179,25 @@ func (service *api) authenticated(next func(http.ResponseWriter, *http.Request, 
 			fail(writer, http.StatusBadRequest, "invalid_session_key")
 			return
 		}
-		next(writer, request, space)
+		if plugin == deviceSettingsPlatform && key != "" {
+			if request.Method != http.MethodGet && key != hex.EncodeToString([]byte(device)) {
+				fail(writer, http.StatusForbidden, "device_settings_owner")
+				return
+			}
+			if request.Method == http.MethodGet {
+				var found bool
+				err := service.db.QueryRowContext(request.Context(), `SELECT EXISTS(SELECT 1 FROM devices WHERE space=? AND lower(hex(id))=? AND revoked=0)`, space, key).Scan(&found)
+				if err != nil {
+					databaseFailure(writer, "read device settings owner")
+					return
+				}
+				if !found {
+					fail(writer, http.StatusNotFound, "not_found")
+					return
+				}
+			}
+		}
+		next(writer, request, space, device)
 	}
 }
 
