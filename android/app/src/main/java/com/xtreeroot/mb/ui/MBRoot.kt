@@ -261,8 +261,6 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         val user by account.account.collectAsStateWithLifecycle()
         val pluginUser by pluginAccount.account.collectAsStateWithLifecycle()
         val nodeBinding by settings.nodeBinding.collectAsStateWithLifecycle()
-        val nodeProfileState by nodeProfile.state.collectAsStateWithLifecycle()
-        val nodeSignInState by pluginAccount.nodeSignIn.collectAsStateWithLifecycle()
         val accountSource = activeSource as? AccountSource
         val selectedAccount = pluginAccount
         val visibleAccount = pluginUser
@@ -391,16 +389,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         } else if (showPlugins) {
             PluginsView(plugins, pluginState, removed = player::removeSource) { showPlugins = false }
         } else if (showService) {
-            run {
-                NodeSettingsView(app, nodeProfileState, nodeTarget != null, {
-                    val target = currentNodeTarget()
-                    nodeProfile.publish(target) { currentNodeTarget() == target }
-                }, surface, sourceId = sourceId, sourceName = pluginSource?.manifest?.name, localName = visibleAccount.verifiedFor(accountSource)?.name,
-                    canSyncSignIn = visibleAccount.canSyncSignIn, nodeSignIn = nodeSignInState,
-                    signInChecked = accountSource != null && visibleAccount.verifiedSource === accountSource && !visibleAccount.loading &&
-                        !visibleAccount.signingIn && visibleAccount.error == null,
-                    syncSignIn = { publish -> pluginAccount.syncSignIn(publish, manual = true) }) { showService = false }
-            }
+            NodeSettingsView(app, pluginState.installed.associate { it.id to it.displayName }, surface) { showService = false }
         } else if (showSettings) {
             run {
                 SettingsView(preferences, settings::update, saved, browser, backgroundState, background, surface,

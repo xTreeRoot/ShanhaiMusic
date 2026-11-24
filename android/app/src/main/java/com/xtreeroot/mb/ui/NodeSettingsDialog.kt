@@ -23,6 +23,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xtreeroot.mb.MBApplication
+import com.xtreeroot.mb.edge.syncProfile
+import com.xtreeroot.mb.plugin.PluginSource
 import com.xtreeroot.mb.edge.CloudRecord
 import com.xtreeroot.mb.edge.NodeException
 import com.xtreeroot.mb.edge.NodeFailure
@@ -39,11 +41,7 @@ import kotlinx.coroutines.launch
 /** 复用应用分组组件，实现标签、输入左右排列的节点接入表单。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun NodeSettingsView(app: MBApplication, profileSync: NodeProfileSyncState, canPublish: Boolean,
-                              publish: () -> Unit, surface: Color, sourceId: String? = null, sourceName: String? = null,
-                              localName: String? = null, canSyncSignIn: Boolean = false, nodeSignIn: NodeSignInState? = null,
-                              signInChecked: Boolean = false,
-                              syncSignIn: (Boolean) -> Unit = {}, close: () -> Unit) {
+internal fun NodeSettingsView(app: MBApplication, sourceNames: Map<String, String>, surface: Color, close: () -> Unit) {
     val binding by app.settings.nodeBinding.collectAsStateWithLifecycle()
     val valid = binding?.let { it.expiresAt > System.currentTimeMillis() / 1_000 } == true
     var address by remember { mutableStateOf(binding?.origin?.toString().orEmpty()) }
@@ -52,17 +50,18 @@ internal fun NodeSettingsView(app: MBApplication, profileSync: NodeProfileSyncSt
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<NodeFailure?>(null) }
     var invalidAddress by remember { mutableStateOf(false) }
-    var confirmingUnlink by remember { mutableStateOf(false) }
+    var expanded by remember(binding) { mutableStateOf<String?>(null) }
+    var publishing by remember(binding) { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var records by remember(binding) { mutableStateOf<List<CloudRecord>?>(null) }
     var overviewError by remember(binding) { mutableStateOf<NodeFailure?>(null) }
     var refreshing by remember(binding) { mutableStateOf(false) }
     var refreshVersion by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
-    val busy = loading || profileSync == NodeProfileSyncState.Publishing || nodeSignIn?.busy == true
-    LaunchedEffect(binding, refreshVersion, profileSync, nodeSignIn?.result) {
+    val busy = loading || publishing
+    LaunchedEffect(binding, refreshVersion) {
         val target = binding ?: return@LaunchedEffect
-        if (!valid || busy) return@LaunchedEffect
+        if (!valid) return@LaunchedEffect
         refreshing = true; overviewError = null
         try { records = app.nodeClient.overview(target) }
         catch (cancelled: CancellationException) { throw cancelled }
@@ -94,124 +93,124 @@ internal fun NodeSettingsView(app: MBApplication, profileSync: NodeProfileSyncSt
         }
     }
     Scaffold(containerColor = surface, topBar = {
-        MBTopAppBar(title = { Text(mb("山海服务", "Shanhai Service")) }, actions = {
+        MBTopAppBar(title = {}, actions = {
             TextButton(onClick = close) { Text(mb("完成", "Done")) }
         })
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).imePadding().padding(bottom = 24.dp)) {
-            if (binding != null) MBGroupedSection(mb("当前节点", "Current Node")) {
+            if (binding != null) MBGroupedSection() {
                 MBFormRow(if (valid) mb("已接入", "Connected") else mb("授权已过期", "Authorization expired"), detail = binding?.origin?.host)
                 MBFormDivider()
                 MBFormRow(mb("解除此设备绑定", "Disconnect This Device"), enabled = !busy, color = MaterialTheme.colorScheme.error,
-                    onClick = { confirmingUnlink = true })
+                    onClick = { app.settings.setNodeBinding(null); password = ""; error = null; feedback = "unlinked" })
             }
-            if (valid) MBGroupedSection(mb("云端存储", "Cloud Storage")) {
-                records?.let { inventory ->
-                    fun stored(platform: String, key: String) = inventory.any { it.kind == "data" && it.platform == platform && it.key == key }
-                    MBFormRow(mb("插件偏好", "Plugin Preferences"), detail = cloudStored(stored("app", "plugins")))
+            if (valid) {
+                fun stateOf(id: String, key: String): Boolean? = records?.any { it.platform == id && it.key == key && it.kind == "data" }
+                MBGroupedSection(mb("应用偏好", "App preferences")) {
+                    MBFormRow(mb("插件偏好", "Plugin preferences"), detail = cloudStored(stateOf("app", "plugins")))
                     MBFormDivider()
-                    MBFormRow(mb("发现栏目偏好", "Discovery Preferences"), detail = cloudStored(stored("app", "discovery")))
-                    inventory.filter { it.kind == "sessions" && it.platform != sourceId }.forEach { record ->
+                    MBFormRow(mb("发现栏目偏好", "Discovery preferences"), detail = cloudStored(stateOf("app", "discovery")))
+                    MBFormDivider()
+                    records.orEmpty().filter { it.platform == "app" && it.kind == "data" && it.key !in setOf("plugins", "discovery") }.forEach {
+                        MBFormRow(it.key.orEmpty(), detail = cloudStored(true))
                         MBFormDivider()
-                        MBFormRow(record.platform, detail = mb("登录会话 ${record.count} 份", "${record.count} sign-in sessions"))
                     }
-                    inventory.filter { it.key == "profile" && it.platform != sourceId }.forEach { record ->
+                    MBFormRow(if (refreshing) mb("正在查询…", "Checking…") else mb("刷新", "Refresh"),
+                        enabled = !refreshing && !busy, onClick = { refreshVersion++ })
+                    overviewError?.let { MBFormRow(profileFailure(it)) }
+                }
+                val ids = (sourceNames.keys + records.orEmpty().map { it.platform }.filter { it != "app" })
+                    .sortedWith(compareBy({ sourceNames[it] ?: it }, { it }))
+                MBGroupedSection {
+                    ids.forEach { id -> key(id) {
+                        val count = records?.filter { it.platform == id }?.sumOf { it.count }
+                        MBFormRow(sourceNames[id] ?: id, detail = count?.let { mb("已存 $it 项", "$it stored") },
+                            disclosure = true, enabled = !busy,
+                            onClick = { expanded = if (expanded == id) null else id })
+                        if (expanded == id) {
+                            val source = app.musicSource(id) as? PluginSource
+                            val targetBinding = binding
+                            var supported by remember(source) { mutableStateOf(false) }
+                            var result by remember(source) { mutableStateOf<String?>(null) }
+                            var failure by remember(source) { mutableStateOf<NodeFailure?>(null) }
+                            LaunchedEffect(source) {
+                                try { supported = source?.supportsAccount() == true }
+                                catch (cancelled: CancellationException) { throw cancelled }
+                                catch (_: Exception) { failure = NodeFailure.Rejected }
+                            }
+                            val success = mb("资料已同步", "Profile synced")
+                            val signedOut = mb("请先在本机登录", "Sign in on this device first")
+                            MBFormRow(mb("账号资料", "Account profile"), detail = cloudStored(stateOf(id, "profile")), trailing = {
+                                if (supported && source != null && targetBinding != null) TextButton(enabled = !busy, onClick = {
+                                    if (publishing) return@TextButton
+                                    publishing = true; failure = null; result = null
+                                    scope.launch {
+                                        try {
+                                            val target = NodeProfileTarget.verified(targetBinding, id, source.account())
+                                            val revision = source.mediaRevision
+                                            fun current() = app.settings.nodeBinding.value == targetBinding && app.musicSource(id) === source && source.mediaRevision == revision
+                                            if (target == null) { result = signedOut }
+                                            else if (current()) {
+                                                val profile = app.nodeClient.syncProfile(targetBinding, id, target.profile, true, ::current)
+                                                ensureActive()
+                                                if (current()) { app.settings.cacheNodeProfile(targetBinding, id, profile); result = success; refreshVersion++ }
+                                            }
+                                        } catch (cancelled: CancellationException) { throw cancelled }
+                                        catch (e: NodeException) { failure = e.failure }
+                                        catch (_: Exception) { failure = NodeFailure.Rejected }
+                                        finally { publishing = false }
+                                    }
+                                }) { Text(if (publishing) mb("同步中", "Syncing") else mb("同步资料", "Sync profile")) }
+                            })
+                            val count = records?.firstOrNull { it.kind == "sessions" && it.platform == id }?.count ?: 0
+                            MBFormRow(mb("登录会话", "Sign-in sessions"), detail = if (count > 0) mb("$count 份", "$count stored") else cloudStored(records?.let { false }))
+                            records.orEmpty().filter { it.platform == id && it.kind == "data" && it.key != "profile" }.forEach {
+                                MBFormRow(it.key.orEmpty(), detail = cloudStored(true))
+                            }
+                            result?.let { MBFormRow(it) }
+                            failure?.let { MBFormRow(profileFailure(it)) }
+                        }
                         MBFormDivider()
-                        MBFormRow(record.platform, detail = mb("已存账号资料", "Account profile stored"))
-                    }
-                    MBFormDivider()
-                }
-                overviewError?.let { MBFormRow(if (it == NodeFailure.Unsupported) mb("节点需更新后才能显示存储清单", "Update the node to see stored records") else profileFailure(it)) }
-                MBFormRow(if (refreshing) mb("正在查询云端记录…", "Checking cloud records…") else mb("刷新云端状态", "Refresh Cloud Status"),
-                    enabled = !refreshing && !busy, onClick = { refreshVersion++ })
-            }
-            if (valid && sourceId != null && sourceName != null) MBGroupedSection(mb("当前音源：$sourceName", "Current Source: $sourceName")) {
-                MBFormRow(mb("本机登录", "Local Sign-in"), detail = localName ?:
-                    if (signInChecked) mb("未登录", "Signed out") else mb("尚未确认", "Not checked"))
-                records?.let { inventory ->
-                    MBFormDivider()
-                    MBFormRow(mb("账号资料（仅 ID 和昵称）", "Account Profile (ID and Name)"),
-                        detail = cloudStored(inventory.any { it.platform == sourceId && it.key == "profile" }))
-                    MBFormDivider()
-                    val count = inventory.firstOrNull { it.platform == sourceId && it.kind == "sessions" }?.count ?: 0
-                    MBFormRow(mb("云端登录", "Cloud Sign-in"), detail = if (count == 0) cloudStored(false) else mb("$count 份 · 有效性未验证", "$count · validity not verified"))
-                }
-                MBFormDivider()
-                if (canSyncSignIn) MBFormRow(if (localName != null) mb("同步登录到云端", "Sync Sign-in to Cloud") else mb("从云端恢复登录", "Restore Sign-in from Cloud"),
-                    enabled = !busy && signInChecked, onClick = { syncSignIn(localName != null) })
-                else MBFormRow(mb("当前插件不能同步登录", "Sign-in sync unavailable"))
-                MBFormDivider()
-                MBFormRow(mb("只同步账号资料", "Sync Account Profile Only"), enabled = !busy && canPublish, onClick = publish)
-                nodeSignIn?.let { MBFormRow(nodeSignInFeedback(it)) }
-            }
-            MBGroupedSection(mb("接入节点", "Connect to Node"),
-                mb("只接入可信节点；节点管理员能够解密同步数据。", "Use a trusted node; its administrator can decrypt synced data.")) {
-                NodeInput(mb("节点地址", "Address"), mb("域名或 HTTPS 地址", "Domain or HTTPS address"), address,
-                    { address = it; invalidAddress = false; error = null }, busy, keyboard = KeyboardType.Uri) {
-                    if (address.isNotEmpty()) IconButton(onClick = { address = ""; invalidAddress = false }, enabled = !busy) {
-                        Icon(Icons.Default.Close, mb("清空节点地址", "Clear address"), Modifier.size(20.dp))
-                    }
-                }
-                if (invalidAddress) Text(mb("请输入不带路径的 HTTPS 节点地址。", "Enter an HTTPS node address without a path."),
-                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error)
-                MBFormDivider()
-                NodeInput(mb("节点密码", "Password"), mb("请输入密码", "Enter password"), password,
-                    { password = it; error = null }, busy, if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(), KeyboardType.Password) {
-                    TextButton(onClick = { passwordVisible = !passwordVisible }, enabled = !busy) {
-                        Text(if (passwordVisible) mb("隐藏", "Hide") else mb("显示", "Show"))
-                    }
+                    } }
                 }
             }
-            MBTextButton(onClick = connect, enabled = !busy && address.isNotBlank() && password.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp)) {
-                if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                Text(if (loading) mb("正在接入…", "Connecting…") else if (binding != null) mb("重新接入", "Reconnect") else mb("接入节点", "Connect to Node"))
+            if (!valid) {
+                MBGroupedSection {
+                    NodeInput(mb("节点地址", "Address"), mb("域名或 HTTPS 地址", "Domain or HTTPS address"), address,
+                        { address = it; invalidAddress = false; error = null }, busy, keyboard = KeyboardType.Uri) {
+                        if (address.isNotEmpty()) IconButton(onClick = { address = ""; invalidAddress = false }, enabled = !busy) {
+                            Icon(Icons.Default.Close, mb("清空节点地址", "Clear address"), Modifier.size(20.dp))
+                        }
+                    }
+                    if (invalidAddress) Text(mb("请输入不带路径的 HTTPS 节点地址。", "Enter an HTTPS node address without a path."),
+                        Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error)
+                    MBFormDivider()
+                    NodeInput(mb("节点密码", "Password"), mb("请输入密码", "Enter password"), password,
+                        { password = it; error = null }, busy, if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(), KeyboardType.Password) {
+                        TextButton(onClick = { passwordVisible = !passwordVisible }, enabled = !busy) {
+                            Text(if (passwordVisible) mb("隐藏", "Hide") else mb("显示", "Show"))
+                        }
+                    }
+                }
+                MBTextButton(onClick = connect, enabled = !busy && address.isNotBlank() && password.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp)) {
+                    if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text(if (loading) mb("正在接入…", "Connecting…") else if (binding != null) mb("重新接入", "Reconnect") else mb("接入节点", "Connect to Node"))
+                }
             }
             error?.let { Text(nodeJoinFailure(it), Modifier.padding(horizontal = 32.dp), color = MaterialTheme.colorScheme.error) }
-            feedback?.let { Text(if (it == "connected") mb("已接入节点，本机可以同步。", "Node connected. This device can sync.")
-                else mb("已解除绑定，现有登录和云端记录未变更。", "Device disconnected. Existing sign-ins and cloud records were not changed."),
+            feedback?.let { Text(if (it == "connected") mb("已接入节点", "Connected")
+                else mb("已解除绑定", "Disconnected"),
                 Modifier.padding(horizontal = 32.dp, vertical = 8.dp)) }
-            val result = when (profileSync) {
-                NodeProfileSyncState.Idle -> null
-                NodeProfileSyncState.Publishing -> mb("正在同步…", "Syncing…")
-                NodeProfileSyncState.Published -> mb("账号资料已同步，未上传登录会话。", "Account profile synced. No sign-in session was sent.")
-                is NodeProfileSyncState.Failed -> profileFailure(profileSync.failure)
-            }
-            if (binding != null && result != null) Text(result, Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
-                color = if (profileSync is NodeProfileSyncState.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-    if (confirmingUnlink) AlertDialog(onDismissRequest = { confirmingUnlink = false },
-        title = { Text(mb("解除此设备绑定？", "Disconnect this device?")) },
-        text = { Text(mb("不会删除本机登录或云端记录。", "Local sign-ins and cloud records will not be deleted.")) },
-        confirmButton = { TextButton(onClick = {
-            app.settings.setNodeBinding(null); confirmingUnlink = false; password = ""; error = null; feedback = "unlinked"
-        }) { Text(mb("确认解绑", "Disconnect")) } },
-        dismissButton = { TextButton(onClick = { confirmingUnlink = false }) { Text(mb("取消", "Cancel")) } })
 }
 
 @Composable
-private fun cloudStored(stored: Boolean): String = if (stored) mb("已存云端", "Stored in Cloud") else mb("未存云端", "Not Stored")
-
-@Composable
-private fun nodeSignInFeedback(state: NodeSignInState): String = when (state.result) {
-    NodeSignInResult.Uploading -> mb("正在同步登录会话…", "Syncing sign-in session…")
-    NodeSignInResult.Restoring -> mb("正在查找并验证云端登录…", "Finding and verifying cloud sign-in…")
-    NodeSignInResult.Uploaded -> mb("登录会话已存到节点。", "Sign-in session stored on the node.")
-    NodeSignInResult.Restored -> mb("已从云端恢复登录。", "Signed in from the cloud.")
-    NodeSignInResult.Missing -> mb("云端没有可恢复的登录会话。", "No cloud sign-in session is available.")
-    NodeSignInResult.Multiple -> mb("云端有多个账号，没自动选择。请在本机登录要用的账号。", "Multiple cloud accounts. Sign in on this device to choose one.")
-    NodeSignInResult.Blocked -> mb("本机已主动退出，请先在本机登录。", "You signed out here. Sign in on this device first.")
-    NodeSignInResult.Unverified -> mb("平台未确认此会话，请在本机重新登录。", "The service did not verify the session. Sign in again here.")
-    NodeSignInResult.Failed -> when (state.failure) {
-        NodeFailure.Deleted -> mb("云端会话已删除，没有重新创建。", "The deleted cloud session was not recreated.")
-        NodeFailure.Conflict -> mb("云端会话已变化，请刷新再试。", "The cloud session changed. Refresh and try again.")
-        NodeFailure.Unsupported -> mb("节点尚不支持登录同步，请升级节点。", "Update the node to use sign-in sync.")
-        NodeFailure.UntrustedPlugin -> mb("请先安装与该节点签名目录一致的插件版本，再同步登录。", "Install the plugin version verified by this node before syncing sign-ins.")
-        NodeFailure.Unauthorized -> profileFailure(NodeFailure.Unauthorized)
-        NodeFailure.Retryable -> profileFailure(NodeFailure.Retryable)
-        else -> mb("登录同步失败，本机账号未切换。", "Sign-in sync failed. The local account was not switched.")
-    }
+private fun cloudStored(stored: Boolean?): String = when (stored) {
+    true -> mb("已存云端", "Stored in cloud")
+    false -> mb("未存云端", "Not stored")
+    null -> mb("未查询", "Not checked")
 }
 
 @Composable

@@ -110,6 +110,7 @@ internal class PluginSource(
 
     override suspend fun supportsVideo(): Boolean = runtime.supports("video")
 
+    suspend fun supportsAccount() = runtime.supports("account")
     override suspend fun supportsSignIn(): Boolean = runtime.supports("signIn")
     override suspend fun supportsSignOut(): Boolean = runtime.supports("signOut")
 
@@ -139,7 +140,7 @@ internal class PluginSource(
     }
 
     override suspend fun account(): SourceAccount? {
-        if (!runtime.supports("account")) return null
+        if (!supportsAccount()) return null
         val revision = synchronized(accountCacheLock) { accountGeneration }
         val found = account(runtime.invoke("account"))
         synchronized(accountCacheLock) {
