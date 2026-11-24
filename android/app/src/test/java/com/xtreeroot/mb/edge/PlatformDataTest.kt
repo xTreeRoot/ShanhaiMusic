@@ -28,6 +28,22 @@ class PlatformDataTest {
     private val origin = nodeOrigin("fixture.example")
     private val binding = NodeBinding(origin, "test-device", space, "dGVzdC10b2tlbg", Long.MAX_VALUE, recovery, recovery)
 
+    @Test fun restoresPortablePreferencesFromAnotherDevice() {
+        val codec = PlatformDataCodec(recovery, space)
+        val address = PlatformDataKey("device-settings", "abcd01")
+        val payload = JSONObject("""{"value":{"version":1,"app":{"quality":"lossless","smoke":"true","language":"invalid","selectedSourceId":"other"},"plugins":{"demo":{"mode":"auto"}},"accounts":{"demo":"Listener"}}}""")
+        val envelope = codec.seal(address, 1, payload)
+        val doc = DeviceSettings.decode(codec.open(address, 1, envelope))
+        val local = com.xtreeroot.mb.preferences.AppPreferences(selectedSourceId = "current")
+        val (restored, count) = local.restoreSettings(doc.app)
+        assertEquals(2, count)
+        assertEquals(local.copy(quality = com.xtreeroot.mb.music.AudioQuality.Lossless, smoke = true), restored)
+        assertEquals(doc, DeviceSettings.decode(doc.encode()))
+        assertThrows(AEADBadTagException::class.java) {
+            codec.open(PlatformDataKey("device-settings", "abcd02"), 1, envelope)
+        }
+    }
+
     @Test fun opensTheDesktopSessionVectorAndRejectsWrongPlugin() {
         val ref = "rQgGydt1-xJIAjpM4GXEO4Q0GyBkb4Sro0a5saijxaY"
         val wire = PlatformEnvelope(1, "AAECAwQFBgcICQoL",

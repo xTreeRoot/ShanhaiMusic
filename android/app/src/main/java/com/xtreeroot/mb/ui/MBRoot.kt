@@ -389,7 +389,10 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         } else if (showPlugins) {
             PluginsView(plugins, pluginState, removed = player::removeSource) { showPlugins = false }
         } else if (showService) {
-            NodeSettingsView(app, pluginState.installed.associate { it.id to it.displayName }, surface) { showService = false }
+            NodeSettingsView(app, pluginState.installed.associate { it.id to it.displayName }, surface,
+                    sourceId?.let { id -> visibleAccount.verifiedFor(accountSource)?.let { mapOf(id to it.name) } }.orEmpty(), openAccount = { id ->
+                        settings.update { it.copy(selectedSourceId = id) }; routes = arrayListOf(); tab = Tab.Account; showService = false
+                    }) { showService = false }
         } else if (showSettings) {
             run {
                 SettingsView(preferences, settings::update, saved, browser, backgroundState, background, surface,

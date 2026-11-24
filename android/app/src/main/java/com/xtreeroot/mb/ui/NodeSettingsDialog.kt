@@ -41,7 +41,7 @@ import kotlinx.coroutines.launch
 /** 复用应用分组组件，实现标签、输入左右排列的节点接入表单。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun NodeSettingsView(app: MBApplication, sourceNames: Map<String, String>, surface: Color, close: () -> Unit) {
+internal fun NodeSettingsView(app: MBApplication, sourceNames: Map<String, String>, surface: Color, accounts: Map<String, String> = emptyMap(), openAccount: (String) -> Unit = {}, close: () -> Unit) {
     val binding by app.settings.nodeBinding.collectAsStateWithLifecycle()
     val valid = binding?.let { it.expiresAt > System.currentTimeMillis() / 1_000 } == true
     var address by remember { mutableStateOf(binding?.origin?.toString().orEmpty()) }
@@ -105,6 +105,7 @@ internal fun NodeSettingsView(app: MBApplication, sourceNames: Map<String, Strin
                     onClick = { app.settings.setNodeBinding(null); password = ""; error = null; feedback = "unlinked" })
             }
             if (valid) {
+                binding?.let { node -> key(node) { DeviceSettingsSection(app, node, sourceNames, accounts, openAccount) } }
                 fun stateOf(id: String, key: String): Boolean? = records?.any { it.platform == id && it.key == key && it.kind == "data" }
                 MBGroupedSection(mb("应用偏好", "App preferences")) {
                     MBFormRow(mb("插件偏好", "Plugin preferences"), detail = cloudStored(stateOf("app", "plugins")))
@@ -238,7 +239,7 @@ private fun nodeJoinFailure(failure: NodeFailure): String = when (failure) {
 }
 
 @Composable
-private fun profileFailure(failure: NodeFailure): String = when (failure) {
+internal fun profileFailure(failure: NodeFailure): String = when (failure) {
     NodeFailure.OtherAccount -> mb("云端资料属于另一个账号，未覆盖", "The profile belongs to another account; nothing was overwritten")
     NodeFailure.Deleted -> mb("云端资料已删除，未重新创建", "The profile was deleted; it was not recreated")
     NodeFailure.Conflict -> mb("云端资料已变更，未覆盖", "The profile changed; nothing was overwritten")

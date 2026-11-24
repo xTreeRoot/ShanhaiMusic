@@ -85,6 +85,18 @@ internal class NodeClient(http: OkHttpClient) {
     suspend fun delete(binding: NodeBinding, key: PlatformDataKey, tag: String): String =
         change(request(binding, key).header("If-Match", verifiedTag(tag)).delete(), 204)
 
+    suspend fun settingsDevices(binding: NodeBinding): List<SettingsDevice> =
+        exchange(request(binding, "v1/sync/devices").build()) { response ->
+            if (response.code != 200) throw response.failure()
+            parseResponse {
+                val rows = response.json().getJSONArray("devices")
+                (0 until rows.length()).map { index ->
+                    val row = rows.getJSONObject(index)
+                    SettingsDevice(row.getString("key"), row.getString("name"), row.getLong("updated_at"),row.getBoolean("current"))
+                }
+            }
+        }
+
     suspend fun overview(binding: NodeBinding): List<CloudRecord> = exchange(request(binding, "v1/sync/overview").build()) { response ->
         if (response.code != 200) throw response.failure()
         parseResponse {
