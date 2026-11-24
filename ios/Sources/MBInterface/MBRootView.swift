@@ -67,6 +67,11 @@ public struct MBRootView: View {
         let preview = demo ? DemoLibrary() : nil
         let router = SourceRouter()
         #if DEBUG
+        if let preview, ProcessInfo.processInfo.arguments.contains("--demo-device-settings") {
+            let store = AppPersistence(directory: preview.pluginDirectory.deletingLastPathComponent())
+            _platformData = State(initialValue: PlatformDataModel(previewPersistence: store))
+            _preferences = State(initialValue: PreferencesModel(store: store, media: preview.media))
+        }
         let demoTrackProblems = demo && ProcessInfo.processInfo.arguments.contains("--plugin-track-problems")
         #else
         let demoTrackProblems = false
@@ -172,7 +177,9 @@ public struct MBRootView: View {
             .preferredColorScheme(preferences.values.appearance == .system ? nil : preferences.values.appearance == .dark ? .dark : .light)
             .playerPresentation(isPresented: $showingPlayer) { NowPlayingView(playback: playback, demo: demo, interactionSource: currentInteractions, librarySource: currentLibrarySource, pluginSource: currentPluginSource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: video.isAudioOnly ? nil : { video.watchCurrent() }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
             .sheet(isPresented: $showingQueue) { QueueView(playback: playback) }
-            .sheet(isPresented: $showingService) { ShanhaiServiceView(model: platformData, names: sourceDisplayNames, providers: discoveryProviders).id(plugins.revision) }
+            .sheet(isPresented: $showingService) { ShanhaiServiceView(model: platformData, preferences: preferences, plugins: plugins, accounts: verifiedProfileAccount.map { [selectedSourceID: $0.name] } ?? [:], names: sourceDisplayNames, providers: discoveryProviders) { id in
+                showingService = false; switchSource(id); selectedTab = .account
+            }.id(plugins.revision) }
             .sheet(isPresented: $showingAppSettings) { SettingsView(preferences: preferences, network: networkSettings, plugins: plugins, skin: skin) }
             .sheet(item: $resourceDetail) { track in
                 NavigationStack { ResourceDetailView(track: track, library: localLibrary)
@@ -197,7 +204,12 @@ public struct MBRootView: View {
     private var initializedTabs: some View {
         tabs
             .task { await skin.restore() }
-            .task { if !demo { await platformData.restore() } }
+            .task {
+                if !demo { await platformData.restore() }
+                #if DEBUG
+                if demo, ProcessInfo.processInfo.arguments.contains("--demo-device-settings") { await preferences.restore() }
+                #endif
+            }
             .environment(\.discoveryPreferencesModel, plugins)
             .task(id: "discovery:\(plugins.discoveryRevision):\(platformData.revision):\(scenePhase)") {
                 if !demo, scenePhase == .active {

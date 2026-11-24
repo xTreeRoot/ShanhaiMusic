@@ -61,6 +61,33 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertTrue(app.buttons["音质, 无损"].waitForExistence(timeout: 5) || app.staticTexts["无损"].exists)
     }
 
+    @MainActor func testRestoreOtherDeviceSettings() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-device-settings", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        selectTab("我的", app: app)
+        let service = app.buttons["open-shanhai-service"]
+        if !service.isHittable { app.swipeUp() }
+        service.tap()
+        let device = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "书房 Mac")).firstMatch
+        XCTAssertTrue(device.waitForExistence(timeout: 8)); device.tap()
+        let details = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "App 设置")).firstMatch
+        XCTAssertTrue(details.waitForExistence(timeout: 5)); details.tap()
+        XCTAssertTrue(app.staticTexts["无损"].exists || app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "无损")).firstMatch.exists)
+        capture("设备备份明细", app: app)
+        details.tap()
+        let restore = app.buttons["恢复这些设置"]
+        if !restore.isHittable { app.swipeUp() }
+        restore.tap()
+        XCTAssertTrue(app.staticTexts["已恢复 2 项 · 跳过 1 项"].waitForExistence(timeout: 5))
+        capture("设备设置恢复结果", app: app)
+        app.buttons["完成"].tap()
+        app.navigationBars.buttons["open-settings"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["音质, 无损"].waitForExistence(timeout: 5) || app.staticTexts["无损"].exists)
+    }
+
     @MainActor func testNodeFormClearsAddressAndRejectsHTTPWithoutChangingBinding() {
         continueAfterFailure = false
         let app = XCUIApplication()

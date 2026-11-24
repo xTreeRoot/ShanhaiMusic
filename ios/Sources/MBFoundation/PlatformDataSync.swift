@@ -212,7 +212,7 @@ struct PlatformDataClient: Sendable {
     public private(set) var revision = 0
     public var linked: Bool { node != nil }
     public var authorized: Bool { node?.active == true }
-    @ObservationIgnored let client = PlatformDataClient()
+    @ObservationIgnored let client: PlatformDataClient
     @ObservationIgnored let persistence: AppPersistence
     @ObservationIgnored private var profileTask: Task<Void, Never>?
     private(set) var node: PlatformNode?
@@ -223,7 +223,33 @@ struct PlatformDataClient: Sendable {
     public private(set) var sessionBusy = false
     @ObservationIgnored private var sessionOperation: (UUID, ObjectIdentifier, Int, Int, Bool)?
 
-    public init(persistence: AppPersistence = .shared) { self.persistence = persistence }
+    public init(persistence: AppPersistence = .shared) { self.persistence = persistence; self.client = PlatformDataClient() }
+
+    #if DEBUG
+    public init(previewPersistence: AppPersistence) {
+        persistence = previewPersistence
+        let origin = URL(string: "https://node.example.test")!
+        let recovery = PlatformDataCodec.encode(Data(repeating: 1, count: 32))
+        let device = PlatformDataCodec.encode(Data(repeating: 2, count: 16))
+        let space = "preview"
+        node = PlatformNode(origin: origin, grant: .init(device: device, space: space, token: recovery, recovery: recovery, key: recovery, expires: .max))
+        address = origin.absoluteString
+        client = PlatformDataClient { request, _ in
+            guard let url = request.url, url.host == origin.host, request.httpMethod == "GET" else { throw PlatformDataFailure.invalid }
+            let body: Data
+            switch url.path {
+            case "/v1/sync/devices":
+                body = Data(#"{"devices":[{"key":"abcd01","name":"书房 Mac","platform":"desktop","current":false,"updated_at":1795518000}]}"#.utf8)
+            case "/v1/sync/overview": body = Data(#"{"records":[]}"#.utf8)
+            case "/v1/data/device-settings/abcd01":
+                let payload = Data(#"{"value":{"version":1,"app":{"quality":"lossless","smoke":"true"},"plugins":{"missing":{"mode":"auto"}},"accounts":{"missing":"试听账号"}}}"#.utf8)
+                body = try JSONEncoder().encode(PlatformDataCodec.seal(payload, recovery: recovery, space: space, platform: "device-settings", key: "abcd01"))
+            default: throw PlatformDataFailure.invalid
+            }
+            return (body, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["ETag": "\""+device+"\""])!)
+        }
+    }
+    #endif
 
     public func restore() async {
         let generation = revision

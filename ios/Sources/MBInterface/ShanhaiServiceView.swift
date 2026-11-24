@@ -4,8 +4,12 @@ import SwiftUI
 /// 接入节点采用列表式表单，标签与输入左右排列，并复用根视图的同步模型。
 struct ShanhaiServiceView: View {
     @Bindable var model: PlatformDataModel
+    let preferences: PreferencesModel
+    let plugins: PluginModel
+    let accounts: [String: String]
     let names: [String: String]
     let providers: [String: any MusicSource]
+    let openAccount: (String) -> Void
     @State private var expanded: String?
     @Environment(\.dismiss) private var dismiss
     @State private var passwordVisible = false
@@ -22,6 +26,7 @@ struct ShanhaiServiceView: View {
                         Button("解除此设备绑定", role: .destructive) { Task { await model.unlink(); expanded = nil } }.disabled(model.busy || model.sessionBusy)
                     }
                     if model.authorized {
+                        NodeDeviceSettingsView(model: model, preferences: preferences, plugins: plugins, names: names, accounts: accounts, openAccount: openAccount).id(model.revision)
                         cloudOverview
                         sourceRows
                     }
