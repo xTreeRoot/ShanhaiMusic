@@ -102,7 +102,7 @@ func (a *app) loadAccount(lib *library) {
 				// What it listed as it started was already this listener's, and
 				// loading it again could only move it. But hearts asked about
 				// before they were known are dropped as someone else's.
-				lib.liked = nil
+				lib.liked, lib.likedPending = nil, nil
 			case (was == nil) != (acc == nil):
 				a.afterAccount(lib)
 			}

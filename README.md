@@ -6,15 +6,16 @@
 
 [山海官网](https://shanhai.treeroot.top/) · [下载发布版本](https://github.com/xTreeRoot/ShanhaiMusic/releases) · [山海插件库](https://shanhai.treeroot.top/zh/plugins/) · [插件开发](plugins/README.md) · [桌面打包](RELEASING.md)
 
-## 三端源码
+## 源码分支
 
-三端统一在 `main` 维护，不再创建独立的平台开发分支。
+`main` 维护桌面客户端和共享官网。移动端与自托管服务端分别在独立分支和工作树开发、验证和发布。
 
 | 平台 | 源码与构建说明 | 技术 |
 | --- | --- | --- |
-| 桌面 | 仓库根目录、[打包说明](RELEASING.md) | Go + MyGo |
-| iPhone / iPad | [ios/](ios/README.md) | SwiftUI，iOS / iPadOS 17+ |
-| Android | [android/](android/README.md) | Kotlin + Jetpack Compose，Android 8.0+ |
+| 桌面 | `main` 分支、[打包说明](RELEASING.md) | Go + MyGo |
+| iPhone / iPad | `ios` 分支、[构建说明](https://github.com/xTreeRoot/ShanhaiMusic/blob/ios/ios/README.md) | SwiftUI，iOS / iPadOS 17+ |
+| Android | `android` 分支、[构建说明](https://github.com/xTreeRoot/ShanhaiMusic/blob/android/android/README.md) | Kotlin + Jetpack Compose，Android 8.0+ |
+| 自托管节点 | `server` 分支、[构建说明](https://github.com/xTreeRoot/ShanhaiMusic/blob/server/server/README.md) | Go + SQLite |
 
 各端功能与真机验证进度以对应目录的说明和验收记录为准。
 
@@ -39,7 +40,7 @@
 
 登录状态使用已有插件数据目录保存。退出登录停用会话；重新登录时先验证可复用的数据。账号、Cookie 与签名密钥不进入 Git 仓库。
 
-macOS 开启「状态栏歌词」时，歌词和播放控制显示在同一个菜单栏项目。点右端山海图标打开主窗口，右键打开设置等菜单；关闭歌词后恢复普通菜单栏图标。
+macOS 开启「状态栏歌词」时，歌词和播放控制显示在同一个菜单栏项目。红心只对当前歌曲的来源插件点赞，不修改本地收藏。设置里的「状态栏视频」可开关歌词左侧的静音视频预览。右键可打开主窗口或设置；关闭歌词后恢复普通菜单栏图标。
 
 ## 桌面开发与验证
 
@@ -55,12 +56,14 @@ go tool mygo vet .
 macOS 本地打包：
 
 ```sh
-go tool mygo build -sign - -skip-notarize
+npm run build -- -sign - -skip-notarize
 ```
 
-产物位于 `build/darwin-arm64/山海.app`。默认使用本地临时签名；正式公证需配置维护者自己的 Apple 签名与公证凭据。
+运行 `python3 scripts/artifacts.py latest desktop` 定位本次成功目录，应用在其中的 `output/darwin-arm64/山海.app`。默认使用本地临时签名；正式公证需配置维护者自己的 Apple 签名与公证凭据。保留待验收或回退版本时，先在该目录放置 `.keep`，或另行归档。
 
-移动端构建、安装、行为测试与截图说明分别见 [iOS README](ios/README.md) 和 [Android README](android/README.md)。
+`python3 scripts/artifacts.py` 默认预览磁盘占用与受管旧产物，`--apply` 才执行。三端构建入口复用缓存、清理自有临时文件；项目外缓存、已有交付归档与未解决的失败证据不删。
+
+移动端构建、安装、行为测试与截图说明见对应分支的构建说明。
 
 ### 桌面更新
 
@@ -71,7 +74,7 @@ go tool mygo build -sign - -skip-notarize
 
 ## 自托管节点
 
-支持的客户端可在设置中接入自托管节点，应用没有默认服务器。节点管理员能够解密同步会话，因此只接入信任的节点。已有协议文档位于历史 [server 分支](https://github.com/xTreeRoot/ShanhaiMusic/blob/server/server/EDGE.md)；账号资料与登录会话使用不同同步路径，真实跨端同步的验证状态见各端文档。
+支持的客户端可在设置中接入自托管节点，应用没有默认服务器。节点管理员能够解密同步会话，因此只接入信任的节点。协议见 [server 分支](https://github.com/xTreeRoot/ShanhaiMusic/blob/server/server/EDGE.md)；账号资料与登录会话使用不同同步路径，真实跨端同步的验证状态见各端文档。
 
 ## 来源与许可证
 

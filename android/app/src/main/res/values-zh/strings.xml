@@ -1,6 +1,0 @@
-<resources>
-    <string name="app_name">山海</string>
-    <string name="qr_sign_in">扫码登录</string>
-    <string name="qr_sign_in_waiting">山海正在等待扫码登录</string>
-    <string name="qr_sign_in_expired">登录等待已超出后台时限，请重新登录。</string>
-</resources>

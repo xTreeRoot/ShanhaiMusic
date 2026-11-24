@@ -78,8 +78,63 @@ func TestFollowingRowsLoadAtBottomRetryAndOpenCreator(t *testing.T) {
 	if a.route.id != "creator:26" {
 		t.Fatal(a.route)
 	}
-	if d := a.library.browses["people"]; d.next != "" || len(d.page.Sections) != 2 || d.page.Sections[1].Links[1].ImageURL != "https://example.test/26.png" {
+	if d := a.library.browses["people"]; d.next != "" || len(d.page.Sections) != 1 || len(d.page.Sections[0].Links) != 26 || d.page.Sections[0].Links[25].ImageURL != "https://example.test/26.png" {
 		t.Fatal("lost avatar or repeated continuation")
+	}
+}
+
+func TestBrowseTrackRowsContinueNumberingWithoutDuplicateHeading(t *testing.T) {
+	a := newTestApp()
+	ch := posts(a)
+	tracks := make([]music.Track, 24)
+	for index := range tracks {
+		tracks[index] = music.Track{ID: fmt.Sprint(index + 1), Source: "fake", Name: fmt.Sprintf("作品 %d", index+1)}
+	}
+	tracks[20].Name = "《无名的人》致所有顶天立地却平凡普通"
+	fake(a).browse = func(page string) (*music.Browse, error) {
+		section := music.Section{Title: "视频", Tracks: tracks[:20:20], MorePage: "works:2"}
+		switch page {
+		case "works:2":
+			section.Tracks, section.MorePage = tracks[19:], "works:3"
+		case "works:3":
+			section.Tracks, section.MorePage = tracks[19:], "works:4"
+		}
+		return &music.Browse{Title: "创作者", Sections: []music.Section{section}}, nil
+	}
+	a.loadBrowse(a.library, "works", false)
+	runPost(t, ch)
+	d := a.library.browses["works"]
+	a.loadBrowseNext(a.library, d)
+	runPost(t, ch)
+	if d.next != "works:3" || len(d.page.Sections) != 1 || len(d.page.Sections[0].Tracks) != 24 {
+		t.Fatalf("continuation did not extend the existing section: %q, %+v", d.next, d.page.Sections)
+	}
+	a.loadBrowseNext(a.library, d)
+	runPost(t, ch)
+	if d.next != "" || len(d.page.Sections[0].Tracks) != 24 {
+		t.Fatal("repeated page must not append or keep paging")
+	}
+	a.route = route{page: pageBrowse, src: "fake", id: "works"}
+	tt := ui.NewTester(a.view, 1000, 800)
+	settled(tt)
+	tt.Scroll(700, 400, 0, 100000)
+	tt.Advance(time.Second)
+	settled(tt)
+	title, hasTitle := tt.Find(tracks[20].Name)
+	number, hasNumber := tt.Find("21")
+	if !hasTitle || !hasNumber || number.Y < title.Y || number.Y+number.H > title.Y+title.H || tt.HasText("视频") {
+		t.Fatalf("expected item 21 in the same row without a new heading, got %v", tt.Texts())
+	}
+}
+
+func TestBrowseContinuationPreservesIndependentSections(t *testing.T) {
+	first := music.Track{ID: "first"}
+	second := music.Track{ID: "second"}
+	sections, added := appendBrowseSections([]music.Section{{Title: "Videos", Tracks: []music.Track{first}}, {Title: "Artists"}},
+		[]music.Section{{Title: "Highlights", Tracks: []music.Track{first}}, {Title: "Videos", Tracks: []music.Track{first, second}}})
+	if !added || len(sections) != 3 || len(sections[0].Tracks) != 2 || sections[0].Tracks[1].ID != second.ID ||
+		sections[1].Title != "Artists" || sections[2].Title != "Highlights" || len(sections[2].Tracks) != 1 {
+		t.Fatalf("continuation collapsed independent sections: %+v", sections)
 	}
 }
 

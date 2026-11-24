@@ -37,11 +37,12 @@ jobs:
             echo '::error::Configure the desktop update signing secret MYGO_UPDATER_PRIVATE_KEY first.'
             exit 1
           fi
-          go tool mygo build -platform darwin/arm64 -sign - -skip-notarize -skip-dmg
+          bash scripts/build-desktop.sh -platform darwin/arm64 -sign - -skip-notarize -skip-dmg
       - name: Archive application
         run: |
           set -euo pipefail
-          app=build/darwin-arm64/山海.app
+          output="$(python3 scripts/artifacts.py latest desktop)/output/darwin-arm64"
+          app="$output/山海.app"
           plist="$app/Contents/Info.plist"
           for key in CFBundleName CFBundleDisplayName; do
             test "$(plutil -extract "$key" raw "$plist")" = '山海'
@@ -52,9 +53,10 @@ jobs:
         if: inputs.stage_release
         run: |
           set -euo pipefail
-          manifest=build/darwin-arm64/update-darwin-arm64.json
+          output="$(python3 scripts/artifacts.py latest desktop)/output/darwin-arm64"
+          manifest="$output/update-darwin-arm64.json"
           version=$(jq -er '.version | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' "$manifest")
-          cp "$manifest" "build/darwin-arm64/mb-$version-darwin-arm64.tar.gz" build/release/
+          cp "$manifest" "$output/mb-$version-darwin-arm64.tar.gz" build/release/
       - uses: actions/upload-artifact@v6
         with:
           name: Shanhai-macos-arm64

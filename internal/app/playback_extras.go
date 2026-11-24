@@ -10,13 +10,18 @@ func (a *app) updateTrayLyric() {
 	if a.menuBar == nil || a.quitting {
 		return
 	}
+	if a.pl != nil {
+		track := a.pl.Current()
+		if lib := a.menuBarLikeLibrary(track); lib != nil && lib.can("isLiked") && !lib.signedOut() {
+			a.askLiked(lib, []string{track.ID})
+		}
+	}
 	a.syncMenuBarVideo()
 	content := a.menuBarContent()
 	width := menuBarWidth(a.settings.MenuBarLyricsWidth)
-	style := menuBarStyle{video: a.settings.MenuBarVideo, dark: a.menuBar.dark(), preview: a.trayVideo.picture}
-	a.updateMenuBarControls()
+	style := menuBarStyle{video: a.settings.MenuBarVideo, dark: a.menuBar.dark(), preview: a.trayVideo.picture, controls: a.menuBarControlState()}
 	if frame, changed := a.trayLyrics.frame(content.text, content.elapsed, width, style); changed {
-		a.menuBar.setFrame(frame, style.imageWidth(width))
+		a.menuBar.setFrame(frame, style.layout(width), style.controls)
 	}
 	tip := content.tip
 	if tip != a.trayTip {

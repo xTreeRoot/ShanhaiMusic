@@ -30,7 +30,7 @@ func menuBarImage(t *testing.T, b []byte) image.Image {
 func TestMenuBarFixedViewport(t *testing.T) {
 	var renderer menuBarRenderer
 	width := 240
-	expected := image.Rect(0, 0, (menuBarStyle{}).imageWidth(width)*menuBarScale, menuBarHeightPoints*menuBarScale)
+	expected := image.Rect(0, 0, (menuBarStyle{}).layout(width).width()*menuBarScale, menuBarHeightPoints*menuBarScale)
 	for _, text := range []string{"短句", "i.W 演出红尘一响，凡人又要再等一周！", strings.Repeat("很长的歌词Mixed i.W! ", 6), ""} {
 		b, changed := renderer.frame(text, 0, width, menuBarStyle{})
 		if !changed {

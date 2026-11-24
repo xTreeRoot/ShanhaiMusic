@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "dev": "go tool mygo dev",
-    "build": "go tool mygo build",
+    "build": "bash scripts/build-desktop.sh",
     "website:dev": "bun --filter website dev",
     "website:build": "bun --filter website build",
     "test:plugins": "go test ./internal/plugin"

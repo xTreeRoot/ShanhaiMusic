@@ -2,4 +2,6 @@
 
 package app
 
-func newMenuBarStatus(func(menuBarAction), func()) (menuBarStatus, error) { return nil, nil }
+func newMenuBarStatus(menuBarLayout, func(menuBarAction), func()) (menuBarStatus, error) {
+	return nil, nil
+}

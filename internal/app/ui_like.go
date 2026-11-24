@@ -40,41 +40,43 @@ func (a *app) askLikes() {
 
 // askLiked asks a source about tracks, which show not liked until it answers.
 func (a *app) askLiked(lib *library, ids []string) {
-	seen := make(map[string]bool, len(ids))
 	var ask []string
 	for _, id := range ids {
-		if _, known := lib.liked[id]; !known && !seen[id] {
-			seen[id] = true
-			ask = append(ask, id)
+		if _, known := lib.liked[id]; known {
+			continue
 		}
+		if lib.liked == nil {
+			lib.liked = map[string]bool{}
+		}
+		if lib.likedPending == nil {
+			lib.likedPending = map[string]bool{}
+		}
+		lib.liked[id] = false
+		lib.likedPending[id] = true
+		ask = append(ask, id)
 	}
 	if len(ask) == 0 {
 		return
 	}
-	if lib.liked == nil {
-		lib.liked = map[string]bool{}
-	}
-	// Asked: they don't come up again, whatever it answers.
-	for _, id := range ask {
-		lib.liked[id] = false
-	}
-	who := lib.listener()
+	who, gen := lib.listener(), lib.accountGen
 	go func() {
 		liked, err := lib.src.IsLiked(ask)
-		if err != nil {
-			return
-		}
 		a.post(func() {
 			// Forgotten meanwhile, as the listener signed out, it's asked anew;
 			// and it's no one else's who signed in since.
-			if lib.liked == nil || lib.listener() != who {
+			if lib.listener() != who || lib.accountGen != gen {
 				return
 			}
 			for _, id := range ask {
-				if liked[id] {
+				if !lib.likedPending[id] {
+					continue
+				}
+				delete(lib.likedPending, id)
+				if err == nil && liked[id] {
 					lib.liked[id] = true
 				}
 			}
+			a.updateTrayLyric()
 		})
 	}()
 }
@@ -103,7 +105,10 @@ func (l *library) canLike(tr *music.Track) bool {
 // and then with its source, which may refuse: the heart goes back then.
 // Signed out, it asks the listener to sign in.
 func (a *app) toggleLike(tr *music.Track) {
-	lib := a.trackLib(tr)
+	a.toggleLikeIn(a.trackLib(tr), tr)
+}
+
+func (a *app) toggleLikeIn(lib *library, tr *music.Track) {
 	if lib.signedOut() {
 		a.promptSignIn(lib)
 		return
@@ -115,21 +120,26 @@ func (a *app) toggleLike(tr *music.Track) {
 		lib.liked = map[string]bool{}
 	}
 	id, like := tr.ID, !lib.liked[tr.ID]
+	delete(lib.likedPending, id)
 	lib.liked[id] = like
-	a.updateMenuBarControls()
+	a.updateTrayLyric()
 	liked := *tr
 	send := lib.src.Like
 	if tr.ShowID != "" {
 		send = lib.src.LikeEpisode
 	}
+	who, gen := lib.listener(), lib.accountGen
 	go func() {
 		err := send(id, like)
 		a.post(func() {
+			if lib.listener() != who || lib.accountGen != gen {
+				return
+			}
 			if err != nil {
 				if lib.liked != nil {
 					lib.liked[id] = !like
 				}
-				a.updateMenuBarControls()
+				a.updateTrayLyric()
 				a.actionFailed(lib, err, T("That didn't work. Try again later."))
 				return
 			}

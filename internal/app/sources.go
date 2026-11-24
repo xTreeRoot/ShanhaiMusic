@@ -75,12 +75,13 @@ type library struct {
 	mineAt      time.Time        // when they were last asked for
 	savingPl    map[string]bool  // the playlists whose saving or its end is on its way
 
-	liked      map[string]bool // the tracks known to be liked, or not
-	wantLikes  []string        // the tracks a heart showed for, to ask about
-	likedList  []music.Track   // the liked songs' page
-	likedPaged paged
-	likedAt    time.Time // when the liked songs' first page was asked for
-	likedFresh bool      // it's being asked for anew
+	liked        map[string]bool // the tracks known to be liked, or not
+	likedPending map[string]bool
+	wantLikes    []string      // the tracks a heart showed for, to ask about
+	likedList    []music.Track // the liked songs' page
+	likedPaged   paged
+	likedAt      time.Time // when the liked songs' first page was asked for
+	likedFresh   bool      // it's being asked for anew
 
 	recent       []music.Track
 	home         *music.Browse // the source's own Home
@@ -134,7 +135,7 @@ func (l *library) forget() {
 	l.shows = map[string]*showData{}
 	l.browses = map[string]*browseData{}
 	l.searches = map[route]*searchData{}
-	l.liked = nil
+	l.liked, l.likedPending = nil, nil
 	l.likedList, l.likedPaged, l.likedAt = nil, paged{}, time.Time{}
 	l.savedAlbums, l.savedAlbumsPaged = nil, paged{}
 	l.subscribed, l.subscribedOnce = nil, false
@@ -301,7 +302,7 @@ func (a *app) sourceFailed(source string, err error) {
 func (a *app) libraryChanged(lib *library) {
 	was := *lib
 	lib.forget()
-	lib.home, lib.browses, lib.liked = was.home, was.browses, was.liked
+	lib.home, lib.browses, lib.liked, lib.likedPending = was.home, was.browses, was.liked, was.likedPending
 	if r := a.route; r.src == lib.id {
 		switch r.page {
 		case pagePlaylist:

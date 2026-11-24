@@ -205,20 +205,20 @@ func TestMenuBarNativeVideo(t *testing.T) {
 		t.Fatal("video did not reach the status bar image")
 	}
 	combined := menuBarImage(t, b)
-	if combined.Bounds().Dx() != (menuBarStyle{video: true}).imageWidth(lyricWidth)*menuBarScale {
+	if combined.Bounds().Dx() != (menuBarStyle{video: true}).layout(lyricWidth).width()*menuBarScale {
 		t.Fatal("video changed lyric viewport width")
 	}
 	colored := false
 	for y := range menuBarHeightPoints * menuBarScale {
-		for x := range menuBarVideoPoints * menuBarScale {
-			r, g, b, _ := combined.At((lyricWidth+menuBarIconGap)*menuBarScale+x, y).RGBA()
+		for x := menuBarPadding * menuBarScale; x < (menuBarPadding+menuBarVideoPoints)*menuBarScale; x++ {
+			r, g, b, _ := combined.At(x, y).RGBA()
 			if r != g || g != b {
 				colored = true
 			}
 		}
 	}
 	if !colored {
-		t.Fatal("status bar preview was converted to a monochrome icon")
+		t.Fatal("the left slot did not contain the color video preview")
 	}
 	if dir := os.Getenv("MM_FRAMES"); dir != "" {
 		saveFrame(t, dir, "menubar-video.png", combined)
@@ -241,13 +241,27 @@ func TestMenuBarNativeVideo(t *testing.T) {
 // Video loading, failures, and new frames keep the preview slot and lyric viewport fixed.
 func TestMenuBarVideoWidthAndAppearance(t *testing.T) {
 	const width = 240
-	const expected = (width + menuBarVideoPoints + menuBarIconGap) * menuBarScale
+	const left = (menuBarVideoPoints + menuBarIconGap) * menuBarScale
+	expected := (menuBarStyle{video: true}).layout(width).width() * menuBarScale
 	var renderer menuBarRenderer
 	preview := image.NewRGBA(image.Rect(0, 0, 64, 36))
 	for _, style := range []menuBarStyle{{video: true}, {video: true, preview: preview}, {video: true, dark: true, preview: preview}} {
 		b, _ := renderer.frame("short", 0, width, style)
 		if menuBarImage(t, b).Bounds().Dx() != expected {
 			t.Fatal("preview loading or appearance resized the status item")
+		}
+	}
+	withVideo, _ := renderer.frame("short", 0, width, menuBarStyle{video: true, preview: preview})
+	withoutVideo, _ := renderer.frame("short", 0, width, menuBarStyle{})
+	withImage, withoutImage := menuBarImage(t, withVideo), menuBarImage(t, withoutVideo)
+	if withImage.Bounds().Dx()-withoutImage.Bounds().Dx() != left {
+		t.Fatal("turning off the video did not remove the preview slot")
+	}
+	for y := range withoutImage.Bounds().Dy() {
+		for x := menuBarPadding * menuBarScale; x < withoutImage.Bounds().Dx(); x++ {
+			if withImage.At(x+left, y) != withoutImage.At(x, y) {
+				t.Fatal("enabling video changed the lyrics instead of shifting them to the right")
+			}
 		}
 	}
 }
@@ -277,5 +291,10 @@ func TestMenuBarVideoToggle(t *testing.T) {
 	}
 	if restored.MenuBarVideo {
 		t.Fatal("preview toggle was not persisted")
+	}
+	clickSettingRole(t, tt, ui.RoleSwitch, "Menu Bar Video")
+	tt.Frame()
+	if !a.settings.MenuBarVideo {
+		t.Fatal("video switch did not re-enable preview")
 	}
 }

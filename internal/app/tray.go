@@ -86,7 +86,8 @@ func (a *app) applyTray() {
 			a.tray = nil
 		}
 		if a.menuBar == nil {
-			status, err := newMenuBarStatus(a.runMenuBarAction, a.updateTrayLyric)
+			layout := (menuBarStyle{video: a.settings.MenuBarVideo}).layout(menuBarWidth(a.settings.MenuBarLyricsWidth))
+			status, err := newMenuBarStatus(layout, a.runMenuBarAction, a.updateTrayLyric)
 			if err != nil {
 				log.Println("menu bar:", err)
 			} else {

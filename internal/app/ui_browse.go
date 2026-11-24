@@ -1,6 +1,7 @@
 package app
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -69,11 +70,71 @@ func browseContinuation(page *music.Browse, visited map[string]bool) string {
 	section := &page.Sections[0]
 	next := section.MorePage
 	section.MorePage = ""
-	count := len(section.Tracks) + len(section.Albums) + len(section.Artists) + len(section.Playlists) + len(section.Shows) + len(section.Stations) + len(section.Links)
-	if count == 0 || visited[next] {
+	if browseSectionItemCount(*section) == 0 || visited[next] {
 		return ""
 	}
 	return next
+}
+
+func browseSectionItemCount(section music.Section) int {
+	return len(section.Tracks) + len(section.Albums) + len(section.Artists) + len(section.Playlists) + len(section.Shows) + len(section.Stations) + len(section.Links)
+}
+
+func appendBrowseItems[Item any, Key comparable](existing, next []Item, key func(Item) Key) []Item {
+	if len(next) == 0 {
+		return existing
+	}
+	seen := make(map[Key]bool, len(existing)+len(next))
+	for _, item := range existing {
+		seen[key(item)] = true
+	}
+	for _, item := range next {
+		id := key(item)
+		if !seen[id] {
+			seen[id] = true
+			existing = append(existing, item)
+		}
+	}
+	return existing
+}
+
+func appendBrowseSections(existing, next []music.Section) ([]music.Section, bool) {
+	original := len(existing)
+	added := false
+	for index, incoming := range next {
+		matches := func(section music.Section) bool {
+			return section.Title == incoming.Title && section.TrackLayout == incoming.TrackLayout
+		}
+		match := -1
+		switch {
+		case original == 1 && len(next) == 1:
+			match = 0
+		case index < original && matches(existing[index]):
+			match = index
+		default:
+			first := slices.IndexFunc(existing[:original], matches)
+			if first >= 0 && !slices.ContainsFunc(existing[first+1:original], matches) &&
+				!slices.ContainsFunc(next[:index], matches) && !slices.ContainsFunc(next[index+1:], matches) {
+				match = first
+			}
+		}
+		if match < 0 {
+			existing = append(existing, incoming)
+			added = added || browseSectionItemCount(incoming) > 0
+			continue
+		}
+		section := &existing[match]
+		before := browseSectionItemCount(*section)
+		section.Tracks = appendBrowseItems(section.Tracks, incoming.Tracks, func(track music.Track) [2]string { return [2]string{track.Source, track.ID} })
+		section.Albums = appendBrowseItems(section.Albums, incoming.Albums, func(album music.Album) string { return album.ID })
+		section.Artists = appendBrowseItems(section.Artists, incoming.Artists, func(artist music.Artist) string { return artist.ID })
+		section.Playlists = appendBrowseItems(section.Playlists, incoming.Playlists, func(playlist music.Playlist) string { return playlist.ID })
+		section.Shows = appendBrowseItems(section.Shows, incoming.Shows, func(show music.Show) string { return show.ID })
+		section.Stations = appendBrowseItems(section.Stations, incoming.Stations, func(station music.Station) string { return station.ID })
+		section.Links = appendBrowseItems(section.Links, incoming.Links, func(link music.Link) string { return link.Page })
+		added = added || browseSectionItemCount(*section) > before
+	}
+	return existing, added
 }
 
 func (a *app) loadBrowseNext(lib *library, d *browseData) {
@@ -98,7 +159,11 @@ func (a *app) loadBrowseNext(lib *library, d *browseData) {
 			}
 			d.visited[id] = true
 			d.next = browseContinuation(page, d.visited)
-			d.page.Sections = append(d.page.Sections, page.Sections...)
+			var added bool
+			d.page.Sections, added = appendBrowseSections(d.page.Sections, page.Sections)
+			if !added {
+				d.next = ""
+			}
 		})
 	}()
 }

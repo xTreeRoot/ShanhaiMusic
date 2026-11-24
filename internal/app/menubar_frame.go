@@ -7,21 +7,55 @@ import (
 	"image/draw"
 	"image/png"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 )
 
+const (
+	menuBarButtonWidth = 24
+	menuBarPadding     = 6
+	menuBarGlyphSize   = 18
+)
+
+type menuBarLayout struct{ mediaWidth int }
+
+func (layout menuBarLayout) width() int {
+	return layout.mediaWidth + int(menuBarContext)*menuBarButtonWidth + 2*menuBarPadding
+}
+
+func (layout menuBarLayout) controlBounds(action menuBarAction) image.Rectangle {
+	left := menuBarPadding + layout.mediaWidth + int(action)*menuBarButtonWidth
+	return image.Rect(left, 0, left+menuBarButtonWidth, menuBarHeightPoints)
+}
+
+var menuBarGlyphMasks = sync.OnceValue(func() [2][menuBarContext]image.Image {
+	previous := fillIcon(`<path d="M4 4h2.5v16H4zM19 4.1c.7-.4 1.5.1 1.5.9v14c0 .8-.8 1.3-1.5.9L7.4 13c-.8-.5-.8-1.5 0-2z"/>`)
+	next := fillIcon(`<path d="M20 4h-2.5v16H20zM5 4.1c-.7-.4-1.5.1-1.5.9v14c0 .8.8 1.3 1.5.9L16.6 13c.8-.5.8-1.5 0-2z"/>`)
+	const pixels = menuBarGlyphSize * menuBarScale
+	var masks [2][menuBarContext]image.Image
+	for variant, icons := range [2][menuBarContext]*ui.SVG{
+		{previous, iconPlay, next, iconHeart}, {previous, iconPause, next, iconHeartFill},
+	} {
+		for action, icon := range icons {
+			masks[variant][action] = icon.Image(pixels, pixels, nil)
+		}
+	}
+	return masks
+})
+
 type menuBarStyle struct {
 	video, dark bool
 	preview     *image.RGBA
+	controls    menuBarControls
 }
 
-func (style menuBarStyle) imageWidth(width int) int {
+func (style menuBarStyle) layout(width int) menuBarLayout {
 	if style.video {
-		return width + menuBarVideoPoints + menuBarIconGap
+		width += menuBarVideoPoints + menuBarIconGap
 	}
-	return width
+	return menuBarLayout{mediaWidth: width}
 }
 
 // menuBarRenderer caches each shaped lyric and replaces the native image only
@@ -45,22 +79,46 @@ func (m *menuBarRenderer) frame(text string, elapsed time.Duration, width int, s
 		return nil, false
 	}
 	height := menuBarHeightPoints * menuBarScale
-	canvas := image.NewRGBA(image.Rect(0, 0, style.imageWidth(width)*menuBarScale, height))
+	layout := style.layout(width)
+	canvas := image.NewRGBA(image.Rect(0, 0, layout.width()*menuBarScale, height))
 	ink := image.NewUniform(color.Black)
 	if style.dark {
 		ink = image.NewUniform(color.White)
 	}
-	if style.video && style.preview != nil {
-		draw.Draw(canvas, image.Rect((width+menuBarIconGap)*menuBarScale, 0, canvas.Bounds().Max.X, height), style.preview, image.Point{}, draw.Src)
+	lyricStart := menuBarPadding * menuBarScale
+	if style.video {
+		if style.preview != nil {
+			draw.Draw(canvas, image.Rect(lyricStart, 0, lyricStart+menuBarVideoPoints*menuBarScale, height), style.preview, image.Point{}, draw.Src)
+		}
+		lyricStart += (menuBarVideoPoints + menuBarIconGap) * menuBarScale
 	}
-	start := max(0, (viewport-m.strip.Bounds().Dx())/2)
-	target := image.Rect(start, 0, viewport, height)
+	lyricEnd := lyricStart + viewport
+	start := lyricStart + max(0, (viewport-m.strip.Bounds().Dx())/2)
+	target := image.Rect(start, 0, lyricEnd, height)
 	draw.DrawMask(canvas, target, ink, image.Point{}, m.strip, image.Pt(offset, 0), draw.Over)
 	if m.strip.Bounds().Dx() > viewport {
-		repeat := m.strip.Bounds().Dx() + menuBarScrollGap*menuBarScale - offset
-		if repeat < viewport {
-			draw.DrawMask(canvas, image.Rect(repeat, 0, viewport, height), ink, image.Point{}, m.strip, image.Point{}, draw.Over)
+		repeat := lyricStart + m.strip.Bounds().Dx() + menuBarScrollGap*menuBarScale - offset
+		if repeat < lyricEnd {
+			draw.DrawMask(canvas, image.Rect(repeat, 0, lyricEnd, height), ink, image.Point{}, m.strip, image.Point{}, draw.Over)
 		}
+	}
+	masks := menuBarGlyphMasks()
+	for action := menuBarPrevious; action < menuBarContext; action++ {
+		variant := 0
+		if action == menuBarToggle && style.controls.playing || action == menuBarLike && style.controls.liked {
+			variant = 1
+		}
+		mask := masks[variant][action]
+		bounds := layout.controlBounds(action)
+		start := image.Pt(bounds.Min.X*menuBarScale+(bounds.Dx()*menuBarScale-mask.Bounds().Dx())/2, (height-mask.Bounds().Dy())/2)
+		glyphInk := ink
+		if !style.controls.enabled(action) {
+			glyphInk = image.NewUniform(color.RGBA{A: 112})
+			if style.dark {
+				glyphInk = image.NewUniform(color.RGBA{R: 112, G: 112, B: 112, A: 112})
+			}
+		}
+		draw.DrawMask(canvas, mask.Bounds().Add(start), glyphInk, image.Point{}, mask, image.Point{}, draw.Over)
 	}
 	var encoded bytes.Buffer
 	_ = png.Encode(&encoded, canvas)

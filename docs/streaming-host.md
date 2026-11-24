@@ -40,8 +40,8 @@
 | 端 | 现有实现 | 要改的地方 |
 | --- | --- | --- |
 | **桌面 Go/MyGo** | [`stream.go`](../internal/player/stream.go) 顺序下载；[`decoded.go`](../internal/player/decoded.go) 读未到字节会等前缀；[`mv_proxy.go`](../internal/app/mv_proxy.go) 已透传 Range 和媒体头。 | 先让 `internal/player` 的远程读取能按索引抓未到区间，同时保留顺序回退与完整缓存。沿用 [`mv.go`](../internal/app/mv.go) 的原生视频引擎和代理，给代理接相同的区间校验与错误传递，在播放协调层统一重取地址和双轨就绪。状态栏复用取流能力，不参与主视频暂停。逐个验证 macOS、Windows、Linux 后端，不能把 macOS 的结果算到另外两个系统。 |
-| **iOS** | [`RemoteMediaAsset.swift`](../ios/Sources/MBFoundation/RemoteMediaAsset.swift) 已为音视频分段读取；[`PlaybackModel.swift`](../ios/Sources/MBFoundation/PlaybackModel.swift) 有音频退回整文件的路径；[`VideoModel.swift`](../ios/Sources/MBFoundation/VideoModel.swift) 已有静音视频同步。 | 在现有加载器补错误分类、分段重试、资源更新与相容的分段复用。播放和视频模型共享恢复位置、代次和缓冲状态，别只增大重试次数。现有完整音频缓存任务不能在弱网时无条件与首帧抢带宽；视频无 Range 的降级单独验收。 |
-| **Android** | [`PlaybackService.kt`](../android/app/src/main/java/com/xtreeroot/mb/playback/PlaybackService.kt) 负责音频、解析和队列恢复；[`VideoStage.kt`](../android/app/src/main/java/com/xtreeroot/mb/ui/VideoStage.kt) 使用静音 Media3 渐进视频。 | 保留原生取流；把重试、地址缓存失效和双轨等待交给播放协调层，而不是放在 Compose 重组回调里。视频表面继续只负责展示和生命周期。确认切到小窗、退后台、退回听歌时旧数据源及时释放，音频服务与前后台行为不退化。 |
+| **iOS** | [`RemoteMediaAsset.swift`](https://github.com/xTreeRoot/ShanhaiMusic/blob/ios/ios/Sources/MBFoundation/RemoteMediaAsset.swift) 已为音视频分段读取；[`PlaybackModel.swift`](https://github.com/xTreeRoot/ShanhaiMusic/blob/ios/ios/Sources/MBFoundation/PlaybackModel.swift) 有音频退回整文件的路径；[`VideoModel.swift`](https://github.com/xTreeRoot/ShanhaiMusic/blob/ios/ios/Sources/MBFoundation/VideoModel.swift) 已有静音视频同步。 | 在现有加载器补错误分类、分段重试、资源更新与相容的分段复用。播放和视频模型共享恢复位置、代次和缓冲状态，别只增大重试次数。现有完整音频缓存任务不能在弱网时无条件与首帧抢带宽；视频无 Range 的降级单独验收。 |
+| **Android** | [`PlaybackService.kt`](https://github.com/xTreeRoot/ShanhaiMusic/blob/android/android/app/src/main/java/com/xtreeroot/mb/playback/PlaybackService.kt) 负责音频、解析和队列恢复；[`VideoStage.kt`](https://github.com/xTreeRoot/ShanhaiMusic/blob/android/android/app/src/main/java/com/xtreeroot/mb/ui/VideoStage.kt) 使用静音 Media3 渐进视频。 | 保留原生取流；把重试、地址缓存失效和双轨等待交给播放协调层，而不是放在 Compose 重组回调里。视频表面继续只负责展示和生命周期。确认切到小窗、退后台、退回听歌时旧数据源及时释放，音频服务与前后台行为不退化。 |
 
 改动顺序：先跑通桌面音频跳读和 B 站主视频同步，再把同样的恢复行为接到 iOS、Android；用喜马拉雅长单集验证音频，再补齐 YouTube Music、网易云 MV、网易云普通/无损及汽水格式。保留平台策略在适配层，通用播放逻辑不判断插件 ID。
 
@@ -55,4 +55,4 @@
 | 连拖、暂停、切歌、关闭 | 最后一次拖动生效；暂停不误恢复；切歌或关窗后旧请求取消；重启恢复暂停且不自己开视频。 |
 | 真源和系统 | 五家音频、三家视频各跑实际非零位置读取和重连；B 站分轨、网易云公开 MV、YouTube 直链分别留证据。桌面各系统、iPhone/iPad、Android 各自记录结果，不拿模拟 CDN 回归当真机验收。 |
 
-桌面用现有 `httptest`、播放器和 `ui.NewTester` 回归；提交前按仓库约定运行 `npm run test:bilibili`、`CGO_ENABLED=0 go test ./...`、`go tool mygo vet .` 并构建核对桌面包。iOS 跑 Swift 行为回归和相关真机/模拟器构建测试，Android 跑对应 Gradle 回归和设备播放验证。当前已有桌面 Range 透传、Swift 视频行为回归，以及 B 站游客 `206` 和原生首帧证据；这些都不等于已验收两条轨的非零跳读和中途恢复。
+桌面用现有 `httptest`、播放器和 `ui.NewTester` 回归；提交前按仓库约定运行 `npm run test:plugins`、`CGO_ENABLED=0 go test ./...`、`go tool mygo vet .` 并构建核对桌面包。iOS 跑 Swift 行为回归和相关真机/模拟器构建测试，Android 跑对应 Gradle 回归和设备播放验证。当前已有桌面 Range 透传、Swift 视频行为回归，以及 B 站游客 `206` 和原生首帧证据；这些都不等于已验收两条轨的非零跳读和中途恢复。
