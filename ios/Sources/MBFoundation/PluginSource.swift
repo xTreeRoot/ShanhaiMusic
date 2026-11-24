@@ -130,6 +130,40 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
         cacheAccount = scope
         return found
     }
+
+    func supportsSessionSync() async throws -> Bool {
+        for method in ["exportSession", "validateSession", "commitSession"] {
+            if try await !supports(method) { return false }
+        }
+        return true
+    }
+
+    func verifyNodeSessionPlugin(client: PlatformDataClient, node: PlatformNode) async throws -> String {
+        guard let version = manifest.version else { throw NodeSessionFailure.untrustedPlugin }
+        let digest = try await runtime.nodeContentDigest()
+        try await client.verifySessionPlugin(node, id: manifest.id, version: version, digest: digest)
+        return digest
+    }
+
+    func exportNodeSession(accountID: String, digest: String) async throws -> (Int, NodeSessionPayload) {
+        let value = try await runtime.invoke("exportSession", verifiedNodeDigest: digest)
+        guard value["account_id"].string == accountID, case .number(let format) = value["format"],
+              let version = Int(exactly: format), (1...65_535).contains(version) else { throw NodeSessionFailure.unverified }
+        let payload = NodeSessionPayload(accountID: accountID, label: value["account_label"].string, session: value["session"])
+        guard payload.valid else { throw NodeSessionFailure.unverified }
+        return (version, payload)
+    }
+
+    func applyNodeSession(_ payload: NodeSessionPayload, format: Int, digest: String, stillCurrent: @MainActor @Sendable () -> Bool) async throws -> SourceAccount? {
+        let generation = accountGeneration
+        let verified = try await runtime.invoke("validateSession", arguments: payload.arguments(format: format), verifiedNodeDigest: digest)
+        guard verified["id"].string == payload.accountID else { return nil }
+        guard await stillCurrent(), generation == accountGeneration, !Task.isCancelled else { throw CancellationError() }
+        let committed = try await runtime.invoke("commitSession", arguments: payload.arguments(format: format, account: verified), verifiedNodeDigest: digest)
+        guard generation == accountGeneration, let result = try await account(committed), result.id == payload.accountID else { return nil }
+        accountGeneration += 1; cacheAccount = "user:" + result.id
+        return result
+    }
     public nonisolated var signInMethods: [SignInMethod] { manifest.signInMethods ?? [] }
     public func signIn(prompt: @escaping @Sendable (SignInPrompt) async -> Void) async throws -> SourceAccount {
         try await signIn(arguments: .object([:]), prompt: prompt)

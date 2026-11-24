@@ -47,10 +47,10 @@ enum PlatformDataCodec {
     static func encode(_ value: Data) -> String {
         value.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
     }
-    static func key(_ recovery: String, space: String) throws -> SymmetricKey {
+    static func key(_ recovery: String, space: String, purpose: String = "platform-data") throws -> SymmetricKey {
         guard identifier(space), let input = decode(recovery, size: 32) else { throw PlatformDataFailure.invalid }
         return HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: input), salt: Data("mb-sync-v1\n\(space)".utf8),
-                                      info: Data("platform-data".utf8), outputByteCount: 32)
+                                      info: Data(purpose.utf8), outputByteCount: 32)
     }
     private static func aad(_ space: String, _ platform: String, _ key: String, _ format: Int) throws -> Data {
         guard identifier(platform), identifier(key), (1...65_535).contains(format) else { throw PlatformDataFailure.invalid }
@@ -108,8 +108,8 @@ struct PlatformDataClient: Sendable {
         return url
     }
 
-    private func request(_ origin: URL, _ path: String, method: String, expected: Int, token: String? = nil,
-                         revision: String? = nil, body: Data? = nil) async throws -> (Data, HTTPURLResponse) {
+    func request(_ origin: URL, _ path: String, method: String, expected: Int, token: String? = nil,
+                         revision: String? = nil, body: Data? = nil, maximumBytes: Int = PlatformDataCodec.limit) async throws -> (Data, HTTPURLResponse) {
         guard var parts = URLComponents(url: origin, resolvingAgainstBaseURL: false) else { throw PlatformDataFailure.address }
         parts.path = path
         guard let url = parts.url else { throw PlatformDataFailure.address }
@@ -118,7 +118,7 @@ struct PlatformDataClient: Sendable {
         if let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
         if let revision { request.setValue(revision, forHTTPHeaderField: revision == "*" ? "If-None-Match" : "If-Match") }
         if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        let (data, result) = try await transport(request, PlatformDataCodec.limit)
+        let (data, result) = try await transport(request, maximumBytes)
         guard let response = result as? HTTPURLResponse else { throw PlatformDataFailure.invalid }
         guard response.statusCode == expected else {
             let kind = response.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("application/json") == true && data.count < 1024
@@ -142,7 +142,7 @@ struct PlatformDataClient: Sendable {
         guard PlatformDataCodec.identifier(platform), PlatformDataCodec.identifier(key) else { throw PlatformDataFailure.invalid }
         return "/v1/data/\(platform)/\(key)"
     }
-    private func tag(_ response: HTTPURLResponse) throws -> String {
+    func tag(_ response: HTTPURLResponse) throws -> String {
         guard let tag = response.value(forHTTPHeaderField: "ETag"), tag.first == "\"", tag.last == "\"",
               PlatformDataCodec.decode(String(tag.dropFirst().dropLast()), size: 16) != nil else { throw PlatformDataFailure.invalid }
         return tag
@@ -212,10 +212,16 @@ struct PlatformDataClient: Sendable {
     public private(set) var revision = 0
     public var linked: Bool { node != nil }
     public var authorized: Bool { node?.active == true }
-    @ObservationIgnored private let client = PlatformDataClient()
-    @ObservationIgnored private let persistence: AppPersistence
+    @ObservationIgnored let client = PlatformDataClient()
+    @ObservationIgnored let persistence: AppPersistence
     @ObservationIgnored private var profileTask: Task<Void, Never>?
-    private var node: PlatformNode?
+    private(set) var node: PlatformNode?
+    public private(set) var cloudRecords: [NodeCloudRecord]?
+    public private(set) var cloudStatus: String?
+    public private(set) var sessionStatus: String?
+    public private(set) var sessionPlatform: String?
+    public private(set) var sessionBusy = false
+    @ObservationIgnored private var sessionOperation: (UUID, ObjectIdentifier, Int, Int, Bool)?
 
     public init(persistence: AppPersistence = .shared) { self.persistence = persistence }
 
@@ -242,6 +248,8 @@ struct PlatformDataClient: Sendable {
             if let node, node.origin == origin, node.grant.key != joined.grant.key { throw PlatformDataFailure.keyChanged }
             try await persistence.savePlatformNode(joined)
             node = joined; address = origin.absoluteString; password = ""; revision += 1
+            cloudRecords = nil; cloudStatus = nil; sessionStatus = nil
+            message = "已接入节点，本机可以同步。"
         } catch { if !Task.isCancelled { message = error.localizedDescription } }
     }
 
@@ -250,11 +258,77 @@ struct PlatformDataClient: Sendable {
         busy = true; message = nil
         cancelProfileSync()
         defer { busy = false }
-        do { try await persistence.savePlatformNode(nil); node = nil; revision += 1 }
+        do {
+            try await persistence.savePlatformNode(nil); node = nil; revision += 1
+            cloudRecords = nil; cloudStatus = nil; sessionStatus = nil
+            message = "本机已解绑，现有登录和云端记录未变更。"
+        }
         catch { message = error.localizedDescription }
     }
 
     public func cancelProfileSync() { profileTask?.cancel(); profileTask = nil; syncing = false }
+
+    public func refreshCloudStatus() async {
+        guard let node, node.active, !busy else { return }
+        let generation = revision
+        cloudRecords = nil; cloudStatus = "正在查询云端记录…"
+        do {
+            let records = try await client.overview(node)
+            guard revision == generation, !Task.isCancelled else { return }
+            cloudRecords = records; cloudStatus = nil
+        } catch {
+            if revision == generation, !Task.isCancelled { cloudStatus = error.localizedDescription }
+        }
+    }
+
+    public func syncSignIn(_ account: AccountModel, platform: String, publish: Bool, manual: Bool = false) async {
+        guard let node, node.active, !busy, account.canUseCloud else { return }
+        let generation = revision
+        let accountRevision = account.revision
+        let owner = ObjectIdentifier(account)
+        let operation = UUID()
+        if let current = sessionOperation, current.1 == owner, current.2 == generation, current.3 == accountRevision && current.4 { return }
+        sessionOperation = (operation, owner, generation, accountRevision, manual)
+        let stillCurrent: @MainActor @Sendable () -> Bool = {
+            self.sessionOperation?.0 == operation && self.revision == generation && !self.busy && account.revision == accountRevision && !Task.isCancelled
+        }
+        sessionBusy = true
+        sessionPlatform = platform
+        sessionStatus = publish ? "正在同步登录会话…" : "正在查找云端登录…"
+        var restoredAccount = false
+        defer {
+            if sessionOperation?.0 == operation {
+                sessionOperation = nil; sessionBusy = false
+                if Task.isCancelled && !restoredAccount { sessionStatus = nil }
+            }
+        }
+        do {
+            if publish {
+                let digest = try await account.verifyCloudPlugin(client: client, node: node)
+                guard stillCurrent() else { return }
+                guard let exported = try await account.exportCloudSignIn(digest: digest), stillCurrent() else { return }
+                try await client.publishSession(node, platform: platform, payload: exported, stillCurrent: stillCurrent)
+                if stillCurrent() { account.cloudUploadCompleted(); sessionStatus = "登录会话已存到节点。" }
+            } else {
+                if try await persistence.isCloudSignInBlocked(platform) {
+                    if manual, stillCurrent() { sessionStatus = "本机已主动退出，请先在本机登录。" }
+                    else if stillCurrent() { sessionStatus = nil }
+                    return
+                }
+                let payload = try await client.sessionToRestore(node, platform: platform)
+                guard stillCurrent() else { return }
+                if let payload {
+                    let digest = try await account.verifyCloudPlugin(client: client, node: node)
+                    guard stillCurrent() else { return }
+                    let restored = try await account.restoreCloudSignIn(payload, digest: digest, stillCurrent: stillCurrent)
+                    restoredAccount = restored != nil
+                    if sessionOperation?.0 == operation, revision == generation, restored != nil || stillCurrent() {
+                        sessionStatus = restored.map { "本机已登录：\($0.name)。" } ?? "平台未确认此会话，请在本机重新登录。"
+                    }
+                } else { sessionStatus = manual ? "云端没有可恢复的登录会话。" : nil }
+            }
+        } catch { if stillCurrent() { sessionStatus = error.localizedDescription } }
+    }
 
     /// 插件缓存与平台资料共用当前绑定；回调必须与本地编辑串行，并在落盘前检查取消。
     public func syncPluginPreferences(load: @MainActor () async throws -> PluginPreferences,
@@ -290,7 +364,7 @@ struct PlatformDataClient: Sendable {
                 let synced = try await client.sync(node, platform: platform, local: profile, publish: publish)
                 guard generation == revision, !Task.isCancelled else { return }
                 try await persistence.cachePlatformProfile(synced, for: node, platform: platform)
-                if generation == revision, !Task.isCancelled { message = publish ? "平台资料已同步" : nil }
+                if generation == revision, !Task.isCancelled, publish { message = "账号资料已同步，未上传登录会话。" }
             } catch { if generation == revision, !Task.isCancelled { message = error.localizedDescription } }
         }
     }

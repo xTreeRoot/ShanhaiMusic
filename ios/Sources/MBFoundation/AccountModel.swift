@@ -15,28 +15,61 @@ public final class AccountModel {
     public private(set) var canClearLoginCache = false
     public private(set) var errorMessage: String?
     public private(set) var revision = 0
+    public private(set) var canUseCloud = false
+    public private(set) var checkedLocalAccount = false
+    public private(set) var pendingCloudUpload = false
     public let available: Bool
     public let displayName: String
     @ObservationIgnored private let source: (any AccountSource)?
+    @ObservationIgnored private let platformID: String?
+    @ObservationIgnored private let persistence: AppPersistence
     @ObservationIgnored private var attempt: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     #if os(iOS)
     @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     #endif
-    public init(source: (any AccountSource)?) { self.source = source; available = source != nil; displayName = source?.displayName ?? "账号" }
+    public init(source: (any AccountSource)?, platformID: String? = nil, persistence: AppPersistence = .shared) {
+        self.source = source; self.platformID = platformID; self.persistence = persistence
+        available = source != nil; displayName = source?.displayName ?? "账号"
+    }
 
     public func restore() async {
         let current = generation
         let canClear = await (source as? any AccountCacheResetSource)?.supportsAccountCacheReset() ?? false
+        let cloud = (try? await (source as? PluginSource)?.supportsSessionSync()) == true
         guard current == generation, !Task.isCancelled else { return }
         canClearLoginCache = canClear
+        canUseCloud = cloud
         do {
             let account = try await source?.account()
             guard current == generation, !Task.isCancelled else { return }
-            self.account = account; errorMessage = nil; revision += 1
+            self.account = account; checkedLocalAccount = true; errorMessage = nil; revision += 1
         } catch {
-            if current == generation && !Task.isCancelled { errorMessage = error.localizedDescription }
+            if current == generation && !Task.isCancelled { checkedLocalAccount = false; errorMessage = error.localizedDescription }
         }
+    }
+
+    func verifyCloudPlugin(client: PlatformDataClient, node: PlatformNode) async throws -> String {
+        guard let source = source as? PluginSource else { throw NodeSessionFailure.untrustedPlugin }
+        return try await source.verifyNodeSessionPlugin(client: client, node: node)
+    }
+
+    func cloudUploadCompleted() { pendingCloudUpload = false }
+
+    func exportCloudSignIn(digest: String) async throws -> (Int, NodeSessionPayload)? {
+        guard let source = source as? PluginSource, let account, !isSigningIn, !isSigningOut else { return nil }
+        return try await source.exportNodeSession(accountID: account.id, digest: digest)
+    }
+
+    func restoreCloudSignIn(_ payload: (Int, NodeSessionPayload), digest: String, stillCurrent: @escaping @MainActor @Sendable () -> Bool) async throws -> SourceAccount? {
+        guard let source = source as? PluginSource, checkedLocalAccount, account == nil, !isSigningIn, !isSigningOut else { return nil }
+        let current = generation
+        let restored = try await source.applyNodeSession(payload.1, format: payload.0, digest: digest, stillCurrent: { [weak self] in
+            self?.generation == current && self?.account == nil && stillCurrent()
+        })
+        guard generation == current, stillCurrent(), let restored else { return nil }
+        account = restored; errorMessage = nil; revision += 1
+        return restored
     }
 
     public func signIn() {
@@ -63,8 +96,15 @@ public final class AccountModel {
                     found = try await selectable.signIn(method: method, prompt: receive)
                 } else { found = try await source.signIn(prompt: receive) }
                 guard current == generation, !Task.isCancelled else { return }
+                var allowUpload = canUseCloud
+                if canUseCloud, let platformID {
+                    do { try await persistence.setCloudSignInBlocked(platformID, blocked: false) }
+                    catch { allowUpload = false }
+                }
+                guard current == generation, !Task.isCancelled else { return }
                 endBackgroundSignIn()
-                account = found; revision += 1
+                pendingCloudUpload = allowUpload
+                account = found; checkedLocalAccount = true; revision += 1
                 prompt = nil; isSigningIn = false; attempt = nil
             } catch {
                 guard current == generation, !Task.isCancelled else { return }
@@ -89,11 +129,13 @@ public final class AccountModel {
         defer { isSigningOut = false }
         let current = generation
         do {
+            if canUseCloud, let platformID { try await persistence.setCloudSignInBlocked(platformID, blocked: true) }
             if clearCache, let resettable = source as? any AccountCacheResetSource {
                 try await resettable.signOutAndClearCache()
             } else { try await source.signOut() }
             guard current == generation else { return }
-            account = nil; revision += 1; errorMessage = nil
+            pendingCloudUpload = false
+            account = nil; checkedLocalAccount = true; revision += 1; errorMessage = nil
         } catch { if current == generation { errorMessage = error.localizedDescription } }
     }
 

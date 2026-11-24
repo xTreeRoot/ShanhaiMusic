@@ -49,6 +49,7 @@ public actor PluginRuntime {
         var events: [Int32: Task<Void, Never>] = [:]
         var failure: (any Error)?
         var loaded = false
+        var contentDigest: String?
         var busy = false
         var waiters: [CheckedContinuation<Void, Never>] = []
         deinit { for task in events.values { task.cancel() } }
@@ -78,6 +79,12 @@ public actor PluginRuntime {
         self.transport = transport; self.webSignIn = webSignIn; self.oauthSignIn = oauthSignIn; self.openURL = openURL
     }
     public func headers(for url: URL, kind: String) throws -> [String: String] { try host.headers(for: url, kind: kind) }
+    func nodeContentDigest() throws -> String {
+        guard let loaded = catalog.contentDigest, loaded == (try? NodePluginContent.digest(host.root)) else {
+            throw NodeSessionFailure.untrustedPlugin
+        }
+        return loaded
+    }
     /// 信息源只交付授权资源与明文内容密钥，宿主仅处理通用 CENC 容器。
     func prepareCENCAudio(url: URL, headers: [String: String], encryption: PluginJSON) async throws -> URL {
         guard encryption["scheme"] == .string("cenc"), let hex = encryption["key"].string,
@@ -145,11 +152,13 @@ public actor PluginRuntime {
         try await load(lane)
         return name.withCString { mbjs_has_export(lane.context!.pointer, $0) != 0 }
     }
-    public func invoke(_ name: String, arguments: PluginJSON = .object([:]), timeout: Duration = .seconds(30)) async throws -> PluginJSON {
+    public func invoke(_ name: String, arguments: PluginJSON = .object([:]), timeout: Duration = .seconds(30),
+                       verifiedNodeDigest: String? = nil) async throws -> PluginJSON {
         let lane = lane(for: name)
         await acquire(lane); defer { release(lane) }
         try Task.checkCancellation()
         try await load(lane)
+        if let verifiedNodeDigest, try nodeContentDigest() != verifiedNodeDigest { throw NodeSessionFailure.untrustedPlugin }
         guard let context = lane.context else { throw PluginFailure.execution("Runtime unavailable") }
         let json = try arguments.encoded()
         let operation = PluginSignInDiagnostics.Operation(rawValue: name)
@@ -159,7 +168,7 @@ public actor PluginRuntime {
         defer {
             context.hostCalls.storage = nil
             lane.diagnostics = nil
-            if ["signIn", "signOut", "signOutAndClearCache"].contains(name) { reset(playback) }
+            if ["signIn", "signOut", "signOutAndClearCache", "commitSession"].contains(name) { reset(playback) }
             if name == "signOutAndClearCache" { reset(catalog) }
         }
         do {
@@ -189,6 +198,7 @@ public actor PluginRuntime {
     }
     private func load(_ lane: Lane) async throws {
         guard !lane.loaded else { return }
+        let digest = lane === catalog ? try? NodePluginContent.digest(host.root) : nil
         let hostCalls = PluginContext.HostCalls(host)
         let pointer = mbjs_create({ opaque, operation, arguments in
             guard let opaque, let operation, let arguments else { return nil }
@@ -214,13 +224,15 @@ public actor PluginRuntime {
                 let status = entry.withCString { name in module.withCString { mbjs_evaluate(pointer, $0, name, 1, 500) } }
                 _ = try await finish(status, context: context, lane: lane, timeout: .seconds(10))
             } onCancel: { context.cancel() }
+            if let digest, "validateSession".withCString({ mbjs_has_export(pointer, $0) != 0 }),
+               digest == (try? NodePluginContent.digest(host.root)) { lane.contentDigest = digest }
             lane.loaded = true
         } catch { reset(lane); throw error }
     }
     private func reset(_ lane: Lane) {
         lane.context?.cancel()
         for task in lane.events.values { task.cancel() }
-        lane.events = [:]; lane.context = nil; lane.loaded = false; lane.failure = nil
+        lane.events = [:]; lane.context = nil; lane.loaded = false; lane.failure = nil; lane.contentDigest = nil
     }
     private func finish(_ initialStatus: Int32, context: PluginContext, lane: Lane, timeout: Duration) async throws -> PluginJSON {
         var status = initialStatus

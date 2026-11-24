@@ -172,7 +172,7 @@ public struct MBRootView: View {
             .preferredColorScheme(preferences.values.appearance == .system ? nil : preferences.values.appearance == .dark ? .dark : .light)
             .playerPresentation(isPresented: $showingPlayer) { NowPlayingView(playback: playback, demo: demo, interactionSource: currentInteractions, librarySource: currentLibrarySource, pluginSource: currentPluginSource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: video.isAudioOnly ? nil : { video.watchCurrent() }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
             .sheet(isPresented: $showingQueue) { QueueView(playback: playback) }
-            .sheet(isPresented: $showingService) { ShanhaiServiceView(model: platformData, account: verifiedProfileAccount, platform: selectedSourceID) }
+            .sheet(isPresented: $showingService) { ShanhaiServiceView(model: platformData, account: account, profile: verifiedProfileAccount, platform: selectedSourceID) }
             .sheet(isPresented: $showingAppSettings) { SettingsView(preferences: preferences, network: networkSettings, plugins: plugins, skin: skin) }
             .sheet(item: $resourceDetail) { track in
                 NavigationStack { ResourceDetailView(track: track, library: localLibrary)
@@ -213,6 +213,12 @@ public struct MBRootView: View {
             }
             .task(id: "\(selectedSourceID):\(accountPlatformID):\(account.revision):\(account.isSigningIn):\(account.isSigningOut):\(platformData.revision)") {
                 if !demo { platformData.sync(verifiedProfileAccount, platform: selectedSourceID) }
+            }
+            .task(id: "cloud-sign-in:\(selectedSourceID):\(accountPlatformID):\(account.revision):\(account.isSigningIn):\(account.isSigningOut):\(platformData.revision):\(scenePhase)") {
+                guard !demo, scenePhase == .active, platformData.authorized, selectedSourceID == accountPlatformID,
+                      account.checkedLocalAccount, !account.isSigningIn, !account.isSigningOut else { return }
+                if account.account == nil { await platformData.syncSignIn(account, platform: selectedSourceID, publish: false) }
+                else if account.pendingCloudUpload { await platformData.syncSignIn(account, platform: selectedSourceID, publish: true) }
             }
             .task {
                 if demo { await router.register(initialSource, id: initialSourceID) }
@@ -750,7 +756,7 @@ public struct MBRootView: View {
         trackSearch.cancel()
         source = chosen; path = []; searchPath = []; request = nil
         await rebuildSearch()
-        account = AccountModel(source: accountSource)
+        account = AccountModel(source: accountSource, platformID: id)
         accountPlatformID = id
         await account.restore()
     }

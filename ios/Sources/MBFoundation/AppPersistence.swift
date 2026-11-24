@@ -84,6 +84,15 @@ public actor AppPersistence: PlaybackSessionStore, PlaybackModeStore {
         hosts.contains("oauth2.googleapis.com") && !hosts.contains("youtube.googleapis.com") ? hosts + ["youtube.googleapis.com"] : hosts
     }
     func loadPlatformNode() throws -> PlatformNode? { try load(PlatformNode.self, name: "platform-node.json") }
+    func isCloudSignInBlocked(_ platform: String) throws -> Bool {
+        try load(Set<String>.self, name: "cloud-signin-blocked.json")?.contains(platform) ?? false
+    }
+    func setCloudSignInBlocked(_ platform: String, blocked: Bool) throws {
+        let name = "cloud-signin-blocked.json"
+        var platforms = try load(Set<String>.self, name: name) ?? []
+        if blocked { platforms.insert(platform) } else { platforms.remove(platform) }
+        try save(platforms, name: name)
+    }
     func savePlatformNode(_ node: PlatformNode?) throws {
         let name = "platform-node.json"
         if let node { try save(node, name: name) }
