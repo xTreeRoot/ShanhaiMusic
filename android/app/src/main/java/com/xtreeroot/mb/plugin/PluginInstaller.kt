@@ -124,6 +124,12 @@ internal class PluginInstaller(private val root: File) {
         changed()
     }
 
+    suspend fun restoreDeviceOrder(order: List<String>) = locked {
+        val existing = presentation()
+        savePresentation(existing.copy(order = order + existing.order.filterNot { it in order }))
+        changed()
+    }
+
     suspend fun move(id: String, step: Int) = locked {
         val index = index()
         val preferences = presentation()

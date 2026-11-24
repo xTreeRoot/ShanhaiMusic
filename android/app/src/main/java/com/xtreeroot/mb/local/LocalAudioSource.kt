@@ -159,6 +159,14 @@ internal class LocalAudioSource(private val context: Context, val catalog: Local
     suspend fun restoreImport(staged: File, item: PortableImport): LocalTrack =
         saveImport(staged, item.id, item.title, item.folderId, item.lyrics, item.addedAt)
 
+    /** 恢复归档里的标签，避免无内嵌标签的音频显示摘要文件名。 */
+    suspend fun restoreImport(staged: File, item: PortableImport, metadata: org.json.JSONObject): LocalTrack {
+        val existed = catalog.get(item.id) != null
+        val imported = restoreImport(staged, item)
+        if (!existed) catalog.restoreMetadata(item.id, metadata)
+        return catalog.get(item.id) ?: imported
+    }
+
     private suspend fun saveImport(staged: File, identifier: String, name: String, folderId: String?, lyrics: String?,
                                    addedAt: Long = 0): LocalTrack =
         writes.withLock {

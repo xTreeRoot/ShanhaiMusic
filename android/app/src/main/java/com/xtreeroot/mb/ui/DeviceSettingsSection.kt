@@ -16,6 +16,7 @@ internal fun DeviceSettingsSection(app: MBApplication, node: NodeBinding, names:
     var devices by remember { mutableStateOf(emptyList<SettingsDevice>()) }
     var selected by remember { mutableStateOf<SettingsDevice?>(null) }
     var preview by remember { mutableStateOf<DeviceSettings?>(null) }
+    var restoring by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -23,7 +24,8 @@ internal fun DeviceSettingsSection(app: MBApplication, node: NodeBinding, names:
     val failure = mb("设备设置操作失败，请刷新后重试", "Device settings failed. Refresh and retry.")
     val refreshFailed = mb("已备份本机设置 · 刷新失败", "Device settings saved · Refresh failed")
     var nodeError by remember { mutableStateOf<NodeFailure?>(null) }
-    val saved = mb("已备份本机设置", "Device settings saved")
+    val saved = mb("本机已完整备份（含插件和插件信息）", "Device backed up, including plugins and their data")
+    val fullyRestored = mb("已完整恢复到本机", "Device restored")
     val restored = mb("已恢复 %1\$d 项 · 跳过 %2\$d 项", "%1\$d restored · %2\$d skipped")
     fun run(job: suspend () -> Unit) {
         if (busy) return
@@ -34,19 +36,7 @@ internal fun DeviceSettingsSection(app: MBApplication, node: NodeBinding, names:
         }
     }
     suspend fun backup() {
-        val settings = mutableMapOf<String, Map<String,String>>()
-        val profiles = accounts.toMutableMap()
-        for (plugin in app.plugins.installed()) {
-            val source = app.musicSource(plugin.id) as? PluginSource
-            try { source?.account()?.let { profiles[plugin.id] = it.name } }
-            catch (e: CancellationException) { throw e }
-            catch (_: Exception) { profiles.remove(plugin.id) }
-            val local = app.plugins.settings(plugin)
-            val portable = local.filter { (k,v) -> plugin.manifest.settings.any { it.key == k && it.portable(v) } }
-            if (portable.isNotEmpty()) settings[plugin.id] = portable
-        }
-        if (app.settings.nodeBinding.value !== node) throw CancellationException()
-        app.nodeClient.saveSettingsSnapshot(node, DeviceSettings(app.settings.values.value.deviceSettings(),settings, profiles))
+        NodeDeviceBackup(app, node).backup(accounts)
         selected = null; preview = null; result = saved
         try { devices = app.nodeClient.settingsDevices(node) }
         catch (e: CancellationException) { throw e }
@@ -55,20 +45,24 @@ internal fun DeviceSettingsSection(app: MBApplication, node: NodeBinding, names:
     fun refresh() = run { devices = app.nodeClient.settingsDevices(node) }
     LaunchedEffect(node) { run {
         devices = app.nodeClient.settingsDevices(node)
-        if (devices.any { it.current && it.updated == 0L }) backup()
+
     } }
     MBGroupedSection(mb("设备设置","Device settings")) {
         MBFormRow(mb("备份本机","Back up this device"), enabled = !busy, onClick = { run {
             backup()
         } })
         MBFormRow(mb("刷新","Refresh"),enabled = !busy,onClick = ::refresh)
-        for (device in devices.filter { it.updated > 0 }) {
+        MBFormRow(mb("从其他机器恢复", "Restore from another device"), disclosure = true, enabled = !busy, onClick = { restoring = !restoring })
+        if (restoring && devices.none { !it.current && it.updated > 0 }) MBFormRow(mb("暂无其他机器的备份，请先在原机器备份本机", "No other device backup. Back up the source device first."))
+        for (device in devices.filter { restoring && !it.current && it.updated > 0 }) {
             MBFormRow(device.name + " · " + device.key.takeLast(6) + " · " + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(device.updated * 1000)), disclosure = true, enabled = !busy, onClick = {
                 if (selected == device) { selected = null; preview = null }
                 else run { val data = app.nodeClient.readSettingsSnapshot(node,device); selected = device; preview = data }
             })
             val data = preview
             if (selected == device && data != null) {
+                data.backup?.let { MBFormRow(mb("完整备份 · ${it.plugins} 个插件", "Complete backup · ${it.plugins} plugins")) }
+                if (data.backup == null) MBFormRow(mb("旧备份：仅含设置", "Older backup: settings only"))
                 key(device.key) { SnapshotGroup(mb("App 设置","App settings"), data.app, null) }
                 for ((id, items) in data.plugins.toSortedMap()) key(device.key, id) {
                     val fields = installed.find { it.id == id }?.manifest?.settings.orEmpty()
@@ -76,7 +70,12 @@ internal fun DeviceSettingsSection(app: MBApplication, node: NodeBinding, names:
                 }
                 for ((id,name) in data.accounts.toSortedMap()) MBFormRow(names[id] ?: id, detail = name, disclosure = app.musicSource(id) != null,
                     onClick = if (app.musicSource(id) == null) null else { { openAccount(id) } })
-                MBFormRow(mb("恢复这些设置","Restore these settings"), enabled = !busy, onClick = { run {
+                MBFormRow(if (data.backup != null) mb("恢复到本机", "Restore to this device") else mb("恢复这些设置","Restore these settings"), enabled = !busy, onClick = { run {
+                    if (data.backup != null) {
+                        NodeDeviceBackup(app, node).restore(device, data)
+                        result = fullyRestored
+                        return@run
+                    }
                     var n = 0
                     for (plugin in app.plugins.installed()) {
                         val incoming = data.plugins[plugin.id]?.filter { (k,v) -> plugin.manifest.settings.any { it.key == k && it.portable(v) } }.orEmpty()

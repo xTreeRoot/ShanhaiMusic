@@ -8,9 +8,12 @@ import com.xtreeroot.mb.music.AudioQuality
 import org.json.JSONObject
 
 internal data class SettingsDevice(val key: String, val name: String, val updated: Long, val current: Boolean)
-internal data class DeviceSettings(val app: Map<String, String>, val plugins: Map<String, Map<String, String>>, val accounts: Map<String, String>) {
+internal data class DeviceSettings(val app: Map<String, String>, val plugins: Map<String, Map<String, String>>, val accounts: Map<String, String>,
+                                  val backup: DeviceBackupReference? = null, val previousBackup: DeviceBackupReference? = null) {
     fun encode() = JSONObject().put("value", JSONObject().put("version", 1).put("app", JSONObject(app))
-        .put("plugins", JSONObject(plugins.mapValues { JSONObject(it.value) })).put("accounts", JSONObject(accounts)))
+        .put("plugins", JSONObject(plugins.mapValues { JSONObject(it.value) })).put("accounts", JSONObject(accounts)).apply {
+            backup?.let { put("backup",it.encode()) };previousBackup?.let { put("previous_backup",it.encode()) }
+        })
     companion object {
         fun decode(payload: JSONObject): DeviceSettings {
             val doc = payload.getJSONObject("value")
@@ -18,7 +21,8 @@ internal data class DeviceSettings(val app: Map<String, String>, val plugins: Ma
             fun values(p: JSONObject) = p.keys().asSequence().associateWith { p.get(it) as String }
             val plugins = doc.getJSONObject("plugins")
             return DeviceSettings(values(doc.getJSONObject("app")), plugins.keys().asSequence().associateWith {
-                values(plugins.getJSONObject(it)) }, values(doc.getJSONObject("accounts")))
+                values(plugins.getJSONObject(it)) }, values(doc.getJSONObject("accounts")),
+                doc.optJSONObject("backup")?.let(DeviceBackupReference::decode),doc.optJSONObject("previous_backup")?.let(DeviceBackupReference::decode))
         }
     }
 }

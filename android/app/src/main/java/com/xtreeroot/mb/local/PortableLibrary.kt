@@ -71,6 +71,12 @@ internal class PortableLibrary(private val context: Context, private val local: 
 
     fun userStateChanged() { changes.update { it + 1 } }
 
+    fun restoreDeviceQueue(snapshot: QueueSnapshot) {
+        if (playback.getString("queue", null) != null) return
+        playback.edit(commit = true) { putString("queue", snapshot.encode()) }
+        restored.value = snapshot
+    }
+
     fun acknowledgeQueue(snapshot: QueueSnapshot) { restored.compareAndSet(snapshot, null) }
 
     fun bind(tree: Uri?) {

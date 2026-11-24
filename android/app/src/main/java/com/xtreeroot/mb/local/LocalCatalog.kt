@@ -98,6 +98,16 @@ internal class LocalCatalog(context: Context, databaseName: String = "local-libr
         revision.update { it + 1 }
     }
 
+    fun restoreMetadata(id: String, metadata: org.json.JSONObject) {
+        writableDatabase.update("audio", ContentValues().apply {
+            put("title", metadata.getString("title")); put("artist", metadata.optString("artist"))
+            put("album", metadata.optString("album")); put("album_artist", metadata.optString("albumArtist"))
+            put("year", metadata.optString("year")); put("track_number", metadata.optInt("trackNumber"))
+            put("disc", metadata.optInt("discNumber")); put("duration", metadata.optLong("duration"))
+        }, "id = ?", arrayOf(id))
+        revision.update { it + 1 }
+    }
+
     suspend fun activity(): List<LocalTrackActivity> = withContext(Dispatchers.IO) {
         readableDatabase.rawQuery("SELECT track_id, liked, played FROM track_activity", null).use { cursor ->
             buildList { while (cursor.moveToNext()) add(LocalTrackActivity(cursor.getString(0), cursor.getLong(1), cursor.getLong(2))) }

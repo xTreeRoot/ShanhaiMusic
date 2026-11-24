@@ -16,35 +16,38 @@ internal data class PlatformDataKey(val platform: String, val info: String) {
     init { require(identifier.matches(platform) && identifier.matches(info)) }
 }
 
-internal data class PlatformEnvelope(val format: Int, val nonce: String, val ciphertext: String) {
+internal data class PlatformEnvelope(val format: Int, val nonce: String, val ciphertext: String,
+                                     private val maximumBytes: Int = maxPlatformEnvelope) {
     init {
         require(format in 1..65535)
         require(nonce.length == 16 && decodeBase64(nonce).size == 12)
-        require(ciphertext.length in 23..maxPlatformEnvelope && decodeBase64(ciphertext).size > 16)
+        require(ciphertext.length in 23..maximumBytes && decodeBase64(ciphertext).size > 16)
     }
 
     fun encode(): String = JSONObject().put("format", format).put("nonce", nonce).put("ciphertext", ciphertext)
-        .toString().also { require(it.length <= maxPlatformEnvelope) }
+        .toString().also { require(it.length <= maximumBytes) }
 
     companion object {
-        fun parse(value: JSONObject): PlatformEnvelope = PlatformEnvelope(
+        fun parse(value: JSONObject, maximumBytes: Int = maxPlatformEnvelope): PlatformEnvelope = PlatformEnvelope(
             value.get("format") as? Int ?: throw IllegalArgumentException("Invalid envelope format"),
             value.get("nonce") as? String ?: throw IllegalArgumentException("Invalid envelope nonce"),
             value.get("ciphertext") as? String ?: throw IllegalArgumentException("Invalid envelope ciphertext"),
+            maximumBytes,
         )
     }
 }
 
 internal class PlatformDataCodec(recoveryKey: String, private val space: String,
+                                 private val maximumBytes: Int = maxPlatformEnvelope,
                                  private val nonce: () -> ByteArray = { ByteArray(12).also(SecureRandom()::nextBytes) }) {
     private val key = SecretKeySpec(derivePlatformKey(recoveryKey, space), "AES")
 
     fun seal(path: PlatformDataKey, format: Int, value: JSONObject): PlatformEnvelope {
         val plain = value.toString().encodeToByteArray()
-        require(value.has("value") && plain.size <= maxPlatformEnvelope)
+        require(value.has("value") && plain.size <= maximumBytes)
         val iv = nonce()
         val bytes = cipher(Cipher.ENCRYPT_MODE, path, format, iv).doFinal(plain)
-        return PlatformEnvelope(format, base64Url.encodeToString(iv), base64Url.encodeToString(bytes)).also { it.encode() }
+        return PlatformEnvelope(format, base64Url.encodeToString(iv), base64Url.encodeToString(bytes), maximumBytes).also { it.encode() }
     }
 
     fun open(path: PlatformDataKey, format: Int, envelope: PlatformEnvelope): JSONObject {

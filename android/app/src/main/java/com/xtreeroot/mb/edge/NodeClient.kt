@@ -51,6 +51,9 @@ internal class NodeClient(http: OkHttpClient) {
     private val client = http.newBuilder().followRedirects(false).followSslRedirects(false)
         .authenticator(Authenticator.NONE).retryOnConnectionFailure(false).cache(null).callTimeout(20, TimeUnit.SECONDS).build()
 
+    private val backupClient = client.newBuilder().callTimeout(90, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS).writeTimeout(90, TimeUnit.SECONDS).build()
+
     suspend fun join(origin: HttpUrl, password: String, name: String): NodeBinding {
         require(origin == nodeOrigin(origin.toString()))
         val body = JSONObject().put("password", password).put("name", name).put("platform", "android")
@@ -96,6 +99,31 @@ internal class NodeClient(http: OkHttpClient) {
                 }
             }
         }
+
+    private fun backupPath(owner: String, key: String): String {
+        require(Regex("[a-f0-9]{44}").matches(owner) && validBackupKey(key))
+        return "v1/backups/$owner/$key"
+    }
+
+    suspend fun putBackup(binding: NodeBinding, key: String, envelope: PlatformEnvelope) {
+        val body = envelope.encode()
+        require(body.length <= maxBackupObject)
+        exchange(request(binding, backupPath(binding.backupOwner(), key)).put(body.toRequestBody(jsonType)).build()) { response ->
+            if (response.code != 201 && response.code != 204) throw response.failure()
+        }
+    }
+
+    suspend fun getBackup(binding: NodeBinding, owner: String, key: String): PlatformEnvelope =
+        exchange(request(binding, backupPath(owner, key)).build()) { response ->
+            if (response.code != 200) throw response.failure()
+            parseResponse { PlatformEnvelope.parse(response.json(maxBackupObject), maxBackupObject) }
+        }
+
+    suspend fun deleteBackup(binding: NodeBinding, key: String) {
+        exchange(request(binding, backupPath(binding.backupOwner(), key)).delete().build()) { response ->
+            if (response.code != 204) throw response.failure()
+        }
+    }
 
     suspend fun overview(binding: NodeBinding): List<CloudRecord> = exchange(request(binding, "v1/sync/overview").build()) { response ->
         if (response.code != 200) throw response.failure()
@@ -171,7 +199,8 @@ internal class NodeClient(http: OkHttpClient) {
 
     private suspend fun <Result> exchange(request: Request, read: (Response) -> Result): Result =
         suspendCancellableCoroutine { continuation ->
-            val call = client.newCall(request)
+            val transport = if (request.url.encodedPath.startsWith("/v1/backups/")) backupClient else client
+            val call = transport.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
