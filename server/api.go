@@ -23,6 +23,7 @@ var identifier = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 type api struct {
 	db      *sql.DB
 	catalog *publishedCatalog
+	node    *nodeAccess
 	mu      sync.Mutex
 	minute  int64
 	attempt int
@@ -34,10 +35,17 @@ func (service *api) handler() http.Handler {
 	mux.HandleFunc("GET /v1/catalog", service.catalog.serveCatalog)
 	mux.HandleFunc("GET /v1/packages/{digest}", service.catalog.servePackage)
 	mux.HandleFunc("POST /v1/pair", service.pair)
+	if service.node != nil {
+		mux.HandleFunc("POST /v1/join", service.join)
+	}
 	mux.HandleFunc("GET /v1/sessions/{plugin}", service.authenticated(service.list))
 	mux.HandleFunc("GET /v1/sessions/{plugin}/{account}", service.authenticated(service.get))
 	mux.HandleFunc("PUT /v1/sessions/{plugin}/{account}", service.authenticated(service.change))
 	mux.HandleFunc("DELETE /v1/sessions/{plugin}/{account}", service.authenticated(service.change))
+	mux.HandleFunc("GET /v1/data/{plugin}/{key}", service.authenticated(service.get))
+	mux.HandleFunc("PUT /v1/data/{plugin}/{key}", service.authenticated(service.change))
+	mux.HandleFunc("DELETE /v1/data/{plugin}/{key}", service.authenticated(service.change))
+	mux.HandleFunc("GET /v1/sync/overview", service.authenticated(service.overview))
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		writer.Header().Set("Cache-Control", "no-store")
@@ -111,14 +119,18 @@ func (service *api) allowPair(now time.Time) bool {
 	return service.attempt <= 60
 }
 
+func validDevice(name, platform string) bool {
+	return name != "" && len(name) <= 120 && !strings.ContainsFunc(name, unicode.IsControl) &&
+		(platform == "desktop" || platform == "ios" || platform == "android")
+}
+
 func (service *api) pair(writer http.ResponseWriter, request *http.Request) {
 	var input pairing
 	if !readJSON(writer, request, 2048, &input) {
 		return
 	}
 	input.Name = strings.TrimSpace(input.Name)
-	if !validToken(input.Code, 32) || input.Name == "" || len(input.Name) > 120 || strings.ContainsFunc(input.Name, unicode.IsControl) ||
-		(input.Platform != "desktop" && input.Platform != "ios" && input.Platform != "android") {
+	if !validToken(input.Code, 32) || !validDevice(input.Name, input.Platform) {
 		fail(writer, http.StatusBadRequest, "invalid_pairing")
 		return
 	}
@@ -156,13 +168,20 @@ func (service *api) authenticated(next func(http.ResponseWriter, *http.Request, 
 			databaseFailure(writer, "authenticate")
 			return
 		}
-		plugin, account := request.PathValue("plugin"), request.PathValue("account")
-		if !identifier.MatchString(plugin) || (account != "" && !validToken(account, 32)) {
+		plugin, account, key := request.PathValue("plugin"), request.PathValue("account"), request.PathValue("key")
+		if (plugin != "" && !identifier.MatchString(plugin)) || (account != "" && !validToken(account, 32)) || (key != "" && !identifier.MatchString(key)) {
 			fail(writer, http.StatusBadRequest, "invalid_session_key")
 			return
 		}
 		next(writer, request, space)
 	}
+}
+
+func recordAddress(request *http.Request) (recordTable, string, string) {
+	if key := request.PathValue("key"); key != "" {
+		return dataTable, request.PathValue("plugin"), key
+	}
+	return sessionTable, request.PathValue("plugin"), request.PathValue("account")
 }
 
 func (service *api) list(writer http.ResponseWriter, request *http.Request, space string) {
@@ -199,14 +218,15 @@ type encryptedSession struct {
 func (service *api) get(writer http.ResponseWriter, request *http.Request, space string) {
 	var revision string
 	var body []byte
-	err := service.db.QueryRowContext(request.Context(), `SELECT revision, envelope FROM sessions WHERE space=? AND plugin=? AND account=?`,
-		space, request.PathValue("plugin"), request.PathValue("account")).Scan(&revision, &body)
+	table, plugin, account := recordAddress(request)
+	err := service.db.QueryRowContext(request.Context(), `SELECT revision, envelope FROM `+string(table)+` WHERE space=? AND `+table.addressColumns(),
+		space, plugin, account).Scan(&revision, &body)
 	if errors.Is(err, sql.ErrNoRows) {
 		fail(writer, http.StatusNotFound, "not_found")
 		return
 	}
 	if err != nil {
-		databaseFailure(writer, "get session")
+		databaseFailure(writer, "get sync record")
 		return
 	}
 	writer.Header().Set("ETag", `"`+revision+`"`)
@@ -250,13 +270,14 @@ func (service *api) change(writer http.ResponseWriter, request *http.Request, sp
 		format = envelope.Format
 		body, _ = json.Marshal(envelope)
 	}
-	revision, err := changeSession(request.Context(), service.db, space, request.PathValue("plugin"), request.PathValue("account"), match, format, body, time.Now())
+	table, plugin, account := recordAddress(request)
+	revision, err := changeRecord(request.Context(), service.db, table, space, plugin, account, match, format, body, time.Now())
 	if errors.Is(err, errPrecondition) {
 		fail(writer, http.StatusPreconditionFailed, "revision_conflict")
 		return
 	}
 	if err != nil {
-		databaseFailure(writer, "change session")
+		databaseFailure(writer, "change sync record")
 		return
 	}
 	writer.Header().Set("ETag", `"`+revision+`"`)

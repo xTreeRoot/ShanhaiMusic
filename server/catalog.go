@@ -13,8 +13,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -30,6 +33,7 @@ type packageInfo struct {
 	MinHost     string          `json:"minAppVersion"`
 	Permissions json.RawMessage `json:"permissions"`
 	SHA256      string          `json:"sha256"`
+	ContentHash string          `json:"content_sha256,omitempty"`
 	Size        int             `json:"size"`
 	Path        string          `json:"path"`
 }
@@ -47,8 +51,53 @@ type signedCatalog struct {
 
 type publishedCatalog struct {
 	body     []byte
+	key      string
 	dir      string
 	packages map[string]struct{}
+}
+
+var portablePackagePath = regexp.MustCompile(`^[A-Za-z0-9_./@+ -]+$`)
+
+func packageContentHash(archive *zip.Reader) string {
+	files := make(map[string][sha256.Size]byte)
+	var remaining uint64 = maxArchive
+	for _, file := range archive.File {
+		if file.FileInfo().IsDir() || strings.HasPrefix(file.Name, "__MACOSX/") {
+			continue
+		}
+		name := file.Name
+		if !portablePackagePath.MatchString(name) || path.IsAbs(name) || path.Clean(name) != name || strings.HasPrefix(name, "../") ||
+			name == ".." || name == "." || name == ".origin.json" || name == ".mb-origin.json" || !file.Mode().IsRegular() ||
+			file.UncompressedSize64 > remaining || len(files) >= 1024 {
+			return ""
+		}
+		if _, duplicate := files[name]; duplicate {
+			return ""
+		}
+		stream, err := file.Open()
+		if err != nil {
+			return ""
+		}
+		digest := sha256.New()
+		size, err := io.Copy(digest, io.LimitReader(stream, int64(remaining)+1))
+		if errors.Join(err, stream.Close()) != nil || uint64(size) != file.UncompressedSize64 {
+			return ""
+		}
+		remaining -= uint64(size)
+		files[name] = [sha256.Size]byte(digest.Sum(nil))
+	}
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	hash := sha256.New()
+	for _, name := range names {
+		io.WriteString(hash, name+"\x00")
+		digest := files[name]
+		hash.Write(digest[:])
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func readLimited(path string, limit int64) ([]byte, error) {
@@ -130,6 +179,7 @@ func inspectPackage(data []byte) (packageInfo, error) {
 	}
 	sum := sha256.Sum256(data)
 	info.SHA256 = hex.EncodeToString(sum[:])
+	info.ContentHash = packageContentHash(zipFile)
 	info.Size = len(data)
 	info.Path = "/v1/packages/" + info.SHA256
 	return info, nil
@@ -215,7 +265,7 @@ func loadCatalog(dir, keyPath string) (*publishedCatalog, error) {
 	if index.Protocol != 1 || index.Revision < 1 || len(index.Plugins) == 0 || len(index.Plugins) > 64 {
 		return nil, errors.New("invalid catalog index")
 	}
-	result := &publishedCatalog{body: body, dir: dir, packages: make(map[string]struct{})}
+	result := &publishedCatalog{body: body, key: encoding.EncodeToString(key), dir: dir, packages: make(map[string]struct{})}
 	seen := make(map[string]bool)
 	for _, info := range index.Plugins {
 		if !identifier.MatchString(info.ID) || seen[info.ID] || !packageDigest.MatchString(info.SHA256) ||
@@ -230,7 +280,8 @@ func loadCatalog(dir, keyPath string) (*publishedCatalog, error) {
 		actual, err := inspectPackage(archive)
 		permissions, _ := json.Marshal(actual.Permissions)
 		if err != nil || actual.SHA256 != info.SHA256 || actual.Size != info.Size || actual.ID != info.ID || actual.Version != info.Version ||
-			actual.MinHost != info.MinHost || !bytes.Equal(permissions, info.Permissions) {
+			actual.MinHost != info.MinHost || !bytes.Equal(permissions, info.Permissions) ||
+			(info.ContentHash != "" && actual.ContentHash != info.ContentHash) {
 			return nil, fmt.Errorf("catalog package mismatch: %s", info.ID)
 		}
 		result.packages[info.SHA256] = struct{}{}

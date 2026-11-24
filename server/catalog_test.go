@@ -68,3 +68,28 @@ func TestSignedCatalogAndPackages(t *testing.T) {
 		t.Fatalf("did not reject wrong signer: %v", err)
 	}
 }
+
+func TestPackageContentDigestMatchesInstalledFiles(t *testing.T) {
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	for name, data := range map[string]string{"plugin.json": "{}", "index.js": "example", "__MACOSX/index.js": "metadata"} {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(entry, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(archive.Bytes()), int64(archive.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const expected = "390039247f1da0ab6446e475561ec319f02d20fe8fca759719d02e75358c4bee"
+	if digest := packageContentHash(reader); digest != expected {
+		t.Fatalf("got %q, want %q", digest, expected)
+	}
+}

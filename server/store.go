@@ -34,6 +34,14 @@ CREATE TABLE sessions (
 );
 PRAGMA user_version = 1;`
 
+const platformDataSchema = `
+CREATE TABLE IF NOT EXISTS platform_data (
+ space TEXT NOT NULL REFERENCES spaces(id), platform TEXT NOT NULL, info_key TEXT NOT NULL,
+ revision TEXT NOT NULL, envelope BLOB,
+ PRIMARY KEY(space, platform, info_key)
+);
+PRAGMA user_version = 2;`
+
 func openStore(path string) (*sql.DB, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -67,7 +75,12 @@ func initialize(db *sql.DB) error {
 		if _, err := tx.Exec(schema); err != nil {
 			return err
 		}
+		fallthrough
 	case 1:
+		if _, err := tx.Exec(platformDataSchema); err != nil {
+			return err
+		}
+	case 2:
 	default:
 		return fmt.Errorf("unsupported database version %d", version)
 	}
@@ -127,17 +140,23 @@ func pairDevice(ctx context.Context, db *sql.DB, request pairing, now time.Time)
 		return deviceGrant{}, err
 	}
 	defer tx.Rollback()
-	grant := deviceGrant{ID: randomToken(16), Token: randomToken(32), ExpiresAt: now.Add(90 * 24 * time.Hour).Unix()}
+	var space string
 	if err := tx.QueryRowContext(ctx, `DELETE FROM invites WHERE digest = ? AND expires > ? RETURNING space`,
-		digest(request.Code), now.Unix()).Scan(&grant.Space); err != nil {
+		digest(request.Code), now.Unix()).Scan(&space); err != nil {
 		return deviceGrant{}, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO devices(id, space, name, platform, digest, created, expires) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		grant.ID, grant.Space, request.Name, request.Platform, digest(grant.Token), now.Unix(), grant.ExpiresAt)
+	grant, err := issueDevice(ctx, tx, space, request.Name, request.Platform, now)
 	if err != nil {
 		return deviceGrant{}, err
 	}
 	return grant, tx.Commit()
+}
+
+func issueDevice(ctx context.Context, tx *sql.Tx, space, name, platform string, now time.Time) (deviceGrant, error) {
+	grant := deviceGrant{ID: randomToken(16), Space: space, Token: randomToken(32), ExpiresAt: now.Add(90 * 24 * time.Hour).Unix()}
+	_, err := tx.ExecContext(ctx, `INSERT INTO devices(id, space, name, platform, digest, created, expires) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		grant.ID, grant.Space, name, platform, digest(grant.Token), now.Unix(), grant.ExpiresAt)
+	return grant, err
 }
 
 type sessionEntry struct {
@@ -148,14 +167,36 @@ type sessionEntry struct {
 	UpdatedAt int64  `json:"updated_at"`
 }
 
-func changeSession(ctx context.Context, db *sql.DB, space, plugin, account, match string, format int, envelope []byte, now time.Time) (string, error) {
+type recordTable string
+
+const (
+	sessionTable recordTable = "sessions"
+	dataTable    recordTable = "platform_data"
+)
+
+func (table recordTable) addressColumns() string {
+	if table == dataTable {
+		return `platform=? AND info_key=?`
+	}
+	return `plugin=? AND account=?`
+}
+
+func changeRecord(ctx context.Context, db *sql.DB, table recordTable, space, plugin, account, match string, format int, envelope []byte, now time.Time) (string, error) {
 	revision := randomToken(16)
 	var result sql.Result
 	var err error
-	if match == "" {
+	switch {
+	case table == dataTable && match == "":
+		result, err = db.ExecContext(ctx, `INSERT INTO platform_data(space, platform, info_key, revision, envelope)
+			SELECT ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM platform_data WHERE space=?) < 256 ON CONFLICT DO NOTHING`,
+			space, plugin, account, revision, envelope, space)
+	case table == dataTable:
+		result, err = db.ExecContext(ctx, `UPDATE platform_data SET revision=?, envelope=?
+			WHERE space=? AND platform=? AND info_key=? AND revision=?`, revision, envelope, space, plugin, account, match)
+	case match == "":
 		result, err = db.ExecContext(ctx, `INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
 			space, plugin, account, revision, format, envelope, now.Unix())
-	} else {
+	default:
 		result, err = db.ExecContext(ctx, `UPDATE sessions SET revision=?, format=?, envelope=?, updated=?
 			WHERE space=? AND plugin=? AND account=? AND revision=?`,
 			revision, format, envelope, now.Unix(), space, plugin, account, match)

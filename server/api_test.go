@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -72,6 +73,33 @@ func TestSyncLifecycle(t *testing.T) {
 		t.Fatal("peer did not receive matching ciphertext, revision and cache policy")
 	}
 	assertStatus(call("GET", path, other.Token, "", ""), 404)
+	const overviewPath = "/v1/sync/overview"
+	const profilePath = "/v1/data/netease/profile"
+	assertStatus(call("GET", overviewPath, "", "", ""), 401)
+	profile := call("PUT", profilePath, desktop.Token, "*", body)
+	assertStatus(profile, 201)
+	fetchedProfile := call("GET", profilePath, phone.Token, "", "")
+	assertStatus(fetchedProfile, 200)
+	if fetchedProfile.Body.String() != body || fetchedProfile.Header().Get("ETag") != profile.Header().Get("ETag") {
+		t.Fatal("second device did not receive the saved profile envelope")
+	}
+	assertStatus(call("GET", profilePath, other.Token, "", ""), 404)
+	inventory := call("GET", overviewPath, phone.Token, "", "")
+	assertStatus(inventory, 200)
+	var overview struct{ Records []overviewEntry }
+	if err := json.Unmarshal(inventory.Body.Bytes(), &overview); err != nil || len(overview.Records) != 2 ||
+		overview.Records[0] != (overviewEntry{Kind: "data", Platform: "netease", Key: "profile", Count: 1}) ||
+		overview.Records[1].Kind != "sessions" || overview.Records[1].Count != 1 || overview.Records[1].Updated <= 0 ||
+		strings.Contains(inventory.Body.String(), "account_ref") || strings.Contains(inventory.Body.String(), "ciphertext") {
+		t.Fatalf("unexpected inventory: %s", inventory.Body.String())
+	}
+	if isolated := call("GET", overviewPath, other.Token, "", ""); isolated.Body.String() != "{\"records\":[]}\n" {
+		t.Fatal("inventory leaked between spaces")
+	}
+	deletedProfile := call("DELETE", profilePath, phone.Token, profile.Header().Get("ETag"), "")
+	assertStatus(deletedProfile, 204)
+	assertStatus(call("PUT", profilePath, desktop.Token, "*", body), 412)
+	assertStatus(call("GET", profilePath, desktop.Token, "", ""), 410)
 	assertStatus(call("DELETE", path, other.Token, initial, ""), 412)
 	responses := make(chan *httptest.ResponseRecorder, 2)
 	var group sync.WaitGroup
@@ -98,6 +126,9 @@ func TestSyncLifecycle(t *testing.T) {
 	assertStatus(call("PUT", path, desktop.Token, newETag, body), 412)
 	assertStatus(call("PUT", path, desktop.Token, "*", body), 412)
 	assertStatus(call("GET", path, desktop.Token, "", ""), 410)
+	if empty := call("GET", overviewPath, phone.Token, "", ""); empty.Body.String() != "{\"records\":[]}\n" {
+		t.Fatal("inventory counts deleted records")
+	}
 	listing := call("GET", "/v1/sessions/netease", desktop.Token, "", "")
 	assertStatus(listing, 200)
 	var records struct{ Sessions []sessionEntry }
@@ -114,6 +145,48 @@ func TestSyncLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertStatus(call("GET", path, desktop.Token, "", ""), 401)
+}
+
+func TestPlatformDataMigrationPreservesOldSessionsAndGrants(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "v1.sqlite")
+	db, err := sql.Open("sqlite", filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if _, err := db.Exec(schema); err != nil {
+		t.Fatal(err)
+	}
+	invite, err := createInvite(t.Context(), db, "personal", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := pairDevice(t.Context(), db, pairing{Code: invite, Name: "Fixture", Platform: "desktop"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := randomToken(32)
+	if _, err := changeRecord(t.Context(), db, sessionTable, grant.Space, "example", ref, "", 1, []byte("fixture envelope"), now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	upgraded, err := openStore(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgraded.Close()
+	request := httptest.NewRequest("GET", "/v1/sessions/example/"+ref, nil)
+	request.Header.Set("Authorization", "Bearer "+grant.Token)
+	response := httptest.NewRecorder()
+	(&api{db: upgraded, catalog: &publishedCatalog{}}).handler().ServeHTTP(response, request)
+	if response.Code != 200 || response.Body.String() != "fixture envelope" {
+		t.Fatalf("migration lost session or grant: %d", response.Code)
+	}
+	if _, err := changeRecord(t.Context(), upgraded, dataTable, grant.Space, "example", "profile", "", 1, []byte("profile"), now); err != nil {
+		t.Fatalf("migrated store rejected platform data: %v", err)
+	}
 }
 
 func TestInviteExpiryAndBackup(t *testing.T) {
@@ -133,7 +206,7 @@ func TestInviteExpiryAndBackup(t *testing.T) {
 		t.Fatal("accepted expired invite")
 	}
 	account := randomToken(32)
-	if _, err := changeSession(ctx, db, "personal", "netease", account, "", 1, []byte("snapshot test"), now); err != nil {
+	if _, err := changeRecord(ctx, db, sessionTable, "personal", "netease", account, "", 1, []byte("snapshot test"), now); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "backup.sqlite")

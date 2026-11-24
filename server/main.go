@@ -25,14 +25,14 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: mb-server {serve|invite|devices|revoke|backup|keygen|sign|verify} [flags]")
+		return errors.New("usage: mb-server {serve|node-config|invite|devices|revoke|backup|keygen|sign|verify} [flags]")
 	}
 	command := args[0]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	switch command {
 	case "serve", "verify", "sign", "keygen":
 		key := flags.String("key", "catalog.pub", "catalog key file (private for sign/keygen)")
-		var dir, public, addr, database *string
+		var dir, public, addr, database, nodeConfig *string
 		var revision *int64
 		switch command {
 		case "keygen":
@@ -47,6 +47,7 @@ func run(args []string) error {
 			if command == "serve" {
 				addr = flags.String("listen", "127.0.0.1:19047", "loopback listen address")
 				database = flags.String("db", "mb.sqlite", "SQLite database path")
+				nodeConfig = flags.String("node-config", "", "node password and recovery key file")
 			}
 		}
 		if err := flags.Parse(args[1:]); err != nil {
@@ -64,8 +65,17 @@ func run(args []string) error {
 			_, err := loadCatalog(*dir, *key)
 			return err
 		default:
-			return serve(*addr, *database, *dir, *key)
+			return serve(*addr, *database, *dir, *key, *nodeConfig)
 		}
+	case "node-config":
+		output := flags.String("out", "", "new node configuration file")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *output == "" || flags.NArg() != 0 {
+			return errors.New("expected -out and a password on stdin")
+		}
+		return createNodeConfig(*output, os.Stdin)
 	case "invite", "devices", "revoke", "backup":
 		return admin(command, flags, args[1:])
 	default:
@@ -73,7 +83,7 @@ func run(args []string) error {
 	}
 }
 
-func serve(address, database, dir, key string) error {
+func serve(address, database, dir, key, nodeConfig string) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil || !net.ParseIP(host).IsLoopback() {
 		return errors.New("server must listen on a numeric loopback address")
@@ -81,6 +91,10 @@ func serve(address, database, dir, key string) error {
 	catalog, err := loadCatalog(dir, key)
 	if err != nil {
 		return fmt.Errorf("load catalog: %w", err)
+	}
+	node, err := loadNodeAccess(nodeConfig)
+	if err != nil {
+		return fmt.Errorf("load node access: %w", err)
 	}
 	db, err := openStore(database)
 	if err != nil {
@@ -91,7 +105,7 @@ func serve(address, database, dir, key string) error {
 	if err != nil {
 		return err
 	}
-	server := &http.Server{Handler: (&api{db: db, catalog: catalog}).handler(), ReadHeaderTimeout: 5 * time.Second,
+	server := &http.Server{Handler: (&api{db: db, catalog: catalog, node: node}).handler(), ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 10 * time.Second, WriteTimeout: time.Minute, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

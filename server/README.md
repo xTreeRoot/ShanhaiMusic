@@ -1,6 +1,6 @@
 # MB Server
 
-独立 Go 模块，部署于 `music.treeroot.top`。SQLite 保存设备授权和不可解密的插件会话，包目录和播放器不依赖数据库。边缘端接口与待办见 [EDGE.md](EDGE.md)。
+独立 Go 模块，部署于 `music.treeroot.top`。SQLite 保存设备授权、加密的插件会话与同步资料；包目录和播放器不依赖数据库。边缘端接口见 [EDGE.md](EDGE.md)。
 
 ## 构建和发布插件
 
@@ -26,6 +26,12 @@ mb-server verify -key catalog.pub -dir release-2
 - VPS 用独立 `mb-server` 系统用户运行 `deploy/mb-server.service`，可执行文件和发布目录都由 root 管理。状态目录 `/var/lib/mb-server` 不随发包替换，SQLite 在 `/var/lib/mb-server/mb.sqlite`。服务只监听 `127.0.0.1:19047`。
 - 部署新包：上传已签名目录至 `/opt/mb-server/releases/<revision>`，用受信公钥运行 `verify`；原子替换 `/opt/mb-server/current` 的符号链接，重启 `mb-server.service`，检查本机和公网 `/healthz` 及 `/v1/catalog`。平时不复用旧修订号。更新二进制先保存上一个版本，失败恢复二进制及兼容目录后重启。
 - 现有 Caddy 只增加 `deploy/mb-server.caddy` 站点，配置检查通过后重载，域名 A 记录指向 VPS。HTTPS 正常后再让客户端接入。Caddy 不开启请求体日志，诊断不打印绑定码、设备令牌或会话。
+
+## 固定密码接入
+
+使用 `mb-server node-config -out <配置文件>` 从标准输入读取节点密码并生成独立恢复密钥，再通过 `deploy/node-access.conf` 配置 systemd。不要把密码放在命令行参数里；密码原样比较，建议使用高熵密码。该模式下同步空间为 `node`，设备管理使用 `-space node`。改密码时保留 `recovery_key`，否则旧会话无法恢复。
+
+升级前备份 SQLite 和节点配置。新版本将旧库迁移到 v2，保留设备和会话；若回滚程序不支持该版本，不能只换二进制，需与升级前的快照配套恢复。对外校验不只看 `/healthz`：还应核对目录签名和已授权设备的 `/v1/sync/overview`。
 
 ## 设备管理
 
