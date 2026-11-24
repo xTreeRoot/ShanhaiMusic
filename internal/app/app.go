@@ -441,6 +441,7 @@ func Run() error {
 		a.restoreSkin()
 		a.setMenu()
 		a.boot()
+		a.refreshEdgeOverview()
 		// The notch player is macOS's, over its menu bar: elsewhere it would
 		// hang at the top of the screen as a black box.
 		if runtime.GOOS == "darwin" {

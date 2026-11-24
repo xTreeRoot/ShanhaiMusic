@@ -2,6 +2,25 @@ package i18n
 
 // zhCN is the app's text in Simplified Chinese, by its English.
 var zhCN = map[string]string{
+	"Simplified Chinese":           "简体中文",
+	"Automatic update checks":      "自动检查更新",
+	"System video window":          "系统视频窗口",
+	"In-app video window":          "应用内视频窗口",
+	"Pause when switching sources": "切换音源时暂停",
+	"Now Playing lyrics":           "系统播放器歌词",
+	"Stage Lyrics":                 "舞台歌词",
+	"Open %s account":              "打开 %s 账号",
+
+	"Device settings":          "设备设置",
+	"Back up this device":      "备份本机",
+	"Loading device settings…": "正在读取设备备份…",
+	"Plugin settings":          "插件设置",
+	"Restore these settings":   "恢复这些设置",
+	"Backing up settings…":     "正在备份设置…",
+	"Restoring settings…":      "正在恢复设置…",
+	"Device settings saved":    "已备份本机设置",
+	"%d restored · %d skipped": "已恢复 %d 项 · 跳过 %d 项",
+
 	"%d stored":                               "已存 %d 项",
 	"App preferences":                         "应用偏好",
 	"Device disconnected":                     "已解除绑定",

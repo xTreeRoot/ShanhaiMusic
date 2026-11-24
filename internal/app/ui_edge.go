@@ -72,6 +72,7 @@ func (a *app) edgeView(c *ui.Context) {
 			}
 		}
 		if authorized {
+			a.edgeDevicesView(c, p)
 			a.edgeCloud(c, p)
 		}
 		if !authorized {

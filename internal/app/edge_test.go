@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mygo-music/internal/edge"
+	"mygo-music/internal/i18n"
 )
 
 func TestEdgeSettingsRequiresAUserAddressAndRejectsHTTP(t *testing.T) {
@@ -147,4 +148,52 @@ func TestEdgeFormClearAndPasswordVisibilityPreserveInput(t *testing.T) {
 		t.Fatal("clearing the address changed another field")
 	}
 	tester.Frame()
+}
+
+func TestEdgeRestoreDeviceSettingsKeepsUnsupportedPreferences(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
+	a.settings.Source = "current"
+	a.edge.profileContext = t.Context()
+	a.edge.service = &edge.Sync{}
+	a.edge.devices = []edge.SettingsDevice{{Key: "synthetic", Name: "iPad", Updated: 1}}
+	a.edge.previewKey = "synthetic"
+	a.edge.preview = &edge.DeviceSettings{Version: 1, App: map[string]string{
+		"quality": "lossless", "smoke": "true", "language": "invalid", "source": "other",
+	}, Plugins: map[string]map[string]string{"missing": {"mode": "auto"}}}
+	oldLanguage := i18n.Language()
+	t.Cleanup(func() { i18n.SetLanguage(oldLanguage) })
+	jobs := make(chan func(), 1)
+	a.postFn = func(job func()) { jobs <- job }
+	tt := ui.NewTester(func(c *ui.Context) { a.edgeDevicesView(c, paletteFor(c.Theme())) }, 620, 700)
+	settled(tt)
+	group := T("App preferences") + " · " + Tf("%d stored", 4)
+	if err := tt.Click(group); err != nil {
+		t.Fatal(err)
+	}
+	settled(tt)
+	if a.edge.settingsGroup != "app" {
+		t.Fatal("did not expand the snapshot preferences")
+	}
+	if dir := os.Getenv("MM_FRAMES"); dir != "" {
+		saveFrame(t, dir, "desktop-device-settings.png", tt.Image())
+	}
+	if err := tt.Click(T("Restore these settings")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case fn := <-jobs:
+		fn()
+	case <-time.After(3 * time.Second):
+		t.Fatal("restore timed out")
+	}
+	if a.settings.Quality != "lossless" || !a.settings.Smoke || a.settings.Source != "current" || a.settings.Language != i18n.System || a.edge.message != Tf("%d restored · %d skipped", 2, 3) {
+		t.Fatalf("unexpected result: %s", a.edge.message)
+	}
+	var persisted settings
+	raw, err := os.ReadFile(a.settings.path)
+	if err != nil || json.Unmarshal(raw, &persisted) != nil || persisted.Quality != "lossless" {
+		t.Fatal("restored quality was not persisted")
+	}
 }

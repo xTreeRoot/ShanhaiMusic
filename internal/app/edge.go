@@ -13,30 +13,34 @@ import (
 )
 
 type edgePanel struct {
-	window            *mygo.Window
-	passwordVisible   bool
-	nodes             *edge.Nodes
-	node              *edge.Node
-	service           *edge.Sync
-	catalog           *edge.Catalog
-	address, password string
-	keyApproval       string
-	keyAddress        string
-	message           string
-	busy              bool
-	activity          string
-	deleteFor         string
-	owner             *library
-	choices           []edge.Candidate
-	fresh             map[*library]edge.Ticket
-	context           context.Context
-	stop              context.CancelFunc
-	profileContext    context.Context
-	profileJobs       map[*library]context.CancelFunc
-	overview          *edge.Overview
-	managedSource     string
-	overviewError     string
-	overviewStop      context.CancelFunc
+	devices                                 []edge.SettingsDevice
+	devicesError, previewKey, settingsGroup string
+	initialSettingsBackup                   bool
+	preview                                 *edge.DeviceSettings
+	window                                  *mygo.Window
+	passwordVisible                         bool
+	nodes                                   *edge.Nodes
+	node                                    *edge.Node
+	service                                 *edge.Sync
+	catalog                                 *edge.Catalog
+	address, password                       string
+	keyApproval                             string
+	keyAddress                              string
+	message                                 string
+	busy                                    bool
+	activity                                string
+	deleteFor                               string
+	owner                                   *library
+	choices                                 []edge.Candidate
+	fresh                                   map[*library]edge.Ticket
+	context                                 context.Context
+	stop                                    context.CancelFunc
+	profileContext                          context.Context
+	profileJobs                             map[*library]context.CancelFunc
+	overview                                *edge.Overview
+	managedSource                           string
+	overviewError                           string
+	overviewStop                            context.CancelFunc
 }
 
 func (a *app) startEdge(ctx context.Context) {
@@ -63,6 +67,9 @@ func (a *app) activateNode(node *edge.Node) {
 		panel.overviewStop()
 	}
 	panel.overview, panel.managedSource, panel.overviewError, panel.overviewStop = nil, "", "", nil
+	panel.devices, panel.devicesError, panel.previewKey, panel.preview = nil, "", "", nil
+	panel.initialSettingsBackup = false
+	panel.settingsGroup = ""
 	panel.node = node
 	panel.owner, panel.choices, panel.deleteFor = nil, nil, ""
 	panel.fresh = make(map[*library]edge.Ticket)
@@ -173,17 +180,34 @@ func (a *app) refreshEdgeOverview() {
 		ctx, cancel := context.WithTimeout(parent, 12*time.Second)
 		defer cancel()
 		overview, err := service.Inspect(ctx, "", "")
+		devices, devicesErr := service.SettingsDevices(ctx)
 		a.post(func() {
 			if parent.Err() != nil || service != panel.service {
 				return
 			}
 			stop()
 			panel.overviewStop = nil
+			panel.devices = devices
+			panel.devicesError = ""
+			if devicesErr != nil {
+				panel.devicesError = edgeError(devicesErr)
+			}
 			if err != nil {
 				panel.overviewError = edgeError(err)
 				return
 			}
 			panel.overview = &overview
+			if devicesErr == nil && !panel.initialSettingsBackup && !panel.busy {
+				for _, device := range devices {
+					if device.Current {
+						panel.initialSettingsBackup = true
+						if device.Updated == 0 {
+							a.backupDeviceSettings()
+						}
+						break
+					}
+				}
+			}
 		})
 	}()
 }
