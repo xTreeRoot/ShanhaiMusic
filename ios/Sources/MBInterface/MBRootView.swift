@@ -172,7 +172,7 @@ public struct MBRootView: View {
             .preferredColorScheme(preferences.values.appearance == .system ? nil : preferences.values.appearance == .dark ? .dark : .light)
             .playerPresentation(isPresented: $showingPlayer) { NowPlayingView(playback: playback, demo: demo, interactionSource: currentInteractions, librarySource: currentLibrarySource, pluginSource: currentPluginSource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: video.isAudioOnly ? nil : { video.watchCurrent() }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
             .sheet(isPresented: $showingQueue) { QueueView(playback: playback) }
-            .sheet(isPresented: $showingService) { ShanhaiServiceView(model: platformData, account: account, profile: verifiedProfileAccount, platform: selectedSourceID) }
+            .sheet(isPresented: $showingService) { ShanhaiServiceView(model: platformData, names: sourceDisplayNames, providers: discoveryProviders).id(plugins.revision) }
             .sheet(isPresented: $showingAppSettings) { SettingsView(preferences: preferences, network: networkSettings, plugins: plugins, skin: skin) }
             .sheet(item: $resourceDetail) { track in
                 NavigationStack { ResourceDetailView(track: track, library: localLibrary)

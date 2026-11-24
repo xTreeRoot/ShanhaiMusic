@@ -81,7 +81,10 @@ final class MBiOSUITests: XCTestCase {
         password.tap(); password.typeText("synthetic fixture")
         app.buttons["显示密码"].tap()
         XCTAssertEqual(app.textFields["node-password"].value as? String, "synthetic fixture")
+        let later = app.sheets["保存密码？"].buttons["以后"]
+        if later.waitForExistence(timeout: 2) { later.tap() }
         app.buttons["隐藏密码"].tap()
+        if later.waitForExistence(timeout: 2) { later.tap() }
         app.buttons["node-connect"].tap()
         XCTAssertTrue(app.staticTexts["node-result"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["node-result"].label.contains("HTTPS"))

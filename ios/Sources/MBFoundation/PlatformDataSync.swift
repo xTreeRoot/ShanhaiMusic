@@ -249,7 +249,7 @@ struct PlatformDataClient: Sendable {
             try await persistence.savePlatformNode(joined)
             node = joined; address = origin.absoluteString; password = ""; revision += 1
             cloudRecords = nil; cloudStatus = nil; sessionStatus = nil
-            message = "已接入节点，本机可以同步。"
+            message = "已接入节点"
         } catch { if !Task.isCancelled { message = error.localizedDescription } }
     }
 
@@ -261,7 +261,7 @@ struct PlatformDataClient: Sendable {
         do {
             try await persistence.savePlatformNode(nil); node = nil; revision += 1
             cloudRecords = nil; cloudStatus = nil; sessionStatus = nil
-            message = "本机已解绑，现有登录和云端记录未变更。"
+            message = "已解除绑定"
         }
         catch { message = error.localizedDescription }
     }
@@ -348,6 +348,20 @@ struct PlatformDataClient: Sendable {
         do { try await client.syncDiscoveryPreferences(node, load: load, merge: merge, stillCurrent: { generation == self.revision && !self.busy }) }
         catch is CancellationError { }
         catch { if generation == revision, !Task.isCancelled { message = error.localizedDescription } }
+    }
+
+    public func publishProfile(from source: any AccountSource, platform: String) async throws -> Bool {
+        guard let node, node.active, !busy else { throw PlatformDataFailure.http(401, "unauthorized") }
+        let generation = revision
+        guard let account = try await source.account() else { return false }
+        try Task.checkCancellation()
+        let local = PlatformProfile(accountID: account.id, displayName: account.name)
+        guard local.valid, revision == generation else { throw CancellationError() }
+        let profile = try await client.sync(node, platform: platform, local: local, publish: true)
+        try Task.checkCancellation()
+        guard revision == generation else { throw CancellationError() }
+        try await persistence.cachePlatformProfile(profile, for: node, platform: platform)
+        return true
     }
 
     public func sync(_ account: SourceAccount?, platform: String, publish: Bool = false) {
