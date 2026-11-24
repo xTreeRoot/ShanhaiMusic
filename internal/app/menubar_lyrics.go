@@ -13,7 +13,6 @@ const (
 	menuBarMinWidth      = 80
 	menuBarMaxWidth      = 600
 	menuBarHeightPoints  = 18
-	menuBarIconPoints    = 18
 	menuBarIconGap       = 6
 	menuBarVideoPoints   = 32
 	menuBarFontSize      = 13

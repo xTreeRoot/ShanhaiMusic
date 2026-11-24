@@ -80,6 +80,26 @@ func (a *app) changeAppIcon() {
 // applyTray adds or removes the icon in the menu bar or notification area,
 // as the settings say.
 func (a *app) applyTray() {
+	if runtime.GOOS == "darwin" && a.settings.MenuBarLyrics {
+		if a.tray != nil {
+			a.tray.Destroy()
+			a.tray = nil
+		}
+		if a.menuBar == nil {
+			status, err := newMenuBarStatus(a.runMenuBarAction, a.updateTrayLyric)
+			if err != nil {
+				log.Println("menu bar:", err)
+			} else {
+				a.menuBar = status
+			}
+		}
+		if a.menuBar != nil {
+			a.syncPlaybackExtras()
+			return
+		}
+	} else {
+		a.closeMenuBar()
+	}
 	switch show := showsTray(a.settings); {
 	case show && a.tray == nil:
 		icon, template := trayColor, false
@@ -93,27 +113,31 @@ func (a *app) applyTray() {
 			return
 		}
 		t.OnClick(a.showMain)
-		t.OnAppearanceChange(a.updateTrayLyric)
 		a.tray = t
-		a.trayLyrics, a.trayTip = menuBarRenderer{}, ""
 	case !show && a.tray != nil:
-		a.trayVideo.release()
 		a.tray.Destroy()
 		a.tray = nil
 	}
-	if runtime.GOOS == "darwin" && a.tray != nil && a.settings.MenuBarLyrics {
-		a.trayControls.show(a.menuBarTransport(), openMenuBarButton, a.runMenuBarAction)
-	} else {
-		a.trayControls.close()
-	}
 	a.syncPlaybackExtras()
+}
+
+func (a *app) closeMenuBar() {
+	if a.menuBar != nil {
+		a.menuBar.close()
+		a.menuBar = nil
+		a.trayLyrics, a.trayTip = menuBarRenderer{}, ""
+		a.trayVideo.release()
+		a.trayVideo.key = ""
+	}
 }
 
 // refreshTray gives the icon its menu anew, as in another language.
 func (a *app) refreshTray() {
 	if a.tray != nil {
 		a.tray.SetMenu(a.trayMenu())
-		a.trayControls.refreshToolTips()
+	}
+	if a.menuBar != nil {
+		a.menuBar.refreshLabels()
 		a.updateTrayLyric()
 	}
 }

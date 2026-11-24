@@ -32,7 +32,7 @@ func TestMenuBarFixedViewport(t *testing.T) {
 	width := 240
 	expected := image.Rect(0, 0, (menuBarStyle{}).imageWidth(width)*menuBarScale, menuBarHeightPoints*menuBarScale)
 	for _, text := range []string{"短句", "i.W 演出红尘一响，凡人又要再等一周！", strings.Repeat("很长的歌词Mixed i.W! ", 6), ""} {
-		b, changed := renderer.frame(text, 0, width, true, menuBarStyle{})
+		b, changed := renderer.frame(text, 0, width, menuBarStyle{})
 		if !changed {
 			t.Fatal("sentence change did not refresh the frame")
 		}
@@ -46,19 +46,12 @@ func TestMenuBarFixedViewport(t *testing.T) {
 			t.Fatal("template background is not transparent")
 		}
 	}
-	b, changed := renderer.frame("短句", time.Second, 320, true, menuBarStyle{})
+	b, changed := renderer.frame("短句", time.Second, 320, menuBarStyle{})
 	if !changed || menuBarImage(t, b).Bounds().Dx() != expected.Dx()+(320-width)*menuBarScale {
 		t.Fatal("width adjustment did not resize the viewport")
 	}
-	if _, changed = renderer.frame("短句", time.Hour, 320, true, menuBarStyle{}); changed {
+	if _, changed = renderer.frame("短句", time.Hour, 320, menuBarStyle{}); changed {
 		t.Fatal("stationary short sentence caused redundant native updates")
-	}
-	b, changed = renderer.frame("短句", 0, 320, false, menuBarStyle{})
-	if !changed || !bytes.Equal(b, trayTemplate) {
-		t.Fatal("disabling lyrics did not restore the icon")
-	}
-	if _, changed = renderer.frame("短句", time.Second, 320, false, menuBarStyle{}); changed {
-		t.Fatal("disabled lyrics kept redrawing")
 	}
 }
 
@@ -66,24 +59,24 @@ func TestMenuBarFixedViewport(t *testing.T) {
 func TestMenuBarPixelMarquee(t *testing.T) {
 	full := strings.Repeat("这是长歌词Mixed i.W! ", 5)
 	var renderer menuBarRenderer
-	first, _ := renderer.frame(full, 0, 160, true, menuBarStyle{})
+	first, _ := renderer.frame(full, 0, 160, menuBarStyle{})
 	frozen := bytes.Clone(first)
-	next, changed := renderer.frame(full, menuBarScrollHold+menuBarFrameInterval, 160, true, menuBarStyle{})
+	next, changed := renderer.frame(full, menuBarScrollHold+menuBarFrameInterval, 160, menuBarStyle{})
 	if !changed || bytes.Equal(next, frozen) {
 		t.Fatal("long sentence did not move")
 	}
 	if renderer.offset < 1 || renderer.offset > 3 {
 		t.Fatalf("first frame jumped %d pixels", renderer.offset)
 	}
-	if _, changed = renderer.frame(full, menuBarScrollHold+menuBarFrameInterval, 160, true, menuBarStyle{}); changed {
+	if _, changed = renderer.frame(full, menuBarScrollHold+menuBarFrameInterval, 160, menuBarStyle{}); changed {
 		t.Fatal("paused playhead redrew the same frame")
 	}
-	back, changed := renderer.frame(full, 0, 160, true, menuBarStyle{})
+	back, changed := renderer.frame(full, 0, 160, menuBarStyle{})
 	if !changed || !bytes.Equal(back, frozen) {
 		t.Fatal("seek did not restore the same pixels")
 	}
 	for i := range 150 {
-		b, _ := renderer.frame(full, menuBarScrollHold+time.Duration(i+2)*menuBarFrameInterval, 160, true, menuBarStyle{})
+		b, _ := renderer.frame(full, menuBarScrollHold+time.Duration(i+2)*menuBarFrameInterval, 160, menuBarStyle{})
 		if len(b) > 0 && menuBarImage(t, b).Bounds() != menuBarImage(t, frozen).Bounds() {
 			t.Fatal("scroll resized the tray")
 		}
@@ -157,7 +150,7 @@ func TestMenuBarFixedFrames(t *testing.T) {
 	sheet := image.NewRGBA(image.Rect(0, 0, 600, 300))
 	draw.Draw(sheet, sheet.Bounds(), image.NewUniform(color.RGBA{R: 30, G: 35, B: 40, A: 255}), image.Point{}, draw.Src)
 	for i, text := range texts {
-		b, _ := renderer.frame(text, 2*time.Second, 240, true, menuBarStyle{dark: true})
+		b, _ := renderer.frame(text, 2*time.Second, 240, menuBarStyle{dark: true})
 		template := menuBarImage(t, b)
 		tinted := image.NewRGBA(template.Bounds())
 		draw.DrawMask(tinted, tinted.Bounds(), image.NewUniform(color.White), image.Point{}, template, image.Point{}, draw.Src)

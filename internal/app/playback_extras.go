@@ -1,31 +1,26 @@
 package app
 
 import (
-	"log"
-	"runtime"
 	"time"
 
 	"github.com/egoist/mygo"
 )
 
 func (a *app) updateTrayLyric() {
-	if runtime.GOOS != "darwin" || a.tray == nil {
+	if a.menuBar == nil || a.quitting {
 		return
 	}
 	a.syncMenuBarVideo()
 	content := a.menuBarContent()
-	style := menuBarStyle{video: a.settings.MenuBarVideo, dark: a.tray.Dark(), preview: a.trayVideo.picture}
-	if a.settings.MenuBarLyrics {
-		a.trayControls.update(a.menuBarTransport())
-	}
-	if frame, changed := a.trayLyrics.frame(content.text, content.elapsed, menuBarWidth(a.settings.MenuBarLyricsWidth), a.settings.MenuBarLyrics, style); changed {
-		if err := a.tray.SetIcon(frame, !a.settings.MenuBarLyrics); err != nil {
-			log.Println("menu bar lyrics:", err)
-		}
+	width := menuBarWidth(a.settings.MenuBarLyricsWidth)
+	style := menuBarStyle{video: a.settings.MenuBarVideo, dark: a.menuBar.dark(), preview: a.trayVideo.picture}
+	a.updateMenuBarControls()
+	if frame, changed := a.trayLyrics.frame(content.text, content.elapsed, width, style); changed {
+		a.menuBar.setFrame(frame, style.imageWidth(width))
 	}
 	tip := content.tip
 	if tip != a.trayTip {
-		a.tray.SetToolTip(tip)
+		a.menuBar.setToolTip(tip)
 		a.trayTip = tip
 	}
 }
@@ -39,7 +34,7 @@ func (a *app) syncPlaybackExtras() {
 	a.syncInlineMV()
 	a.updateTrayLyric()
 	a.syncMV()
-	needed := runtime.GOOS == "darwin" && a.tray != nil && a.settings.MenuBarLyrics && (a.pl.Playing() || a.trayVideo.needsFrames())
+	needed := a.menuBar != nil && (a.pl.Playing() || a.trayVideo.needsFrames())
 	if !needed || a.extrasTick {
 		return
 	}

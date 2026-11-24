@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/audio"
 	"github.com/egoist/mygo/mbvideo"
 	"github.com/egoist/mygo/ui"
@@ -24,7 +23,6 @@ import (
 // A failed startup preview can retry when Play reloads the same track's media.
 func TestMenuBarVideoRetriesSameTrack(t *testing.T) {
 	a := newTestApp()
-	a.tray = new(mygo.Tray)
 	ch := posts(a)
 	requests := make(chan string, 4)
 	src := &mvSource{fakeSource: fake(a), video: func(id, _ string) (*music.VideoStream, error) {
@@ -63,7 +61,6 @@ func TestMenuBarVideoRejectsStaleLoad(t *testing.T) {
 	for _, disable := range []bool{true, false} {
 		t.Run(map[bool]string{true: "disabled", false: "skipped"}[disable], func(t *testing.T) {
 			a := newTestApp()
-			a.tray = new(mygo.Tray)
 			started, release := make(chan struct{}), make(chan struct{})
 			src := &mvSource{fakeSource: fake(a), video: func(string, string) (*music.VideoStream, error) {
 				close(started)
@@ -99,7 +96,7 @@ func TestMenuBarVideoRejectsStaleLoad(t *testing.T) {
 	}
 }
 
-// A real system decoder supplies moving color frames before the fixed lyric
+// A real system decoder supplies moving color frames beside the fixed lyric
 // viewport and follows the same audio pause/resume/seek commands as the main MV.
 func TestMenuBarNativeVideo(t *testing.T) {
 	data, err := os.ReadFile("testdata/mv.mp4")
@@ -122,7 +119,6 @@ func TestMenuBarNativeVideo(t *testing.T) {
 	p.SetMuted(true)
 	p.Pause()
 	a := newTestApp()
-	a.tray = new(mygo.Tray)
 	a.library.src = &mvSource{fakeSource: fake(a)}
 	a.library.src.(*mvSource).caps["video"] = true
 	a.pl.Cue([]music.Track{videoSong("1", "First")})
@@ -203,18 +199,19 @@ func TestMenuBarNativeVideo(t *testing.T) {
 	if p.Playing() {
 		t.Fatal("preview kept playing while audio paused")
 	}
-	b, changed := a.trayLyrics.frame("演出红尘一响，凡人又要再等一周！", 0, 240, true, menuBarStyle{video: true, dark: true, preview: a.trayVideo.picture})
+	const lyricWidth = 240
+	b, changed := a.trayLyrics.frame("演出红尘一响，凡人又要再等一周！", 0, lyricWidth, menuBarStyle{video: true, dark: true, preview: a.trayVideo.picture})
 	if !changed {
 		t.Fatal("video did not reach the status bar image")
 	}
 	combined := menuBarImage(t, b)
-	if combined.Bounds().Dx() != (menuBarStyle{video: true}).imageWidth(240)*menuBarScale {
+	if combined.Bounds().Dx() != (menuBarStyle{video: true}).imageWidth(lyricWidth)*menuBarScale {
 		t.Fatal("video changed lyric viewport width")
 	}
 	colored := false
 	for y := range menuBarHeightPoints * menuBarScale {
 		for x := range menuBarVideoPoints * menuBarScale {
-			r, g, b, _ := combined.At(x, y).RGBA()
+			r, g, b, _ := combined.At((lyricWidth+menuBarIconGap)*menuBarScale+x, y).RGBA()
 			if r != g || g != b {
 				colored = true
 			}
@@ -241,14 +238,14 @@ func TestMenuBarNativeVideo(t *testing.T) {
 	}
 }
 
-// Video loading, failures, and new frames keep the left slot and lyric viewport fixed.
+// Video loading, failures, and new frames keep the preview slot and lyric viewport fixed.
 func TestMenuBarVideoWidthAndAppearance(t *testing.T) {
 	const width = 240
 	const expected = (width + menuBarVideoPoints + menuBarIconGap) * menuBarScale
 	var renderer menuBarRenderer
 	preview := image.NewRGBA(image.Rect(0, 0, 64, 36))
 	for _, style := range []menuBarStyle{{video: true}, {video: true, preview: preview}, {video: true, dark: true, preview: preview}} {
-		b, _ := renderer.frame("short", 0, width, true, style)
+		b, _ := renderer.frame("short", 0, width, style)
 		if menuBarImage(t, b).Bounds().Dx() != expected {
 			t.Fatal("preview loading or appearance resized the status item")
 		}

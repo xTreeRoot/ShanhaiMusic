@@ -116,6 +116,7 @@ func (a *app) toggleLike(tr *music.Track) {
 	}
 	id, like := tr.ID, !lib.liked[tr.ID]
 	lib.liked[id] = like
+	a.updateMenuBarControls()
 	liked := *tr
 	send := lib.src.Like
 	if tr.ShowID != "" {
@@ -128,6 +129,7 @@ func (a *app) toggleLike(tr *music.Track) {
 				if lib.liked != nil {
 					lib.liked[id] = !like
 				}
+				a.updateMenuBarControls()
 				a.actionFailed(lib, err, T("That didn't work. Try again later."))
 				return
 			}

@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/mbvideo"
+	"github.com/egoist/mygo/ui"
 	"mygo-music/internal/music"
 )
 
@@ -50,7 +50,7 @@ func (m *menuBarVideoState) needsFrames() bool {
 }
 
 func (a *app) menuBarVideoActive() bool {
-	return !a.quitting && a.tray != nil && a.settings.MenuBarLyrics && a.settings.MenuBarVideo && a.canMV()
+	return !a.quitting && a.settings.MenuBarLyrics && a.settings.MenuBarVideo && a.canMV()
 }
 
 func (a *app) syncMenuBarVideo() {
