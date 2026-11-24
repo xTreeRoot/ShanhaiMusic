@@ -147,7 +147,13 @@ internal class MBApplication : Application(), ImageLoaderFactory {
         if (track.sourceId == localSourceId) local.observeCaptions(track.sourceTrackId)
         else flow { emit(playbackSource(track.sourceId)?.captions(track.sourceTrackId).orEmpty()) }
 
-    suspend fun refreshPlugins(forceReload: Boolean = false) = synchronizePlugins.withLock {
+    suspend fun retirePluginForDataRestore(id: String) = synchronizePlugins.withLock {
+        val current = activePlugins.value[id]
+        activePlugins.value = activePlugins.value - id
+        current?.source?.close()
+    }
+
+    suspend fun refreshPlugins(forceReload: Boolean = false, reloadIds: Set<String> = emptySet()) = synchronizePlugins.withLock {
         val records = plugins.installed()
         records.forEach { com.xtreeroot.mb.plugin.LegacyPluginStorage.migrate(this, it) }
         val configurations = records.filter(InstalledPlugin::enabled).map { it to plugins.settings(it) }
@@ -158,7 +164,7 @@ internal class MBApplication : Application(), ImageLoaderFactory {
         }
         val previous = activePlugins.value
         val next = configurations.associate { (plugin, values) ->
-            val current = previous[plugin.id]?.takeIf { !forceReload && it.revision == plugin.revision }
+            val current = previous[plugin.id]?.takeIf { !forceReload && plugin.id !in reloadIds && it.revision == plugin.revision }
             val source = if (current == null) {
                 PluginSource(plugin.manifest, PluginRuntime(assets, plugin.directory, plugin.dataDirectory,
                     plugin.manifest, values, language, PluginHttpTransport(network.proxySelector), pluginWebSignIn::show,

@@ -88,6 +88,12 @@ internal class NodeClient(http: OkHttpClient) {
     suspend fun delete(binding: NodeBinding, key: PlatformDataKey, tag: String): String =
         change(request(binding, key).header("If-Match", verifiedTag(tag)).delete(), 204)
 
+    suspend fun renameDevice(binding: NodeBinding, name: String) {
+        exchange(request(binding, "v1/sync/device").patch(JSONObject().put("name", name.trim()).toString().toRequestBody(jsonType)).build()) { response ->
+            if (response.code != 204) throw response.failure()
+        }
+    }
+
     suspend fun settingsDevices(binding: NodeBinding): List<SettingsDevice> =
         exchange(request(binding, "v1/sync/devices").build()) { response ->
             if (response.code != 200) throw response.failure()

@@ -10,6 +10,10 @@ import kotlinx.coroutines.CancellationException
 import com.xtreeroot.mb.plugin.PluginSetting
 import com.xtreeroot.mb.plugin.PluginSource
 import kotlinx.coroutines.launch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
+import com.xtreeroot.mb.ui.components.MBAlertDialog
 
 @Composable
 internal fun DeviceSettingsSection(app: MBApplication, node: NodeBinding, names: Map<String,String>, accounts: Map<String,String>, openAccount: (String) -> Unit) {
@@ -18,6 +22,10 @@ internal fun DeviceSettingsSection(app: MBApplication, node: NodeBinding, names:
     var preview by remember { mutableStateOf<DeviceSettings?>(null) }
     var restoring by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    var deviceName by remember { mutableStateOf("") }
+    var pluginChoices by remember { mutableStateOf(emptyList<BackupPluginChoice>()) }
+    var pluginsLoaded by remember { mutableStateOf(false) }
+    var confirmPlugin by remember { mutableStateOf<BackupPluginChoice?>(null) }
     var result by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val installed by app.installedPlugins.collectAsStateWithLifecycle()
@@ -45,9 +53,16 @@ internal fun DeviceSettingsSection(app: MBApplication, node: NodeBinding, names:
     fun refresh() = run { devices = app.nodeClient.settingsDevices(node) }
     LaunchedEffect(node) { run {
         devices = app.nodeClient.settingsDevices(node)
-
+        deviceName = devices.firstOrNull { it.current }?.name.orEmpty()
     } }
     MBGroupedSection(mb("设备设置","Device settings")) {
+        OutlinedTextField(deviceName, { deviceName = it }, enabled = !busy, singleLine = true, label = { Text(mb("本机名称", "Device name")) })
+        MBFormRow(mb("保存名称", "Save name"), enabled = !busy && deviceName.isNotBlank(), onClick = { run {
+            app.nodeClient.renameDevice(node, deviceName)
+            devices = app.nodeClient.settingsDevices(node)
+            deviceName = devices.firstOrNull { it.current }?.name ?: deviceName
+            result = "设备名称已保存"
+        } })
         MBFormRow(mb("备份本机","Back up this device"), enabled = !busy, onClick = { run {
             backup()
         } })
@@ -57,12 +72,20 @@ internal fun DeviceSettingsSection(app: MBApplication, node: NodeBinding, names:
         for (device in devices.filter { restoring && !it.current && it.updated > 0 }) {
             MBFormRow(device.name + " · " + device.key.takeLast(6) + " · " + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(device.updated * 1000)), disclosure = true, enabled = !busy, onClick = {
                 if (selected == device) { selected = null; preview = null }
-                else run { val data = app.nodeClient.readSettingsSnapshot(node,device); selected = device; preview = data }
+                else run { val data = app.nodeClient.readSettingsSnapshot(node,device); selected = device; preview = data; pluginChoices = emptyList(); pluginsLoaded = false; confirmPlugin = null }
             })
             val data = preview
             if (selected == device && data != null) {
                 data.backup?.let { MBFormRow(mb("完整备份 · ${it.plugins} 个插件", "Complete backup · ${it.plugins} plugins")) }
                 if (data.backup == null) MBFormRow(mb("旧备份：仅含设置", "Older backup: settings only"))
+                if (data.backup != null) {
+                    MBFormRow(mb("选择插件信息恢复", "Choose plugin information to restore"), enabled = !busy, onClick = { run {
+                        pluginChoices = NodeDeviceBackup(app, node).pluginChoices(device, data)
+                        pluginsLoaded = true
+                    } })
+                    if (pluginsLoaded && pluginChoices.isEmpty()) MBFormRow(mb("此备份中没有插件", "No plugins in this backup"))
+                    for (plugin in pluginChoices) MBFormRow((names[plugin.id] ?: plugin.name) + mb(" · 恢复插件信息", " · Restore plugin information"), enabled = !busy, onClick = { confirmPlugin = plugin })
+                }
                 key(device.key) { SnapshotGroup(mb("App 设置","App settings"), data.app, null) }
                 for ((id, items) in data.plugins.toSortedMap()) key(device.key, id) {
                     val fields = installed.find { it.id == id }?.manifest?.settings.orEmpty()
@@ -94,6 +117,20 @@ internal fun DeviceSettingsSection(app: MBApplication, node: NodeBinding, names:
         if (busy) MBFormRow(mb("处理中…","Working…"))
         nodeError?.let { MBFormRow(profileFailure(it)) }
         result?.let { MBFormRow(it) }
+    }
+    confirmPlugin?.let { plugin ->
+        val device = selected
+        val data = preview
+        MBAlertDialog(onDismissRequest = { confirmPlugin = null }, title = { Text(mb("覆盖所选插件的信息", "Replace selected plugin information")) },
+            text = { Text(mb("将用“${device?.name.orEmpty()}”的“${names[plugin.id] ?: plugin.name}”设置、登录信息和私有数据覆盖本机该插件。", "Replace this plugin's settings, sign-in information and private data from ${device?.name.orEmpty()}.")) },
+            confirmButton = { TextButton(onClick = {
+                confirmPlugin = null
+                if (device != null && data != null) run {
+                    NodeDeviceBackup(app, node).restorePlugin(device, data, plugin.id)
+                    result = "已覆盖所选插件的信息"
+                }
+            }) { Text(mb("覆盖此插件的信息", "Replace this plugin's information")) } },
+            dismissButton = { TextButton(onClick = { confirmPlugin = null }) { Text(mb("取消", "Cancel")) } })
     }
 }
 

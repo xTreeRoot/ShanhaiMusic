@@ -10,6 +10,7 @@ import com.xtreeroot.mb.music.toTrackMetadata
 import com.xtreeroot.mb.playback.QueueSnapshot
 import com.xtreeroot.mb.plugin.DiscoveryPreferences
 import com.xtreeroot.mb.plugin.restoreDeviceArchivePlugins
+import com.xtreeroot.mb.plugin.restorePluginInformation
 import com.xtreeroot.mb.plugin.PluginPreferences
 import com.xtreeroot.mb.preferences.AppPreferences
 import java.io.File
@@ -25,6 +26,33 @@ import org.json.JSONObject
 
 /** 完整设备备份与恢复；所有网络、压缩和媒体工作在 IO 线程执行，节点身份不迁移。 */
 internal class NodeDeviceBackup(private val app: MBApplication, private val node: NodeBinding) {
+    suspend fun pluginChoices(device: SettingsDevice, settings: DeviceSettings): List<BackupPluginChoice> = withContext(Dispatchers.IO) {
+        withArchive(device, settings) { doc, _ ->
+            doc.getJSONArray("plugins").objects().map { BackupPluginChoice(it.getString("id"), it.text("name") ?: it.getString("id")) }
+        }
+    }
+
+    suspend fun restorePlugin(device: SettingsDevice, settings: DeviceSettings, id: String) = withContext(Dispatchers.IO) {
+        withArchive(device, settings) { doc, stage ->
+            app.retirePluginForDataRestore(id)
+            try { app.plugins.restorePluginInformation(doc, stage, id) { active() } }
+            finally { withContext(NonCancellable) { app.refreshPlugins(reloadIds = setOf(id)) } }
+        }
+    }
+
+    private suspend fun <T> withArchive(device: SettingsDevice, settings: DeviceSettings, apply: suspend (JSONObject, File) -> T): T {
+        val directory = directory()
+        try {
+            active()
+            val archive = File(directory, "device.zip")
+            transfer.download(device.key, requireNotNull(settings.backup), archive)
+            val stage = File(directory, "content")
+            val doc = DeviceArchive.extract(archive, stage)
+            active()
+            return apply(doc, stage)
+        } finally { directory.deleteRecursively() }
+    }
+
     private val transfer = DeviceBackupTransfer(app.nodeClient, node)
     private fun checkCurrent() { check(app.settings.nodeBinding.value === node) { "Node changed" } }
     private suspend fun active() { currentCoroutineContext().ensureActive(); checkCurrent() }

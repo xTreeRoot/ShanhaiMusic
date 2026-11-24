@@ -8,6 +8,7 @@ import com.xtreeroot.mb.music.AudioQuality
 import org.json.JSONObject
 
 internal data class SettingsDevice(val key: String, val name: String, val updated: Long, val current: Boolean)
+internal data class BackupPluginChoice(val id: String, val name: String)
 internal data class DeviceSettings(val app: Map<String, String>, val plugins: Map<String, Map<String, String>>, val accounts: Map<String, String>,
                                   val backup: DeviceBackupReference? = null, val previousBackup: DeviceBackupReference? = null) {
     fun encode() = JSONObject().put("value", JSONObject().put("version", 1).put("app", JSONObject(app))

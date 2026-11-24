@@ -13,6 +13,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.json.JSONArray
 import org.json.JSONObject
+import com.xtreeroot.mb.plugin.restorePluginInformation
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -92,4 +93,36 @@ class DeviceBackupTest {
         assertTrue(runCatching { installer.restoreDeviceArchivePlugins(doc, stage) }.isFailure)
         assertTrue(installer.installed().isEmpty())
     }
+    @Test fun selectedPluginRestoreOverwritesPrivateDataKeepsCodeAndOtherPlugin() = runBlocking {
+        val root = temporary.newFolder()
+        val stage = File(root, "content").apply { mkdirs() }
+        val records = JSONArray()
+        for (id in listOf("chosen", "other")) {
+            val directory = File(stage, "plugins/$id").apply { mkdirs() }
+            packageFile(File(directory, "package.zip"), id)
+            File(directory, "data").mkdirs()
+            File(directory, "data/storage.json").writeText("from-B-$id")
+            records.put(JSONObject().put("id", id).put("enabled", true).put("settings", JSONObject().put("mode", "from-B")))
+        }
+        val doc = manifest().put("plugins", records)
+        val installer = PluginInstaller(File(root, "installed"))
+        installer.restoreDeviceArchivePlugins(doc, stage)
+        val chosen = installer.installed().first { it.id == "chosen" }
+        val other = installer.installed().first { it.id == "other" }
+        val code = File(chosen.directory, "index.js").apply { writeText("// newer installed code") }
+        File(chosen.dataDirectory, "storage.json").writeText("local-A")
+        File(chosen.dataDirectory, "old-file").writeText("old")
+        File(other.dataDirectory, "storage.json").writeText("other-local-A")
+        assertTrue(runCatching { installer.restorePluginInformation(doc, stage, "missing") }.isFailure)
+        assertTrue(runCatching { installer.restorePluginInformation(doc, stage, "chosen") { throw kotlinx.coroutines.CancellationException() } }.isFailure)
+        assertEquals("local-A", File(chosen.dataDirectory, "storage.json").readText())
+        installer.restorePluginInformation(doc, stage, "chosen")
+        assertEquals("from-B-chosen", File(chosen.dataDirectory, "storage.json").readText())
+        assertEquals("other-local-A", File(other.dataDirectory, "storage.json").readText())
+        assertFalse(File(chosen.dataDirectory, "old-file").exists())
+        assertEquals("from-B", installer.settings(chosen)["mode"])
+        assertEquals("// newer installed code", code.readText())
+        assertEquals(2, installer.installed().size)
+    }
+
 }
