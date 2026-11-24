@@ -14,7 +14,8 @@ permissions:
 jobs:
   package:
     if: github.ref == 'refs/heads/main' && (!inputs.stage_release || github.repository == 'xTreeRoot/ShanhaiMusic')
-    runs-on: macos-latest
+    # arm64 hosted runners 持续排队时，使用 Intel Mac 交叉构建既有 arm64 交付物。
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v7
         with:
