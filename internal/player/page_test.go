@@ -39,3 +39,28 @@ func TestReplacementQueueIgnoresOldPage(t *testing.T) {
 		t.Fatal("late page changed a replacement queue")
 	}
 }
+
+func TestQueuePageRequestAppendsWithoutChangingSelection(t *testing.T) {
+	player := New(func(func()) {})
+	first := music.Track{ID: "one"}
+	player.Cue([]music.Track{first, {ID: "two"}, {ID: "three"}})
+	requests := 0
+	var complete func([]music.Track, bool, error)
+	player.pageFeed = func(got func([]music.Track, bool, error)) {
+		requests++
+		complete = got
+	}
+	player.refill()
+	if requests != 0 {
+		t.Fatal("prefetched while far from the end of playback")
+	}
+	player.LoadNextQueuePage()
+	player.LoadNextQueuePage()
+	if requests != 1 {
+		t.Fatalf("requested %d pages for the same in-flight cursor", requests)
+	}
+	complete([]music.Track{first, {ID: "four"}}, false, nil)
+	if len(player.Queue()) != 4 || player.Queue()[3].ID != "four" || player.Current().ID != first.ID || player.Playing() {
+		t.Fatalf("bad queue after loading: %+v, current %+v", player.Queue(), player.Current())
+	}
+}

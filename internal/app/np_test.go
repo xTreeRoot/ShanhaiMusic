@@ -75,6 +75,40 @@ func TestQueueStaysAsATrackIsPlayed(t *testing.T) {
 	}
 }
 
+func TestQueueScrollLoadsNextPageWithoutSelectingIt(t *testing.T) {
+	a := newTestApp()
+	post := posts(a)
+	var tracks []music.Track
+	for index := range 25 {
+		tracks = append(tracks, song(fmt.Sprint(index+1), fmt.Sprintf("Queue item %02d", index+1)))
+	}
+	calls := make(chan bool, 1)
+	a.playCatalog(a.library, tracks[:24], 0, func() ([]music.Track, bool, error) {
+		calls <- true
+		return tracks[23:], false, nil
+	})
+	a.nowPlaying, a.npPane = true, paneQueue
+	tester := ui.NewTester(a.view, 1200, 800)
+	settled(tester)
+	row, ok := tester.Find("Queue item 04")
+	if !ok {
+		t.Fatal("queue row not shown")
+	}
+	select {
+	case <-calls:
+		t.Fatal("requested a page before the list was at the bottom")
+	default:
+	}
+	tester.Scroll(row.X+row.W/2, row.Y+row.H/2, 0, 100000)
+	tester.Advance(time.Second)
+	settled(tester)
+	wait(t, calls, "queue continuation")
+	until(t, post, func() bool { return len(a.pl.Queue()) == 25 })
+	if a.pl.Current().ID != tracks[0].ID || a.pl.Queue()[24].ID != tracks[24].ID {
+		t.Fatal("pagination moved playback or appended the duplicate boundary row")
+	}
+}
+
 // The app chooses Now Playing's pane before it makes the player: it
 // crashed on start when the choice asked the player what played.
 func TestLyricsPaneBeforePlayer(t *testing.T) {

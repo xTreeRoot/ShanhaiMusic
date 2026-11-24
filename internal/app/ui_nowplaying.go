@@ -875,4 +875,11 @@ func (a *app) queuePane(c *ui.Context) {
 			pl.Jump(i)
 		}
 	}).Grow(1).Padding(8, 0, 40, 0).Gap(2)
+	if more, loading, failed := pl.QueuePages(); more {
+		if failed {
+			ui.Button(c.Key("queue-page-retry"), T("Retry")).OnClick(pl.LoadNextQueuePage)
+		} else if _, last := a.queueList.Visible(); !loading && last == len(order)-1 && a.queueList.AtEnd() {
+			pl.LoadNextQueuePage()
+		}
+	}
 }

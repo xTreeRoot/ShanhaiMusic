@@ -66,6 +66,7 @@ type Player struct {
 	feeding    bool // the feed is asked
 	awaiting   bool // at the queue's end, for what the feed gives
 	pageManual bool
+	pageFailed bool
 
 	track         *music.Track
 	out           *audio.Player
@@ -299,7 +300,7 @@ func (p *Player) endRadio() {
 	p.radioGen++
 	p.radio, p.feed, p.feeding, p.awaiting = "", nil, false, false
 	p.pageFeed = nil
-	p.pageManual = false
+	p.pageManual, p.pageFailed = false, false
 }
 
 func (p *Player) hasFeed() bool { return p.feed != nil || p.pageFeed != nil }
@@ -307,12 +308,26 @@ func (p *Player) hasFeed() bool { return p.feed != nil || p.pageFeed != nil }
 // Radio returns the name of the radio playing, or "".
 func (p *Player) Radio() string { return p.radio }
 
-// refill asks the radio for more once the queue is near its end.
+func (p *Player) QueuePages() (more, loading, failed bool) {
+	return p.pageFeed != nil, p.pageFeed != nil && p.feeding, p.pageFailed
+}
+
+func (p *Player) LoadNextQueuePage() {
+	if p.pageFeed != nil {
+		p.refillQueue(true)
+	}
+}
+
 func (p *Player) refill() {
-	if !p.hasFeed() || p.feeding || p.at < len(p.order)-2 {
+	p.refillQueue(false)
+}
+
+func (p *Player) refillQueue(requested bool) {
+	if !p.hasFeed() || p.feeding || (!requested && (p.at < len(p.order)-2 || p.pageFailed && !p.awaiting)) {
 		return
 	}
 	p.feeding = true
+	p.pageFailed = false
 	gen := p.radioGen
 	if p.pageFeed != nil {
 		p.pageFeed(func(tracks []music.Track, more bool, err error) {
@@ -320,11 +335,15 @@ func (p *Player) refill() {
 				return
 			}
 			p.feeding = false
+			p.pageFailed = err != nil
 			if err == nil && !more {
 				p.pageFeed = nil
 			}
 			p.appendTracks(tracks)
 			if !p.awaiting {
+				if p.Changed != nil {
+					p.Changed()
+				}
 				return
 			}
 			p.awaiting = false

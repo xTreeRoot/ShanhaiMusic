@@ -92,7 +92,7 @@ func (a *app) playCatalog(lib *library, tracks []music.Track, index int, next ca
 			for range 8 {
 				batch, more, err := next()
 				fresh := newCatalogTracks(known, batch)
-				if len(fresh) != 0 || len(batch) != 0 || !more || err != nil {
+				if len(fresh) != 0 || !more || err != nil {
 					a.post(func() {
 						if lib.accountGen != gen {
 							got(nil, false, nil)
