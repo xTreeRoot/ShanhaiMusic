@@ -28,21 +28,22 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Home as OutlineHome
 import androidx.compose.material.icons.outlined.Person as OutlinePerson
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.xtreeroot.mb.ui.components.MBDropdownMenu as DropdownMenu
+import com.xtreeroot.mb.ui.components.MBMenuItem as DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.xtreeroot.mb.ui.components.MBIconButton as IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
+import com.xtreeroot.mb.ui.components.MBNavigationRailItem as NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
+import com.xtreeroot.mb.ui.components.MBTopAppBar as TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -118,6 +119,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                     background: AppearanceBackgroundModel = viewModel(), nodeProfile: NodeProfileSyncModel = viewModel()) {
     val context = LocalContext.current
     val app = context.applicationContext as MBApplication
+    PluginPreferencesSynchronization()
     val settings = app.settings
     val preferences by settings.values.collectAsStateWithLifecycle()
     val backgroundState by background.state.collectAsStateWithLifecycle()
@@ -153,31 +155,55 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
     }
     val english = preferences.language.usesEnglish()
     CompositionLocalProvider(LocalMBEnglish provides english, LocalVideoBrowse provides (preferences.playbackMode == PlaybackMode.Video),
-        LocalTrackPlaybackIssues provides trackPlaybackIssues) {
-    MaterialTheme(colorScheme = if (dark) musicDark else musicLight) {
+        LocalTrackPlaybackIssues provides trackPlaybackIssues,
+        LocalPlayCatalogPages provides { tracks, track, pages -> player.play(tracks, track, pages = pages) }) {
+    val skinStyle = if (backgroundState.preview != null) backgroundState.previewStyle else preferences.backgroundStyle
+    val skinImage = backgroundState.preview ?: backgroundState.image
+    val skinOpacity = if (backgroundState.preview != null) backgroundState.previewOpacity else preferences.backgroundOpacity
+    com.xtreeroot.mb.ui.components.MBTheme(dark, accent = if (skinImage == null) null else skinStyle.accent.color(if (dark) musicDark.primary else musicLight.primary)) {
         var tab by rememberSaveable { mutableStateOf(Tab.Discover) }
         var category by rememberSaveable { mutableStateOf<DiscoveryCategory?>(null) }
         var showPlayer by rememberSaveable { mutableStateOf(false) }
         var showVideo by rememberSaveable { mutableStateOf(false) }
+        var floatingVideo by rememberSaveable { mutableStateOf(false) }
+        val activity = context as? com.xtreeroot.mb.MainActivity
+        val systemVideo = activity?.pictureInPicture?.value == true
         var miniCover by remember { mutableStateOf<Rect?>(null) }
         var showQueue by rememberSaveable { mutableStateOf(false) }
+        var showService by rememberSaveable { mutableStateOf(false) }
         var showSettings by rememberSaveable { mutableStateOf(false) }
         var showPlugins by rememberSaveable { mutableStateOf(false) }
         val pluginState by plugins.state.collectAsStateWithLifecycle()
+        var discoveryPagePosition by remember { mutableStateOf<Float?>(null) }
         val sourceNames = buildMap {
-            if (preferences.builtInEnabled) put(app.bilibili.id, mb("哔哩哔哩", "Bilibili"))
-            pluginState.installed.filter { it.enabled }.forEach { put(it.id, it.manifest.name) }
+            pluginState.installed.filter { it.enabled }.forEach { put(it.id, it.displayName) }
         }
+        CompositionLocalProvider(LocalSourceNames provides (sourceNames + pluginState.installed.associate { it.id to it.displayName })) {
         val sourceId = selectedSourceId(preferences.selectedSourceId, sourceNames.keys)
         val activeSource = sourceId?.let(app::musicSource)
         val pluginSource = activeSource as? PluginSource
         val searchUiState = key(activeSource) { rememberSaveableStateHolder() }
         LaunchedEffect(activeSource) {
-            browser.activateSearch(activeSource)
             pluginAccount.activate(pluginSource)
-            if (activeSource !== app.bilibili) account.cancelSignIn()
+            account.cancelSignIn()
         }
-        val catalog = remember(pluginSource) { PluginCatalogNavigator() }
+        val catalogs = remember { mutableMapOf<PluginSource, PluginCatalogNavigator>() }
+        val navigator: (PluginSource) -> PluginCatalogNavigator = { catalogs.getOrPut(it) { PluginCatalogNavigator() } }
+        val catalog = remember(pluginSource) { pluginSource?.let(navigator) ?: PluginCatalogNavigator() }
+        var searchTarget by rememberSaveable { mutableStateOf<String?>(null) }
+        val target = searchTarget?.takeIf { it == "all" || it in sourceNames } ?: sourceId.orEmpty()
+        val searchIdentity = "search:$target"
+        LaunchedEffect(target, sourceNames, pluginState.installed.map { it.id to it.revision }) {
+            val query = browser.searchPages(SearchScope.Music).state.value.value.query
+            try {
+                val provider = searchSource(app, target, sourceNames)
+                browser.activateSearch(provider)
+                if (query.isNotBlank()) browser.submitSearch(SearchScope.Music, query)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { saved.report(error) }
+        }
+        var modeNotice by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(modeNotice) { if (modeNotice != null) { kotlinx.coroutines.delay(1400); modeNotice = null } }
         val page = catalog.current
         val visibleCatalog = page ?: catalog.home.takeIf { tab == Tab.Discover && pluginSource != null }
         LaunchedEffect(pluginState.requestedRepository) {
@@ -188,10 +214,31 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         val libraryPage by library.pages.state.collectAsStateWithLifecycle()
         var browseCreators by rememberSaveable(sourceId, stateSaver = creatorStackSaver) { mutableStateOf(emptyList()) }
         var playerCreators by rememberSaveable(sourceId, stateSaver = creatorStackSaver) { mutableStateOf(emptyList()) }
+        var playerPluginCreator by remember { mutableStateOf<com.xtreeroot.mb.plugin.PluginEntity?>(null) }
         val browsingPlayback = showPlayer || showVideo
         val creatorRoute = (if (browsingPlayback) playerCreators else browseCreators).lastOrNull()
-        val creatorPage by library.creatorPages.state.collectAsStateWithLifecycle()
-        val playback by player.playback.collectAsStateWithLifecycle()
+        val playback by player.playback.collectAsStateWithLifecycle(minActiveState = androidx.lifecycle.Lifecycle.State.CREATED)
+        val creatorSource = (if (browsingPlayback) playback.current?.sourceId?.let(app::playbackSource) else activeSource) as? LibrarySource
+        val creatorPages = remember(creatorSource) {
+            LibraryPages(scope, { creatorSource?.invalidateLibraryCache() }) { route, cursor ->
+                creatorSource?.library(route, cursor) ?: throw IllegalStateException("此来源不支持作者主页")
+            }
+        }
+        LaunchedEffect(creatorPages, creatorRoute) { creatorPages.open(creatorRoute) }
+        DisposableEffect(creatorPages) { onDispose { creatorPages.open(null) } }
+        val creatorPage by creatorPages.state.collectAsStateWithLifecycle()
+
+        val videoTrack = playback.current
+        val videoFrame = if ((showVideo || floatingVideo || systemVideo) && videoTrack != null) rememberVideoFrame(videoTrack, preferences.systemVideoWindow) else null
+        val minimizeVideo: () -> Unit = {
+            showVideo = false
+            if (preferences.inAppVideoWindow) floatingVideo = true else { floatingVideo = false; player.closeVideo() }
+        }
+        LaunchedEffect(preferences.inAppVideoWindow) { if (!preferences.inAppVideoWindow) { floatingVideo = false; if (!showVideo) player.closeVideo() } }
+        SideEffect { activity?.configureVideoWindow(preferences.systemVideoWindow && (showVideo || floatingVideo) &&
+            playback.playWhenReady && playback.current != null && videoFrame?.player != null, playback.playWhenReady, videoFrame?.aspectRatio ?: 16f / 9f) }
+        val restoreWindow = activity?.restoreVideoWindow?.intValue
+        LaunchedEffect(restoreWindow) { if (restoreWindow != null && restoreWindow > 0) { floatingVideo = false; showVideo = true } }
         val markedTrack = playback.current?.let { track ->
             MarkedTrack(track.id, when {
                 playback.error != null -> TrackPlaybackMark.Failed
@@ -215,14 +262,13 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         val nodeBinding by settings.nodeBinding.collectAsStateWithLifecycle()
         val nodeProfileState by nodeProfile.state.collectAsStateWithLifecycle()
         val accountSource = activeSource as? AccountSource
-        val selectedAccount = if (activeSource === app.bilibili) account else pluginAccount
-        val visibleAccount = if (activeSource === app.bilibili) user else pluginUser
+        val selectedAccount = pluginAccount
+        val visibleAccount = pluginUser
         val nodeTarget = NodeProfileTarget.verified(nodeBinding, sourceId, visibleAccount.verifiedFor(accountSource))
         fun currentNodeTarget(): NodeProfileTarget? {
             if (sourceId == null || app.musicSource(sourceId) !== activeSource) return null
             val latest = settings.values.value
             val available = buildList {
-                if (latest.builtInEnabled) add(app.bilibili.id)
                 app.installedPlugins.value.filter { it.enabled }.forEach { add(it.id) }
             }
             if (selectedSourceId(latest.selectedSourceId, available) != sourceId) return null
@@ -232,38 +278,21 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         val webSignIn by app.pluginWebSignIn.requests.collectAsStateWithLifecycle(initialValue = null)
         val oauthSignIn by app.pluginOAuth.requests.collectAsStateWithLifecycle(initialValue = null)
         val webLink by app.pluginWebLink.collectAsStateWithLifecycle()
-        val playbackAccount = if (playback.current?.sourceId == app.bilibili.id) user.account
-            else pluginUser.account.takeIf { playback.current?.sourceId == pluginSource?.id && pluginUser.verifiedSource === pluginSource }
+        val playbackAccount = pluginUser.account.takeIf { playback.current?.sourceId == pluginSource?.id && pluginUser.verifiedSource === pluginSource }
         val playbackSignedIn = playbackAccount != null
         val isWide = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() >= 720.dp }
-        LaunchedEffect(preferences.builtInEnabled) {
-            account.activate(app.bilibili.takeIf { preferences.builtInEnabled })
-            if (!preferences.builtInEnabled) {
-                browser.sourceDisabled()
-                category = null
-                routes = arrayListOf()
-                browseCreators = emptyList()
-                playerCreators = emptyList()
-            }
-        }
-        LaunchedEffect(user.account?.id, preferences.builtInEnabled) { if (preferences.builtInEnabled) browser.refresh() }
-        LaunchedEffect(accountRoute, user.account?.id, preferences.builtInEnabled) {
-            library.pages.open(accountRoute.takeIf { preferences.builtInEnabled })
-        }
-        LaunchedEffect(creatorRoute, user.account?.id, preferences.builtInEnabled) {
-            library.creatorPages.open(creatorRoute.takeIf { preferences.builtInEnabled })
-        }
-        LaunchedEffect(browsingPlayback) { if (!browsingPlayback) playerCreators = emptyList() }
+        LaunchedEffect(browsingPlayback) { if (!browsingPlayback) { playerCreators = emptyList(); playerPluginCreator = null } }
         LaunchedEffect(playback.connected, playback.current?.id, playback.presentation.mode, playback.connectionIssue) {
-            if ((playback.connected || playback.connectionIssue != null) && playback.current == null) { showPlayer = false; showVideo = false }
+            if ((playback.connected || playback.connectionIssue != null) && playback.current == null) { showPlayer = false; showVideo = false; floatingVideo = false }
             if (playback.connectionIssue != null) showQueue = false
-            if (playback.presentation.mode == PlaybackMode.Music) showVideo = false
+            if (playback.presentation.mode == PlaybackMode.Music) { showVideo = false; floatingVideo = false }
         }
         LaunchedEffect(playback.presentation.opening) {
             if (playback.presentation.opening != seenVideoOpening) {
+                floatingVideo = false
                 seenVideoOpening = playback.presentation.opening
-                showPlayer = false
-                showVideo = true
+                showPlayer = playback.presentation.mode == PlaybackMode.Music
+                showVideo = playback.presentation.mode == PlaybackMode.Video
             }
         }
         val select: (List<Track>, Track) -> Unit = { tracks, track ->
@@ -286,21 +315,33 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         val showArtist: (String) -> Unit = { id ->
             val destination = LibraryRoute.Creator(id)
             focus.clearFocus()
-            if (browsingPlayback) {
+            val provider = playback.current?.sourceId?.let(app::playbackSource)
+            if (browsingPlayback && provider is com.xtreeroot.mb.plugin.PluginSource) {
+                playerPluginCreator = com.xtreeroot.mb.plugin.PluginEntity(com.xtreeroot.mb.plugin.PluginEntityKind.Artist, id,
+                    playback.current?.artist.orEmpty())
+            } else if (browsingPlayback) {
                 if (playerCreators.lastOrNull() != destination) playerCreators = playerCreators + destination
             } else if (browseCreators.lastOrNull() != destination) browseCreators = browseCreators + destination
         }
         val back: () -> Unit = {
             when {
+                backgroundState.preview != null -> background.cancelPreview()
                 showPlugins -> showPlugins = false
                 showQueue -> showQueue = false
+                showService -> showService = false
                 showSettings -> showSettings = false
                 showPlayer -> showPlayer = false
-                showVideo -> { showVideo = false; player.closeVideo() }
+                showVideo -> minimizeVideo()
                 browseCreators.isNotEmpty() -> browseCreators = browseCreators.dropLast(1)
                 page != null -> catalog.back()
                 accountRoute != null -> routes = ArrayList(routes.dropLast(1))
                 else -> category = null
+            }
+        }
+        LaunchedEffect(backgroundState.preview != null) {
+            if (backgroundState.preview != null) {
+                showSettings = false; showPlugins = false; showPlayer = false; showVideo = false; showQueue = false
+                tab = Tab.Discover; category = null; browseCreators = emptyList(); catalog.reset()
             }
         }
         val switchTab: (Tab) -> Unit = { item ->
@@ -311,8 +352,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
         }
         val switchSource: (String) -> Unit = { id ->
             if (id != sourceId) {
-                player.clear()
-                player.closeVideo()
+                player.didSwitchSource(id, preferences.pauseOtherSourcesOnSwitch)
                 showPlayer = false
                 showVideo = false
                 showQueue = false
@@ -323,30 +363,37 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                 browseCreators = emptyList()
                 playerCreators = emptyList()
                 catalog.reset()
-                browser.activateSearch(app.musicSource(id))
                 settings.update { it.copy(selectedSourceId = id) }
             }
         }
         val refresh: () -> Unit = {
             val currentCategory = category
             when {
-                visibleCatalog is CatalogDestination.Content -> visibleCatalog.pager.invalidate()
+                visibleCatalog is CatalogDestination.Content && pluginSource != null -> scope.launch { visibleCatalog.refresh(pluginSource) }
                 currentCategory != null -> browser.refreshCategory(currentCategory)
                 else -> browser.refresh()
             }
         }
-        BackHandler(showPlayer || showVideo || showQueue || showSettings || showPlugins || category != null || accountRoute != null ||
+        BackHandler(backgroundState.preview != null || showPlayer || showVideo || showQueue || showSettings || showService || showPlugins || category != null || accountRoute != null ||
             creatorRoute != null || page != null,
             onBack = back)
-        if (showPlugins) {
+        AppearanceBackdrop(if (systemVideo || showVideo || (showPlayer && !skinStyle.appliesToPlayer)) null else skinImage,
+            dark, skinOpacity, skinStyle) { surface ->
+        Box(Modifier.fillMaxSize()) {
+        if (systemVideo) {
+            FloatingVideoWindow(videoFrame, playback, true, player::toggle, {}, {})
+        } else if (showPlugins) {
             PluginsView(plugins, pluginState, removed = player::removeSource) { showPlugins = false }
+        } else if (showService) {
+            run {
+                NodeSettingsView(app, nodeProfileState, nodeTarget != null, {
+                    val target = currentNodeTarget()
+                    nodeProfile.publish(target) { currentNodeTarget() == target }
+                }, surface) { showService = false }
+            }
         } else if (showSettings) {
-            AppearanceBackdrop(backgroundState.image, dark) { surface ->
+            run {
                 SettingsView(preferences, settings::update, saved, browser, backgroundState, background, surface,
-                    nodeProfileState, nodeTarget != null, {
-                        val target = currentNodeTarget()
-                        nodeProfile.publish(target) { currentNodeTarget() == target }
-                    },
                     openPlugins = { showPlugins = true }) { showSettings = false }
             }
         } else if (showPlayer && playback.current != null) {
@@ -359,10 +406,10 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
             CompositionLocalProvider(LocalTrackActions provides openTrackActions, LocalMarkedTrack provides markedTrack) {
                 VideoDetailsScreen(player, playback, preferences, accountId = playbackAccount?.id, fullScreen = videoFullscreen,
                     setFullScreen = { videoFullscreen = it },
-                    browse = { showVideo = false; player.closeVideo() },
-                    chooseMode = choosePlaybackMode)
+                    browse = minimizeVideo,
+                    chooseMode = choosePlaybackMode, sharedFrame = videoFrame, ownsVideoFrame = false)
             }
-        } else AppearanceBackdrop(backgroundState.image, dark) { surface ->
+        } else run {
             val atRoot = page == null && category == null && accountRoute == null && creatorRoute == null
             val discoverRoot = atRoot && tab == Tab.Discover
             Scaffold(
@@ -374,25 +421,26 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                         else category?.title() ?: accountRoute?.let { libraryPage.value.title ?: it.title() } ?: mb(tab.chinese, tab.english)
                     TopAppBar(title = {
                         if (!atRoot) Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        else if (discoverRoot) Text("MB", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                        else if (discoverRoot && sourceId != null) MusicTabs(sourceNames, sourceId, discoveryPagePosition, switchSource)
                     },
-                        expandedHeight = if (atRoot) 48.dp else 64.dp,
+                        largeTitle = false, expandedHeight = if (atRoot) 48.dp else 64.dp,
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = surface),
                         navigationIcon = {
                         if (!atRoot) IconButton(onClick = back) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, mb("返回", "Back"))
                         }
                     }, actions = {
-                        if (discoverRoot) {
-                            IconButton(onClick = { switchTab(Tab.Search) }) { Icon(Icons.Default.Search, mb("搜索", "Search")) }
-                        } else if (atRoot && tab != Tab.Library && sourceId != null) {
+                        if (atRoot && tab == Tab.Account && sourceId != null) {
                             SourceSwitcher(sourceNames, sourceId, switchSource)
                         }
-                        if (creatorRoute == null && (tab == Tab.Discover || tab == Tab.Search)) {
-                            BrowsingModeSwitcher(preferences.playbackMode, compact = discoverRoot, choose = choosePlaybackMode)
+                        if (creatorRoute == null && tab == Tab.Discover) {
+                            BrowsingModeSwitcher(preferences.playbackMode, compact = discoverRoot, choose = { mode ->
+                                choosePlaybackMode(mode)
+                                modeNotice = if (mode == PlaybackMode.Music) (if (english) "Music Mode" else "听歌模式") else (if (english) "Video Mode" else "视频模式")
+                            })
                         }
                         if (discoverRoot) {
-                            DiscoverMore(refresh.takeIf { sourceId != null }, settings = { showSettings = true })
+                            if (playback.current == null) DiscoverMore(refresh.takeIf { sourceId != null }, settings = { showSettings = true })
                         } else if (creatorRoute == null) {
                             if (page is CatalogDestination.Content) TextButton(onClick = refresh) { Text(mb("刷新", "Refresh")) }
                             IconButton(onClick = { showSettings = true }) { Icon(Icons.Default.Settings, mb("设置", "Settings")) }
@@ -400,7 +448,9 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                     })
                 },
                 bottomBar = {
-                    if (!isWide || playback.current != null || playback.connectionIssue != null) MusicBottomDock {
+                    if (backgroundState.preview != null) BackgroundPreviewControls(backgroundState, background::setPreviewOpacity,
+                        background::cancelPreview, background::confirmPreview, background::setPreviewStyle)
+                    else if (!isWide || playback.current != null || playback.connectionIssue != null) MusicBottomDock {
                         playback.connectionIssue?.let { PlaybackConnectionNotice(it, player::retry) }
                         if (playback.current != null) {
                             MiniPlayer(playback, open = { showPlayer = true }, toggle = player::toggle,
@@ -416,7 +466,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                 },
             ) { padding ->
                 Row(Modifier.fillMaxSize().padding(padding)) {
-                    if (isWide) NavigationRail(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()),
+                    if (isWide) NavigationRail(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()), containerColor = surface,
                         windowInsets = WindowInsets(0, 0, 0, 0)) {
                         Tab.entries.forEach { item ->
                             NavigationRailItem(item == tab, onClick = { switchTab(item) },
@@ -425,31 +475,32 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                     }
                     Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
                         Column(Modifier.widthIn(max = 900.dp).fillMaxWidth().fillMaxHeight()) {
-                            if (discoverRoot && sourceId != null) MusicTabs(sourceNames, sourceId, switchSource)
                             Box(Modifier.weight(1f).fillMaxWidth()) {
                                 CompositionLocalProvider(LocalTrackActions provides openTrackActions, LocalMarkedTrack provides markedTrack) {
                                     if (creatorRoute != null) key(creatorRoute) {
-                                        AccountLibraryView(library.creatorPages, {}, select)
+                                        AccountLibraryView(creatorPages, {}, select)
                                     } else tabState.SaveableStateProvider(tab) {
                                         when {
-                                            visibleCatalog != null && pluginSource != null -> PluginCatalogBrowser(pluginSource,
-                                                visibleCatalog, catalog, select, player::play)
-                                            tab != Tab.Library && sourceId == null -> EmptyMessage(mb("没有可用音源", "No available sources"))
+                                            page != null && pluginSource != null -> PluginCatalogBrowser(pluginSource,
+                                                page, catalog, select, player::play)
+                                            tab == Tab.Discover && sourceId == null -> EmptyMessage(mb("没有可用音源", "No available sources"))
                                             category != null -> CategoryView(browser, checkNotNull(category), select)
                                             else -> when (tab) {
-                                                Tab.Discover -> Discover(browser, select, openCategory)
-                                                Tab.Search -> {
-                                                    val id = activeSource?.id
-                                                    if (id != null) searchUiState.SaveableStateProvider(id) {
-                                                        Search(browser, id, pluginSource, pluginSource?.let { catalog::search },
-                                                            openCategory.takeIf { activeSource === app.bilibili }, select)
-                                                    } else EmptyMessage(mb("没有可用音源", "No available sources"))
-                                                }
+                                                Tab.Discover -> DiscoveryPlatforms(sourceNames.keys.toList(), sourceId.orEmpty(), switchSource,
+                                                    { app.musicSource(it) as? PluginSource }, navigator, select, player::play, { discoveryPagePosition = it }) { Discover(browser, select, openCategory) }
+                                                Tab.Search -> Search(browser, searchIdentity, app.musicSource(target) as? PluginSource, null,
+                                                    null, { tracks, track ->
+                                                        choosePlaybackMode(if (track.resourceType == "video") PlaybackMode.Video else PlaybackMode.Music)
+                                                        select(tracks, track)
+                                                    }, sourceNames, target, { searchTarget = it }, saved,
+                                                    playPages = { tracks, track, pages ->
+                                                        choosePlaybackMode(if (track.resourceType == "video") PlaybackMode.Video else PlaybackMode.Music)
+                                                        player.play(tracks, track, pages = pages)
+                                                    })
                                                 Tab.Library -> LocalLibraryView(select, selectGroup, saved)
-                                                Tab.Account -> if (pluginSource != null) PluginPersonalContent(pluginSource, catalog, pluginAccount, pluginUser)
-                                                else if (accountRoute == null) AccountView(account) { route ->
-                                                    routes = ArrayList(routes + route)
-                                                } else AccountLibraryView(library.pages, { routes = ArrayList(routes + it) }, select)
+                                                Tab.Account -> if (pluginSource != null) PluginPersonalContent(pluginSource, catalog, pluginAccount, pluginUser,
+                                                    openSettings = { showSettings = true }, openPlugins = { showPlugins = true }, openService = { showService = true })
+                                                else Column { AccountTools({ showSettings = true }, { showPlugins = true }, { showService = true }); EmptyMessage(mb("请安装并启用插件", "Install and enable a plugin")) }
                                             }
                                         }
                                     }
@@ -460,9 +511,21 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                 }
             }
         }
-        if (browsingPlayback && creatorRoute != null && !showSettings && !showPlugins) {
+        if (floatingVideo && !showVideo && !systemVideo && preferences.inAppVideoWindow) {
+            FloatingVideoWindow(videoFrame, playback, false, player::toggle,
+                { floatingVideo = false; showVideo = true }, { floatingVideo = false; player.closeVideo() })
+        }
+        }
+        }
+        val playingPlugin = playback.current?.sourceId?.let(app::playbackSource) as? com.xtreeroot.mb.plugin.PluginSource
+        if (browsingPlayback && playerPluginCreator != null && playingPlugin != null) {
+            PluginCreatorDialog(playingPlugin, checkNotNull(playerPluginCreator), close = { playerPluginCreator = null },
+                play = { tracks, track -> playerPluginCreator = null; select(tracks, track) },
+                station = { tracks, track, station -> playerPluginCreator = null; player.play(tracks, track, station) })
+        }
+        if (browsingPlayback && creatorRoute != null && !showSettings && !showService && !showPlugins) {
             CompositionLocalProvider(LocalTrackActions provides openTrackActions, LocalMarkedTrack provides markedTrack) {
-                CreatorUploadsDialog(creatorPage.value.title ?: creatorRoute.title(), library.creatorPages,
+                CreatorUploadsDialog(creatorPage.value.title ?: creatorRoute.title(), creatorPages,
                     close = { playerCreators = emptyList() }, back = if (playerCreators.size > 1) ({
                         playerCreators = playerCreators.dropLast(1)
                     }) else null, play = { tracks, track ->
@@ -471,6 +534,7 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                     })
             }
         }
+        AutomaticAppUpdates(preferences.automaticUpdateChecks, canPresent = backgroundState.preview == null && !showPlayer && !showVideo && !showQueue && !showSettings && !showService && !showPlugins && !pluginUser.signingIn && !pluginUser.choosingSignInMethod && webSignIn == null && oauthSignIn == null && webLink == null && actionTrack == null)
         val webRequest = webSignIn
         val oauthRequest = oauthSignIn
         if (oauthRequest != null) key(oauthRequest.id) {
@@ -509,7 +573,14 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (failure: Exception) { exportTrack = null; saved.report(failure) }
                     }
-                }, creator = showArtist.takeIf { app.playbackSource(track.sourceId) is LibrarySource })
+                }, creator = showArtist.takeIf { track.sourceId == sourceId && app.playbackSource(track.sourceId) is LibrarySource })
+        }
+        modeNotice?.let { message -> androidx.compose.ui.window.Popup(alignment = Alignment.Center) {
+            androidx.compose.material3.Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp), shadowElevation = 4.dp,
+                color = MaterialTheme.colorScheme.inverseSurface) {
+                Text(message, Modifier.padding(horizontal = 22.dp, vertical = 14.dp).semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.inverseOnSurface)
+            }
+        } }
         }
     }
     }
@@ -545,19 +616,11 @@ private fun PlaybackConnectionNotice(issue: PlaybackConnectionIssue, reconnect: 
 
 @Composable
 private fun BrowsingModeSwitcher(mode: PlaybackMode, compact: Boolean, choose: (PlaybackMode) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
     val current = if (mode == PlaybackMode.Video) mb("视频模式", "Video Mode") else mb("听歌模式", "Music Mode")
-    Box {
-        if (compact) IconButton(onClick = { expanded = true }) {
-            Icon(if (mode == PlaybackMode.Video) Icons.Default.PlayArrow else Icons.AutoMirrored.Filled.List, current)
-        } else TextButton(onClick = { expanded = true }) { Text(current) }
-        DropdownMenu(expanded, { expanded = false }) {
-            PlaybackMode.entries.forEach { option ->
-                DropdownMenuItem(text = { Text(if (option == PlaybackMode.Video) mb("视频模式", "Video Mode") else mb("听歌模式", "Music Mode")) },
-                    onClick = { expanded = false; choose(option) })
-            }
-        }
-    }
+    val toggle = { choose(if (mode == PlaybackMode.Music) PlaybackMode.Video else PlaybackMode.Music) }
+    if (compact) IconButton(onClick = toggle) {
+        Icon(if (mode == PlaybackMode.Video) Icons.Default.PlayArrow else Icons.AutoMirrored.Filled.List, current)
+    } else TextButton(onClick = toggle) { Text(current) }
 }
 
 @Composable

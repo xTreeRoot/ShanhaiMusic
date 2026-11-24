@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -26,9 +26,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+import com.xtreeroot.mb.preferences.BackgroundSkinStyle
+
 internal enum class BackgroundError { Load, Import, Clear }
 
-internal data class AppearanceBackgroundState(val image: Bitmap? = null, val busy: Boolean = true, val error: BackgroundError? = null)
+internal data class AppearanceBackgroundState(val image: Bitmap? = null, val busy: Boolean = true, val error: BackgroundError? = null, val candidate: Bitmap? = null, val preview: Bitmap? = null, val previewOpacity: Float = 0.25f, val previewStyle: BackgroundSkinStyle = BackgroundSkinStyle())
 
 internal class AppearanceBackgroundModel(application: Application) : AndroidViewModel(application) {
     private val store = (application as MBApplication).appearanceBackground
@@ -45,8 +47,51 @@ internal class AppearanceBackgroundModel(application: Application) : AndroidView
         }
     }
 
-    fun select(uri: Uri) {
-        if (!current.value.busy) edit(BackgroundError.Import) { store.replace(uri) }
+    fun prepare(uri: Uri) = prepare { store.prepare(uri) }
+    fun prepareRemote(address: String) = prepare { store.prepareRemote(address) }
+    private fun prepare(action: suspend () -> Bitmap) {
+        if (current.value.busy) return
+        val previous = current.value
+        current.value = previous.copy(busy = true, error = null)
+        editJob = viewModelScope.launch {
+            try { current.value = previous.copy(busy = false, candidate = action()) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { current.value = previous.copy(busy = false, error = BackgroundError.Import) }
+        }
+    }
+    fun discardCandidate() {
+        editJob?.cancel()
+        current.value = current.value.copy(busy = false, candidate = null, error = null)
+    }
+    fun beginPreview(candidate: Bitmap, opacity: Float, style: BackgroundSkinStyle = BackgroundSkinStyle()) {
+        if (!current.value.busy) current.value = current.value.copy(candidate = null, preview = candidate,
+            previewOpacity = opacity.coerceIn(0f, 1f), previewStyle = style, error = null)
+    }
+    fun setPreviewOpacity(opacity: Float) {
+        if (!current.value.busy) current.value = current.value.copy(previewOpacity = opacity.coerceIn(0f, 1f))
+    }
+    fun setPreviewStyle(transform: (BackgroundSkinStyle) -> BackgroundSkinStyle) {
+        if (!current.value.busy) current.value = current.value.copy(previewStyle = transform(current.value.previewStyle))
+    }
+    fun cancelPreview() {
+        if (!current.value.busy) current.value = current.value.copy(preview = null, error = null)
+    }
+    fun confirmPreview() {
+        val previous = current.value
+        val candidate = previous.preview ?: return
+        if (previous.busy) return
+        current.value = previous.copy(busy = true, error = null)
+        editJob = viewModelScope.launch {
+            try {
+                val saved = store.save(candidate)
+                getApplication<MBApplication>().settings.update { it.copy(backgroundOpacity = previous.previewOpacity, backgroundStyle = previous.previewStyle) }
+                current.value = AppearanceBackgroundState(image = saved, busy = false)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { current.value = previous.copy(busy = false, error = BackgroundError.Import) }
+        }
+    }
+    fun apply(candidate: Bitmap) {
+        if (!current.value.busy) edit(BackgroundError.Import) { store.save(candidate) }
     }
 
     fun clear() {
@@ -61,21 +106,6 @@ internal class AppearanceBackgroundModel(application: Application) : AndroidView
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { previous.copy(busy = false, error = error) }
         }
-    }
-}
-
-@Composable
-internal fun AppearanceBackdrop(image: Bitmap?, dark: Boolean, content: @Composable (Color) -> Unit) {
-    val base = MaterialTheme.colorScheme.background
-    Box(Modifier.fillMaxSize()) {
-        if (image != null) {
-            Box(Modifier.matchParentSize().background(base))
-            Image(remember(image) { image.asImageBitmap() }, contentDescription = null, modifier = Modifier.matchParentSize(),
-                contentScale = ContentScale.Crop)
-            val veil = if (dark) Color.Black.copy(alpha = 0.76f) else Color.White.copy(alpha = 0.80f)
-            Box(Modifier.matchParentSize().background(veil))
-        }
-        content(if (image == null) base else Color.Transparent)
     }
 }
 

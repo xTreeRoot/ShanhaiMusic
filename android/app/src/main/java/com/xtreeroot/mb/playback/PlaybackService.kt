@@ -188,7 +188,7 @@ internal class PlaybackService : MediaLibraryService() {
         }
         val recovery = AudioRecovery(scope, player, ::invalidateAddress)
         val video = VideoPlayback(app, app.http, player, scope,
-            { app.playbackSource(it.sourceId) as? VideoSource }, { app.settings.values.value.quality })
+            { app.playbackSource(it.sourceId) as? VideoSource }, { app.settings.values.value.videoQuality })
         this.video = video
         val stations = StationPlayback(player, scope, { app.playbackSource(it) as? StationPlaybackSource }) { status ->
             app.stationStatus.value = status
@@ -196,7 +196,10 @@ internal class PlaybackService : MediaLibraryService() {
             persist()
         }
         this.stations = stations
-        val sessionPlayer = CaptionSessionPlayer(player, video, stations) {
+        val pages = PagedPlayback(player, scope, { !it.isUnavailable && it.resourceUrl == null && app.acceptsTrack(it) }) {
+            (session?.player as? CaptionSessionPlayer)?.stationChanged()
+        }
+        val sessionPlayer = CaptionSessionPlayer(player, video, stations, pages, app.pendingPlaybackPages::take) {
             recovery.reset()
             invalidateAddress(player.currentMediaItem)
         }
@@ -207,12 +210,18 @@ internal class PlaybackService : MediaLibraryService() {
             return AudioTarget(uri, source, app.settings.values.value.quality)
         }
         fun refreshPrefetch() {
+            video.preload(player.currentMediaItem?.track()?.takeIf { player.isPlaying && !it.isUnavailable })
+            val videoNext = if (player.isPlaying && player.duration > 0 && player.currentPosition.toDouble() / player.duration >= 0.7 && !player.currentTimeline.isEmpty) {
+                val nextIndex = player.currentTimeline.getNextWindowIndex(player.currentMediaItemIndex, player.repeatMode, player.shuffleModeEnabled)
+                if (nextIndex == C.INDEX_UNSET || nextIndex == player.currentMediaItemIndex) null else player.getMediaItemAt(nextIndex).track()
+            } else null
+            video.preloadNext(videoNext)
             preloader.expire()
             if (!player.playWhenReady || video.frames.value != null) { preloader.cancel(); return }
             val eligible = canPrefetchAudio(player.currentPosition, player.duration, player.isPlaying, videoActive = false)
             val index = player.currentMediaItemIndex
             val next = if (!eligible || player.currentTimeline.isEmpty ||
-                (stations.station != null && index == player.mediaItemCount - 1)) null else {
+                (stations.station != null && index == player.mediaItemCount - 1) || (pages.pending && pages.atTail)) null else {
                 val nextIndex = player.currentTimeline.getNextWindowIndex(index, player.repeatMode, player.shuffleModeEnabled)
                 if (nextIndex == C.INDEX_UNSET) null else target(player.getMediaItemAt(nextIndex))
                     ?.takeUnless { it.uri == player.currentMediaItem?.localConfiguration?.uri }
@@ -322,8 +331,14 @@ internal class PlaybackService : MediaLibraryService() {
                             app.playbackSource(candidate.sourceId) is StationPlaybackSource &&
                                 safe.all { it.track()?.sourceId == candidate.sourceId }
                         }
-                        val items = if (station == null) safe else safe.mapIndexed { index, item ->
-                            if (index == startIndex) item.withStation(station) else item
+                        val token = mediaItems.getOrNull(startIndex)?.pagesToken().takeIf { controller.uid == applicationInfo.uid }
+                        val items = if (station == null && token == null) safe else safe.mapIndexed { index, item ->
+                            when {
+                                index != startIndex -> item
+                                station != null -> item.withStation(station)
+                                token != null -> item.withPages(token)
+                                else -> item
+                            }
                         }
                         MediaSession.MediaItemsWithStartPosition(items, startIndex, startPositionMs)
                     }, MoreExecutors.directExecutor())
@@ -458,23 +473,22 @@ internal class PlaybackService : MediaLibraryService() {
             app.settings.values.map { it.quality }.distinctUntilChanged().drop(1).collect { preloader.cancel(); refreshPrefetch() }
         }
         scope.launch {
-            app.settings.values.map { it.builtInEnabled }.distinctUntilChanged().collect { enabled ->
-                val track = player.currentMediaItem?.track()
-                if (!enabled && track?.sourceId == app.bilibili.id && synchronized(locations) { locations[track.id]?.file == null }) {
-                    player.pause()
-                    player.stop()
-                    synchronized(locations) { locations.remove(track.id) }
-                    cacheJob?.cancel()
-                }
-            }
+            app.settings.values.map { it.videoQuality }.distinctUntilChanged().drop(1).collect { video.qualityChanged() }
         }
         scope.launch {
             combine(currentMedia, app.settings.values) { track, preferences ->
-                track?.takeIf { preferences.nowPlayingLyrics && (it.sourceId != app.bilibili.id || preferences.builtInEnabled) }
+                track?.takeIf { preferences.nowPlayingLyrics }
             }.distinctUntilChanged().collectLatest { track ->
                 sessionPlayer.showCaption(track?.id, null)
                 if (track == null) return@collectLatest
                 showSystemCaptions(app, track, player, sessionPlayer)
+            }
+        }
+        scope.launch {
+            combine(currentMedia, app.installedPlugins) { track, _ -> track }.collect { track ->
+                if (track != null && !app.acceptsTrack(track) && synchronized(locations) { locations[track.id]?.file == null }) {
+                    player.pause(); player.stop(); cacheJob?.cancel()
+                }
             }
         }
         app.videoPlayback.value = video

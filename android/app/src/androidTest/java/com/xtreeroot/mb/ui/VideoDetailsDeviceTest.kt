@@ -50,6 +50,77 @@ class VideoDetailsDeviceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app = instrumentation.targetContext.applicationContext as MBApplication
 
+    @Test fun portraitResourcesUseTallPictureAndOpenCommentsCaptionsAndSave() = runBlocking {
+        instrumentation.uiAutomation.serviceInfo = instrumentation.uiAutomation.serviceInfo.apply {
+            flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        }
+        val id = "portrait-ui-${UUID.randomUUID()}"
+        val plugin = app.plugins.install(app.plugins.prepareZip { fixtureZip(id).inputStream() })
+        var activity: MainActivity? = null
+        var engine: androidx.media3.exoplayer.ExoPlayer? = null
+        val firstFrame = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val track = Track(id, "first", "Portrait fixture", "Creator", videoWidth = 1080, videoHeight = 1920, shortVideo = true, pageUrl = "https://media.example.test/watch")
+        try {
+            app.plugins.setEnabled(plugin, true); app.refreshPlugins()
+            val screen = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+            activity = screen
+            withContext(Dispatchers.Main) {
+                val player = ViewModelProvider(screen)[PlaybackModel::class.java]
+                val preferences = app.settings.values.value
+                val clip = File(app.cacheDir, "portrait-ui-fixture.mp4")
+                instrumentation.context.assets.open("video-portrait.mp4").use { input -> clip.outputStream().use(input::copyTo) }
+                val videoPlayer = androidx.media3.exoplayer.ExoPlayer.Builder(app).build().also {
+                    it.addListener(object : androidx.media3.common.Player.Listener {
+                        override fun onRenderedFirstFrame() { firstFrame.complete(Unit) }
+                        override fun onPlayerError(error: androidx.media3.common.PlaybackException) { firstFrame.completeExceptionally(error) }
+                    })
+                    engine = it; it.setMediaItem(androidx.media3.common.MediaItem.fromUri(android.net.Uri.fromFile(clip))); it.prepare()
+                }
+                val videoFrame = com.xtreeroot.mb.playback.VideoFrameState(track.id, player = videoPlayer, loading = false, aspectRatio = 9f / 16f,
+                    quality = "1080p", qualities = listOf(com.xtreeroot.mb.music.VideoQualityOption("1080p", "1080p"), com.xtreeroot.mb.music.VideoQualityOption("720p", "720p")))
+                screen.setContent { com.xtreeroot.mb.ui.components.MBTheme(true) {
+                    CompositionLocalProvider(LocalMBEnglish provides true) {
+                        VideoDetailsScreen(player, PlaybackState(tracks = listOf(track), index = 0), preferences,
+                            accountId = null, fullScreen = false, setFullScreen = {}, browse = {}, chooseMode = {}, sharedFrame = videoFrame, ownsVideoFrame = false)
+                    }
+                } }
+            }
+            await("Portrait fixture"); await("Video Actions")
+            withTimeout(10_000) { firstFrame.await() }
+            await("Like"); await("Share")
+            withContext(Dispatchers.Main) {
+                fun picture(view: android.view.View): androidx.media3.ui.PlayerView? {
+                    if (view is androidx.media3.ui.PlayerView) return view
+                    if (view is android.view.ViewGroup) for (index in 0 until view.childCount) {
+                        picture(view.getChildAt(index))?.let { return it }
+                    }
+                    return null
+                }
+                val view = checkNotNull(picture(screen.window.decorView))
+                val viewport = android.graphics.Point().also { screen.windowManager.defaultDisplay.getRealSize(it) }
+                assertEquals("视频使用保持比例的裁切铺满", androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM, view.resizeMode)
+                assertEquals("画面不为顶部和进度条预留黑边", viewport.y, view.height)
+            }
+            captureVideoControl("android-portrait-controls.png")
+            tap("Comments"); await("First page request 1")
+            captureVideoControl("android-portrait-comments.png")
+            instrumentation.uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            tap("Video Actions"); tap("Save to Library")
+            withTimeout(5_000) { while (app.resourceBookmarks.tracks.value.none { it.id == track.id }) delay(25) }
+            await("Saved")
+            captureVideoControl("android-portrait-more.png")
+            tap("Video Quality"); tap("720p")
+            assertEquals("720p", app.settings.values.value.videoQuality)
+            tap("Close"); tap("Video Actions")
+            tap("Captions"); await("No Captions")
+            captureVideoControl("android-portrait-video.png")
+        } finally {
+            app.resourceBookmarks.remove(track.id)
+            withContext(Dispatchers.Main) { activity?.finish(); engine?.release() }
+            app.plugins.remove(app.plugins.installed().single { it.id == id }); app.refreshPlugins()
+        }
+    }
+
     @Test fun discoveryAndCategoryUseVideoCardsWithDurationsAndKeepTheSectionQueue() = runBlocking {
         val tracks = listOf(
             Track("video-grid", "first", "Morning Lights", "Fixture Artist", durationMs = 61_000),
@@ -73,7 +144,7 @@ class VideoDetailsDeviceTest {
                 val model = ViewModelProvider(activity, factory)["video-grid", BrowseModel::class.java]
                 model.refresh()
                 activity.setContent {
-                    MaterialTheme(colorScheme = musicDark) {
+                    com.xtreeroot.mb.ui.components.MBTheme(true) {
                         CompositionLocalProvider(LocalMBEnglish provides true, LocalVideoBrowse provides video.value) {
                             Surface {
                                 val play: (List<Track>, Track) -> Unit = { queue, track -> selection.value = queue to track }
@@ -95,7 +166,7 @@ class VideoDetailsDeviceTest {
             }
             verifyCards()
             captureVideoControl("android-discovery-video-grid.png")
-            tap("More")
+            tap("See More Music Charts")
             await("Play All")
             verifyCards()
             tap(tracks[1].title)
@@ -103,10 +174,162 @@ class VideoDetailsDeviceTest {
             withContext(Dispatchers.Main) { video.value = false }
             await(tracks[1].title) { node ->
                 val first = matches(tracks.first().title).firstOrNull()?.let { Rect().also(it::getBoundsInScreen) }
-                first != null && first.bottom <= Rect().also(node::getBoundsInScreen).top
+                first != null && first.top == Rect().also(node::getBoundsInScreen).top
             }
         } finally {
             withContext(Dispatchers.Main) { activity.finish() }
+        }
+    }
+
+    @Test fun musicDiscoveryFillsTheFirstRowAndRetainsTheSectionQueue() = runBlocking {
+        val tracks = (1..4).map { Track("music-cards", "$it", "Music Card $it", "Fixture Artist") }
+        val category = DiscoveryCategory.Recommended
+        val source = object : DiscoverySource {
+            override val id = "music-cards"
+            override suspend fun home() = listOf(DiscoverySection(category, tracks))
+            override suspend fun discovery(category: DiscoveryCategory) = DiscoverySection(category, tracks)
+            override suspend fun search(query: String, page: Int) = TrackPage(emptyList(), false)
+        }
+        val activity = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        val selection = mutableStateOf<Pair<List<Track>, Track>?>(null)
+        try {
+            withContext(Dispatchers.Main) {
+                val factory = viewModelFactory { initializer { BrowseModel(app, source) } }
+                val model = ViewModelProvider(activity, factory)["music-cards", BrowseModel::class.java]
+                model.refresh()
+                activity.setContent {
+                    com.xtreeroot.mb.ui.components.MBTheme(true) {
+                        CompositionLocalProvider(LocalMBEnglish provides true, LocalVideoBrowse provides false) {
+                            Surface { Discover(model, { queue, track -> selection.value = queue to track }, {}) }
+                        }
+                    }
+                }
+            }
+            tracks.forEach { await(it.title) }
+            val frames = tracks.map { Rect().also(matches(it.title).first()::getBoundsInScreen) }
+            assertTrue("First row should fill from left to right: $frames", frames[0].top == frames[1].top && frames[0].right < frames[1].left)
+            assertTrue("Second row should start below the first: $frames", frames[0].bottom < frames[2].top && frames[0].left == frames[2].left)
+            tap(tracks[1].title)
+            assertEquals(tracks to tracks[1], withContext(Dispatchers.Main) { selection.value })
+            captureVideoControl("android-music-discovery-two-rows.png")
+        } finally { withContext(Dispatchers.Main) { activity.finish() } }
+    }
+
+    @Test fun musicArtworkOpensPinnedLyricsAndReturnsToTheChosenStyle() = runBlocking {
+        instrumentation.uiAutomation.serviceInfo = instrumentation.uiAutomation.serviceInfo.apply {
+            flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        }
+        val id = "music-layout-${UUID.randomUUID()}"
+        val plugin = app.plugins.install(app.plugins.prepareZip { fixtureZip(id).inputStream() })
+        val track = Track(id, "first", "Pinned Song", "Fixture Artist", artistId = "artist", durationMs = 30_000)
+        val screen = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        val creator = java.util.concurrent.atomic.AtomicReference<String>()
+        try {
+            app.plugins.setEnabled(plugin, true); app.refreshPlugins()
+            withContext(Dispatchers.Main) {
+                val player = ViewModelProvider(screen)[PlaybackModel::class.java]
+                val saved = ViewModelProvider(screen)[SavedLibraryModel::class.java]
+                val playbackSettings = app.settings.values.value.copy(playerStyle = com.xtreeroot.mb.preferences.PlayerStyle.Vinyl)
+                screen.setContent { com.xtreeroot.mb.ui.components.MBTheme(true) {
+                    CompositionLocalProvider(LocalMBEnglish provides true) {
+                        val artist = androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
+                        NowPlaying(player, PlaybackState(tracks = listOf(track), index = 0, positionMs = 6_000),
+                            playbackSettings,
+                            saved, false, {}, {}, { creator.set(it); artist.value = it }, null, null)
+                        artist.value?.let { id -> PluginCreatorDialog(app.playbackSource(track.sourceId) as com.xtreeroot.mb.plugin.PluginSource,
+                            com.xtreeroot.mb.plugin.PluginEntity(com.xtreeroot.mb.plugin.PluginEntityKind.Artist, id, "Fixture Artist"),
+                            { artist.value = null }, { _, _ -> }, { _, _, _ -> }) }
+                    }
+                } }
+            }
+            await("Show Lyrics"); assertTrue(matches("Back to Artwork").isEmpty())
+            await("First lyric")
+            val inlineArtist = Rect().also(matches("Fixture Artist ›").first()::getBoundsInScreen)
+            val inlineLyric = Rect().also(matches("First lyric").first()::getBoundsInScreen)
+            assertTrue("Metadata must sit above the scrollable lyrics", inlineArtist.centerY() < inlineLyric.centerY())
+            tap("First lyric"); await("Play from lyric First lyric")
+            assertTrue(matches("Back to Artwork").isEmpty())
+            captureVideoControl("android-music-vinyl.png")
+            tap("Show Lyrics"); await("Back to Artwork"); await("First lyric")
+            val cover = Rect().also(matches("Back to Artwork").first()::getBoundsInScreen)
+            val lyric = Rect().also(matches("First lyric").first()::getBoundsInScreen)
+            assertTrue("Song header should remain above lyrics", cover.bottom < lyric.top)
+            tap("Fixture Artist ›"); withTimeout(5_000) { while (creator.get() != "artist") delay(25) }
+            await("Artist Page Track")
+            captureVideoControl("android-plugin-author-page.png")
+            tap("Done")
+            instrumentation.waitForIdleSync()
+            await("Back to Artwork")
+            captureVideoControl("android-music-pinned-lyrics.png")
+            tap("Back to Artwork"); await("Show Lyrics")
+            assertTrue(matches("Back to Artwork").isEmpty())
+        } catch (failure: Throwable) {
+            captureVideoControl("android-music-layout-failure.png")
+            println("Music layout failure: activity lifecycle=${screen.lifecycle.currentState}, finishing=${screen.isFinishing}")
+            throw failure
+        } finally {
+            withContext(Dispatchers.Main) { screen.finish() }
+            app.plugins.remove(plugin); app.refreshPlugins(); plugin.dataDirectory.deleteRecursively()
+        }
+    }
+
+    @Test fun inlineVideoActionsStayOnOneRowAndChangePlaybackOrder() = runBlocking {
+        val id = "video-actions-${UUID.randomUUID()}"
+        val plugin = app.plugins.install(app.plugins.prepareZip { fixtureZip(id).inputStream() })
+        val tracks = listOf(Track(id, "first", "Inline Action Video", "Fixture Artist"), Track(id, "second", "Next Action Video", "Fixture Artist"))
+        var activity: MainActivity? = null
+        var player: PlaybackModel? = null
+        var engine: androidx.media3.exoplayer.ExoPlayer? = null
+        val firstFrame = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val clip = File(app.cacheDir, "inline-actions-fixture.mp4")
+        try {
+            app.plugins.setEnabled(plugin, true); app.refreshPlugins()
+            val screen = instrumentation.startActivitySync(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+            activity = screen
+            withContext(Dispatchers.Main) {
+                val model = ViewModelProvider(screen)[PlaybackModel::class.java]; player = model
+                instrumentation.context.assets.open("video-preload.mp4").use { input -> clip.outputStream().use(input::copyTo) }
+                val video = androidx.media3.exoplayer.ExoPlayer.Builder(app).build().also {
+                    engine = it
+                    it.addListener(object : androidx.media3.common.Player.Listener {
+                        override fun onRenderedFirstFrame() { firstFrame.complete(Unit) }
+                        override fun onPlayerError(error: androidx.media3.common.PlaybackException) { firstFrame.completeExceptionally(error) }
+                    })
+                    it.setMediaItem(androidx.media3.common.MediaItem.fromUri(android.net.Uri.fromFile(clip))); it.prepare()
+                }
+                val frame = com.xtreeroot.mb.playback.VideoFrameState(tracks.first().id, player = video, loading = false, aspectRatio = 16f / 9f)
+                screen.setContent { com.xtreeroot.mb.ui.components.MBTheme(true) {
+                    CompositionLocalProvider(LocalMBEnglish provides true) {
+                        val state by model.playback.collectAsStateWithLifecycle()
+                        val preferences by app.settings.values.collectAsStateWithLifecycle()
+                        VideoDetailsScreen(model, if (state.current == null) state.copy(tracks = tracks, index = 0) else state,
+                            preferences, accountId = null, fullScreen = false, setFullScreen = {}, browse = {}, chooseMode = {}, sharedFrame = frame, ownsVideoFrame = false)
+                    }
+                } }
+            }
+            listOf("Previous", "Next", "Like", "In Order", "No Repeat").forEach { await(it) }
+            withTimeout(10_000) { firstFrame.await() }
+            withContext(Dispatchers.Main) {
+                fun picture(view: android.view.View): androidx.media3.ui.PlayerView? {
+                    if (view is androidx.media3.ui.PlayerView) return view
+                    if (view is android.view.ViewGroup) for (index in 0 until view.childCount) picture(view.getChildAt(index))?.let { return it }
+                    return null
+                }
+                val view = checkNotNull(picture(screen.window.decorView))
+                assertEquals(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT, view.resizeMode)
+                assertEquals(16f / 9f, view.width.toFloat() / view.height, .01f)
+            }
+            val frames = listOf("Previous", "Next", "Like", "In Order", "No Repeat").map { label -> Rect().also(matches(label).first()::getBoundsInScreen) }
+            frames.forEach { assertTrue("Actions must share one row: $frames", kotlin.math.abs(it.centerY() - frames.first().centerY()) <= 2) }
+            captureVideoControl("android-inline-video-actions.png")
+            tap("In Order"); await("Shuffle")
+            assertTrue(checkNotNull(player).playback.value.shuffle)
+            tap("No Repeat"); await("Repeat All")
+            assertEquals(androidx.media3.common.Player.REPEAT_MODE_ALL, checkNotNull(player).playback.value.repeatMode)
+        } finally {
+            withContext(Dispatchers.Main) { player?.clear(); activity?.finish(); engine?.release() }
+            clip.delete()
+            app.plugins.remove(plugin); app.refreshPlugins(); plugin.dataDirectory.deleteRecursively()
         }
     }
 
@@ -126,7 +349,7 @@ class VideoDetailsDeviceTest {
                 val player = ViewModelProvider(screen)[PlaybackModel::class.java]
                 val preferences = app.settings.values.value
                 screen.setContent {
-                    MaterialTheme(colorScheme = musicDark) {
+                    com.xtreeroot.mb.ui.components.MBTheme(true) {
                         CompositionLocalProvider(LocalMBEnglish provides true) {
                             VideoDetailsScreen(player, PlaybackState(tracks = tracks, index = selection.value), preferences,
                                 accountId = null, fullScreen = false, setFullScreen = {}, browse = {}, chooseMode = {})
@@ -137,6 +360,8 @@ class VideoDetailsDeviceTest {
             await("First Video")
             tap("Comments · 123")
             await("First page request 1")
+            swipeVideoDetails("Comments · 123", true); await("Captions") { node -> generateSequence(node) { it.parent }.any { it.isSelected } }
+            swipeVideoDetails("Captions", false); await("Comments · 123") { node -> generateSequence(node) { it.parent }.any { it.isSelected } }
             tap("More comments")
             await("Second page of first video")
             tap("Info")
@@ -177,7 +402,7 @@ class VideoDetailsDeviceTest {
                     val preferences = app.settings.values.value
                     screen.setContent {
                         val playback by player.playback.collectAsStateWithLifecycle()
-                        MaterialTheme(colorScheme = musicDark) {
+                        com.xtreeroot.mb.ui.components.MBTheme(true) {
                             CompositionLocalProvider(LocalMBEnglish provides true) {
                                 Surface {
                                     VideoDetailsScreen(player, playback, preferences, accountId = null, fullScreen = false,
@@ -229,7 +454,7 @@ class VideoDetailsDeviceTest {
             withContext(Dispatchers.Main) {
                 val model = ViewModelProvider(activity)[PlaybackModel::class.java]
                 activity.setContent {
-                    MaterialTheme(colorScheme = musicDark) {
+                    com.xtreeroot.mb.ui.components.MBTheme(true) {
                         CompositionLocalProvider(LocalMBEnglish provides true) {
                             Surface {
                                 VideoDetailsScreen(model, PlaybackState(tracks = listOf(track), index = 0), preferences,
@@ -275,7 +500,7 @@ class VideoDetailsDeviceTest {
                 val preferences = app.settings.values.value
                 val fullScreen = mutableStateOf(false)
                 activity.setContent {
-                    MaterialTheme(colorScheme = musicDark) {
+                    com.xtreeroot.mb.ui.components.MBTheme(true) {
                         CompositionLocalProvider(LocalMBEnglish provides true) {
                             Surface {
                                 VideoDetailsScreen(model, PlaybackState(tracks = listOf(track), index = 0), preferences,
@@ -319,7 +544,7 @@ class VideoDetailsDeviceTest {
             activity = screen
             val player = withContext(Dispatchers.Main) {
                 app.settings.update { it.copy(language = AppLanguage.English, playbackMode = PlaybackMode.Music,
-                    builtInEnabled = false, selectedSourceId = id) }
+                    selectedSourceId = id) }
                 ViewModelProvider(screen)[PlaybackModel::class.java].also {
                     model = it
                     it.play(tracks, tracks.last())
@@ -333,20 +558,24 @@ class VideoDetailsDeviceTest {
                 player.seekCurrent(player.playback.value, 6_000)
                 player.watchCurrentVideo()
             }
-            await("Video Mode", ::isSelectedPlaybackMode)
+            await("Music Mode")
             assertEquals(PlaybackMode.Music, app.settings.values.value.playbackMode)
             tap("Back to Browse")
+            await("Expand Video")
+            tap("Expand Video"); await("Back to Browse")
+            tap("Back to Browse"); await("Close Video Window")
+            tap("Close Video Window")
             await("Discover")
             tap("Music Mode")
-            tap("Video Mode")
+            await("Video Mode")
             withTimeout(5_000) { while (app.settings.values.value.playbackMode != PlaybackMode.Video) delay(25) }
             withContext(Dispatchers.Main) { player.watchCurrentVideo() }
-            await("Video Mode", ::isSelectedPlaybackMode)
+            await("Music Mode")
             tap("Back to Browse")
             await("Discover")
             assertEquals(PlaybackMode.Video, app.settings.values.value.playbackMode)
             withContext(Dispatchers.Main) { player.watchCurrentVideo() }
-            await("Video Mode", ::isSelectedPlaybackMode)
+            await("Music Mode")
             captureVideoControl("android-video-playback-mode.png")
             tap("Music Mode")
             await("Now Playing")
@@ -366,6 +595,21 @@ class VideoDetailsDeviceTest {
             app.plugins.remove(plugin)
             app.refreshPlugins()
             plugin.dataDirectory.deleteRecursively()
+        }
+    }
+
+    private fun swipeVideoDetails(tab: String, left: Boolean) {
+        val node = matches(tab).first(); val bounds = android.graphics.Rect(); node.getBoundsInScreen(bounds)
+        val size = instrumentation.targetContext.resources.displayMetrics
+        val y = bounds.bottom + 75 * size.density
+        val start = size.widthPixels * if (left) 0.8f else 0.2f
+        val end = size.widthPixels * if (left) 0.2f else 0.8f
+        val down = android.os.SystemClock.uptimeMillis()
+        for (step in 0..20) {
+            val action = if (step == 0) android.view.MotionEvent.ACTION_DOWN else if (step == 20) android.view.MotionEvent.ACTION_UP else android.view.MotionEvent.ACTION_MOVE
+            val event = android.view.MotionEvent.obtain(down, down + step * 15L, action, start + (end - start) * step / 20, y, 0)
+            event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+            instrumentation.uiAutomation.injectInputEvent(event, true); event.recycle()
         }
     }
 
@@ -389,7 +633,9 @@ class VideoDetailsDeviceTest {
         fun visit(node: AccessibilityNodeInfo): List<AccessibilityNodeInfo> =
             listOf(node).filter { it.isVisibleToUser && (it.text?.toString() == text || it.contentDescription?.toString() == text) } +
                 (0 until node.childCount).flatMap { node.getChild(it)?.let(::visit).orEmpty() }
-        return instrumentation.uiAutomation.rootInActiveWindow?.let(::visit).orEmpty()
+        val roots = listOfNotNull(instrumentation.uiAutomation.rootInActiveWindow) +
+            instrumentation.uiAutomation.windows.mapNotNull { it.root }.filter { it.packageName == app.packageName }
+        return roots.flatMap(::visit)
     }
 
     private suspend fun await(text: String, condition: (AccessibilityNodeInfo) -> Boolean = { true }) {
@@ -419,6 +665,10 @@ class VideoDetailsDeviceTest {
             zip.putNextEntry(ZipEntry("index.js"))
             zip.write("""
                 let firstRequests = 0;
+                export function lyrics() { return {lrc:'[00:00]First lyric\n[00:10]Second lyric'}; }
+                export function artist() { return {artist:{id:'artist',name:'Fixture Artist'},tracks:[{id:'other',name:'Artist Page Track'}]}; }
+                export function interactionSummary() { return {likes: 100000, comments: 123}; }
+                export function like() {}
                 export function video() { throw new Error('Fixture has no video stream'); }
                 export function comments({ trackId, offset }) {
                     const author = 'Fixture Listener';

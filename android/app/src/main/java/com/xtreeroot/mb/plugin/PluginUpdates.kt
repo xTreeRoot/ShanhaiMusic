@@ -5,44 +5,42 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
-internal data class PluginUpdate(val plugin: InstalledPlugin, val release: GitHubPluginRelease)
+internal data class PluginUpdate(val plugin: InstalledPlugin, val release: GitHubPluginRevision)
 internal data class PluginUpdateFailure(val pluginName: String, val detail: String?)
 internal data class PluginUpdateReport(
     val available: List<PluginUpdate> = emptyList(),
     val installed: List<String> = emptyList(),
     val skipped: List<String> = emptyList(),
     val failures: List<PluginUpdateFailure> = emptyList(),
+    val unchanged: List<String> = emptyList(),
+    val notes: Map<String, String> = emptyMap(),
 )
 
 internal class PluginUpdates(private val installer: PluginInstaller,
-                             private val release: suspend (String) -> GitHubPluginRelease?,
-                             private val download: suspend (GitHubPluginRelease, File) -> Unit) {
-    suspend fun check(plugins: List<InstalledPlugin>): PluginUpdateReport {
+                             private val release: suspend (String) -> GitHubPluginRevision?,
+                             private val download: suspend (GitHubPluginRevision, File) -> Unit) {
+    suspend fun compare(plugins: List<InstalledPlugin>): PluginUpdateReport {
         val available = mutableListOf<PluginUpdate>()
         val failures = mutableListOf<PluginUpdateFailure>()
+        val unchanged = mutableListOf<String>()
         for (plugin in plugins) {
             val repository = plugin.repository ?: continue
             try {
                 val latest = release(repository) ?: continue
-                if (isNewerPluginVersion(latest.version, plugin.manifest.version)) available += PluginUpdate(plugin, latest)
+                if (latest.revision != plugin.remoteRevision) available += PluginUpdate(plugin, latest)
+                else unchanged += plugin.manifest.name
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 failures += PluginUpdateFailure(plugin.manifest.name, error.message)
             }
         }
-        return PluginUpdateReport(available = available, failures = failures)
+        return PluginUpdateReport(available = available, failures = failures, unchanged = unchanged)
     }
 
-    suspend fun prepare(update: PluginUpdate): PendingPlugin = installer.prepareArchive(update.plugin.repository, update.plugin) {
-        download(update.release, it)
-    }.let { candidate ->
-        if (isNewerPluginVersion(candidate.manifest.version, update.plugin.manifest.version)) candidate
-        else {
-            installer.discard(candidate)
-            throw PluginException("Downloaded plugin does not have a newer manifest version")
-        }
-    }
+    suspend fun prepare(update: PluginUpdate): PendingPlugin = installer.prepareArchive(
+        update.plugin.repository, update.plugin, remoteRevision = update.release.revision,
+    ) { download(update.release, it) }.copy(releaseNotes = update.release.notes)
 
     suspend fun apply(report: PluginUpdateReport, review: suspend (PendingPlugin) -> Boolean): PluginUpdateReport {
         val installed = mutableListOf<String>()
@@ -64,7 +62,8 @@ internal class PluginUpdates(private val installer: PluginInstaller,
                 failures += PluginUpdateFailure(name, error.message)
             }
         }
-        return PluginUpdateReport(installed = installed, skipped = skipped, failures = failures)
+        return PluginUpdateReport(installed = installed, skipped = skipped, failures = failures, unchanged = report.unchanged,
+            notes = report.available.mapNotNull { update -> update.release.notes?.let { update.plugin.displayName to it } }.toMap())
     }
 }
 

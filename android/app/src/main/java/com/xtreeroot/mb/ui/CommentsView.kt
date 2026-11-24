@@ -12,13 +12,13 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
+import com.xtreeroot.mb.ui.components.MBIconButton as IconButton
+import com.xtreeroot.mb.ui.components.MBListItem as ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
+import com.xtreeroot.mb.ui.components.MBBottomSheet as ModalBottomSheet
+import com.xtreeroot.mb.ui.components.MBTextField as OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,7 +41,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun PlayerInteractionBar(track: Track, signedIn: Boolean, showCommentsButton: Boolean = true) {
+internal fun PlayerInteractionBar(track: Track, signedIn: Boolean, showCommentsButton: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth()) {
     val application = LocalContext.current.applicationContext as MBApplication
     val source = application.playbackSource(track.sourceId) as? InteractionSource ?: return
     key(source, track.id, signedIn) {
@@ -59,7 +59,7 @@ internal fun PlayerInteractionBar(track: Track, signedIn: Boolean, showCommentsB
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { likeError = failure.message ?: "无法读取互动状态" }
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier, verticalAlignment = Alignment.CenterVertically) {
             if (capabilities?.likes == true) IconButton(enabled = signedIn && liked != null && !pending, onClick = {
                 val desired = !(liked ?: return@IconButton)
                 pending = true
@@ -98,7 +98,7 @@ internal fun CommentsSheet(source: InteractionSource, track: Track, signedIn: Bo
 @Composable
 internal fun TrackComments(source: InteractionSource, track: Track, signedIn: Boolean,
                            modifier: Modifier = Modifier, maxHeight: androidx.compose.ui.unit.Dp? = null,
-                           sharedPages: CommentPages? = null) = key(source, track.id, signedIn, sharedPages) {
+                           sharedPages: CommentPages? = null, showHeader: Boolean = true) = key(source, track.id, signedIn, sharedPages) {
     val pages = sharedPages ?: remember { CommentPages(source, track.sourceTrackId) }
     val state by pages.state.collectAsStateWithLifecycle()
     val capabilities = state.capabilities
@@ -119,7 +119,7 @@ internal fun TrackComments(source: InteractionSource, track: Track, signedIn: Bo
             EmptyMessage(mb("此音源不支持评论", "Comments are not available for this source"))
             return@Column
         }
-        if (sharedPages == null) Text(mb("评论 · ${page.total}", "Comments · ${page.total}"),
+        if (sharedPages == null && showHeader) Text(mb("评论 · ${page.total}", "Comments · ${page.total}"),
             Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.titleLarge)
         val likeActionFailed = mb("评论点赞失败", "Could not change comment like")
         val listModifier = if (maxHeight == null) Modifier.weight(1f) else Modifier.heightIn(max = maxHeight)
@@ -156,9 +156,7 @@ internal fun TrackComments(source: InteractionSource, track: Track, signedIn: Bo
                 state.loading -> if (!refreshing) item { Loading() }
                 state.error != null -> if (state.appending) item { Retry(checkNotNull(state.error)) { request(pages::retry) } }
                 page.nextCursor != null -> item {
-                    TextButton(enabled = canLoad, onClick = { request(pages::loadMore) }) {
-                        Text(mb("更多评论", "More comments"))
-                    }
+                    PaginationTrigger(page.nextCursor, enabled = canLoad) { request(pages::loadMore) }
                 }
                 page.comments.isEmpty() && capabilities != null -> item { EmptyMessage(mb("暂无评论", "No comments")) }
             }

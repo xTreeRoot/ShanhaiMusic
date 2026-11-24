@@ -17,12 +17,15 @@ internal object PluginRepository {
         val repo = if ("://" in text) {
             val url = uri(text)
             if (!url.onGitHub("github.com")) throw PluginException("Invalid GitHub repository")
-            url.path.orEmpty().split('/').filter(String::isNotEmpty).take(2).joinToString("/")
+            val parts = url.path.orEmpty().split('/').filter(String::isNotEmpty)
+            if (parts.size != 2 || url.rawQuery != null || url.rawFragment != null) throw PluginException("Invalid GitHub repository")
+            parts.joinToString("/")
         } else text
-        if (!repository.matches(repo) || ".." in repo || repo.split('/').any { it == "." }) {
+        val normalized = repo.removeSuffix(".git")
+        if (!repository.matches(normalized) || ".." in normalized || normalized.split('/').any { it == "." }) {
             throw PluginException("Use owner/repository or a GitHub repository URL")
         }
-        return repo
+        return normalized
     }
 
     fun fromInstallLink(input: String): String? = runCatching {
@@ -58,74 +61,64 @@ internal object PluginRepository {
             ?: namesLower.indices.firstOrNull { index -> namesLower[index].endsWith(".zip") &&
                 listOf("darwin", "macos", "windows", "linux", "android", "ios").none { it in namesLower[index] } }
     }
+
+    fun universalRelease(repository: String, release: JSONObject): GitHubPluginRevision? {
+        val universalName = "plugin-universal.zip"
+        val assets = release.optJSONArray("assets") ?: return null
+        for (index in 0 until assets.length()) {
+            val asset = assets.optJSONObject(index) ?: continue
+            if (asset.opt("name") != universalName) continue
+            val assetID = (asset.opt("id") as? Number)?.toString()?.toLongOrNull()?.takeIf { it > 0 }
+            val tag = (release.opt("tag_name") as? String)?.takeIf { Regex("[A-Za-z0-9][A-Za-z0-9._-]*").matches(it) }
+            if (assetID == null || tag == null) throw PluginException("Invalid universal plugin release")
+            val archive = uri("https://github.com/$repository/releases/download/$tag/$universalName")
+            return GitHubPluginRevision("asset-$assetID", archive, (release.opt("body") as? String)?.takeIf(String::isNotBlank))
+        }
+        return null
+    }
 }
 
 internal class GitHubPluginPackages(private val transport: PluginHttpTransport, private val abis: List<String>) {
     suspend fun repositories(input: String): List<String> {
-        val initial = GitHubStarsList.address(input) ?: return listOf(PluginRepository.parse(input))
+        GitHubStarsList.repository(input)?.let { return listOf(it) }
+        val initial = GitHubStarsList.address(input) ?: throw PluginException("Enter a plugin repository or catalog web address")
         val visited = mutableSetOf<HttpUrl>()
         val repositories = linkedMapOf<String, String>()
         var next: HttpUrl? = initial
         while (next != null) {
             val page = next
-            if (!visited.add(page) || visited.size > 8) throw PluginException("Too many GitHub Stars pages")
-            val request = request(uri(page.toString())).copy(headers = mapOf("User-Agent" to "MB-Android", "Accept" to "text/html"))
+            if (!visited.add(page) || visited.size > 8) throw PluginException("Too many plugin catalog pages")
+            val request = request(uri(page.toString())).copy(headers = mapOf("User-Agent" to "MB-Android", "Accept" to "text/html, */*;q=0.8"))
             val listing = transport.receive(request, { target ->
-                target.onGitHub("github.com") && target.path == initial.toUri().path
-            }) { response, _ ->
-                if (response.code != 200) throw PluginException("GitHub Stars list failed (HTTP ${response.code})")
-                val incoming = response.body ?: throw PluginException("GitHub Stars list is empty")
+                target.host != null && target.rawUserInfo == null
+            }) { response, target ->
+                if (response.code != 200) throw PluginException("Plugin catalog failed (HTTP ${response.code})")
+                GitHubStarsList.repository(target.toString())?.let { return@receive GitHubStarsList.Page(listOf(it), null) }
+                val incoming = response.body ?: throw PluginException("Plugin catalog is empty")
                 val data = ByteArrayOutputStream()
                 incoming.byteStream().use { copyPluginBytes(it, data, 4L * 1024 * 1024) }
-                GitHubStarsList.read(data.toByteArray().decodeToString(throwOnInvalidSequence = true), page)
+                GitHubStarsList.read(data.toByteArray().decodeToString(), checkNotNull(GitHubStarsList.address(target.toString())))
             }
             listing.repositories.forEach { repositories.putIfAbsent(it.lowercase(), it) }
             if (repositories.size > 32) throw PluginException("Import supports up to 32 repositories per batch")
             next = listing.next
         }
-        return repositories.values.toList().ifEmpty { throw PluginException("No repositories in this GitHub Stars list") }
+        return repositories.values.toList().ifEmpty { throw PluginException("No plugin repository links found") }
     }
 
-    suspend fun download(input: String, output: File) {
-        val base = repositoryUrl(input)
-        val release = latestRelease(base)
-        if (release != null) download(release, output)
-        else {
-            val repository = checkNotNull(metadata(uri(base.toString())))
-            val branch = repository.opt("default_branch") as? String ?: throw PluginException("GitHub repository has no default branch")
-            downloadArchive(uri(base.newBuilder().addPathSegment("zipball").addPathSegment(branch).build().toString()), output)
-        }
-    }
-
-    suspend fun latestRelease(input: String): GitHubPluginRelease? {
-        val base = repositoryUrl(input)
-        val release = latestRelease(base)
-        if (release == null) metadata(uri(base.toString()))
-        return release
-    }
-
-    suspend fun latestReleaseVersion(input: String): String? = releaseMetadata(repositoryUrl(input))?.let(::releaseVersion)
-
-    private suspend fun latestRelease(base: HttpUrl): GitHubPluginRelease? {
-        val result = releaseMetadata(base) ?: return null
-        val version = releaseVersion(result)
-        val assets = result.optJSONArray("assets")
-        val names = List(assets?.length() ?: 0) { assets?.optJSONObject(it)?.optString("name").orEmpty() }
-        val asset = PluginRepository.assetIndex(names, abis)?.let { index ->
-            assets?.optJSONObject(index)?.opt("browser_download_url") as? String
-        }?.let(::uri)?.takeIf { it.onGitHub("github.com") }
-        val archive = asset ?: (result.opt("zipball_url") as? String)?.let(::uri)?.takeIf { it.onGitHub("api.github.com") }
-            ?: throw PluginException("GitHub release has no plugin archive")
-        return GitHubPluginRelease(version, archive)
-    }
-
-    private suspend fun releaseMetadata(base: HttpUrl): JSONObject? =
+    suspend fun latestRevision(input: String): GitHubPluginRevision {
+        val repository = PluginRepository.parse(input)
+        val base = repositoryUrl(repository)
         metadata(uri(base.newBuilder().addPathSegments("releases/latest").build().toString()), allowMissing = true)
+            ?.let { PluginRepository.universalRelease(repository, it) }?.let { return it }
+        val result = checkNotNull(metadata(uri(base.newBuilder().addPathSegments("commits/HEAD").build().toString())))
+        val sha = (result.opt("sha") as? String)?.takeIf { Regex("[0-9a-f]{40}").matches(it) }
+            ?: throw PluginException("GitHub commit response has no valid SHA")
+        val archive = uri(base.newBuilder().addPathSegment("zipball").addPathSegment(sha).build().toString())
+        return GitHubPluginRevision(sha, archive, result.optJSONObject("commit")?.optString("message")?.takeIf(String::isNotBlank))
+    }
 
-    private fun releaseVersion(result: JSONObject): String = (result.opt("tag_name") as? String)?.takeIf(String::isNotBlank)
-        ?: throw PluginException("GitHub release has no version tag")
-
-    suspend fun download(release: GitHubPluginRelease, output: File) = downloadArchive(release.archive, output)
+    suspend fun download(revision: GitHubPluginRevision, output: File) = downloadArchive(revision.archive, output)
 
     private fun repositoryUrl(input: String) = "https://api.github.com/repos/".toHttpUrl().newBuilder().apply {
         PluginRepository.parse(input).split('/').forEach { addPathSegment(it) }
@@ -152,7 +145,7 @@ internal class GitHubPluginPackages(private val transport: PluginHttpTransport, 
         }
 
     private fun request(address: URI) = PluginFetchRequest(address, "GET",
-        mapOf("User-Agent" to "MB-Android", "Accept" to "application/vnd.github+json"), null)
+        mapOf("User-Agent" to "MB-Android", "Accept" to "application/vnd.github+json", "Cache-Control" to "no-cache"), null)
 
     private fun allowedArchive(address: URI): Boolean = archiveHosts.any { address.onGitHub(it) }
 
@@ -162,7 +155,7 @@ internal class GitHubPluginPackages(private val transport: PluginHttpTransport, 
     }
 }
 
-internal data class GitHubPluginRelease(val version: String, val archive: URI)
+internal data class GitHubPluginRevision(val revision: String, val archive: URI, val notes: String? = null)
 
 private fun URI.onGitHub(hostname: String): Boolean = scheme.equals("https", true) && host.equals(hostname, true) &&
     rawUserInfo == null && (port == -1 || port == 443)

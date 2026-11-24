@@ -10,9 +10,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.IconButton
+import com.xtreeroot.mb.ui.components.MBDropdownMenu as DropdownMenu
+import com.xtreeroot.mb.ui.components.MBMenuItem as DropdownMenuItem
+import com.xtreeroot.mb.ui.components.MBIconButton as IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Text
@@ -39,7 +39,7 @@ private val rowShape = RoundedCornerShape(12.dp)
 internal fun QueueTracks(model: PlaybackModel, state: PlaybackState, modifier: Modifier = Modifier, onSelect: () -> Unit = {}) {
     val tracks = state.tracks
     if (tracks.isEmpty()) return EmptyMessage(mb("队列为空", "Your queue is empty"))
-    TrackReorderList(tracks, state.connected, { from, to -> model.move(from, to, tracks) },
+    ReorderList(tracks, Track::id, state.connected, { from, to -> model.move(from, to, tracks) },
         modifier.padding(horizontal = 8.dp)) { index, placement, lifted, dragging ->
         val track = tracks[index]
         val current = index == state.index

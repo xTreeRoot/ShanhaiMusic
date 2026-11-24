@@ -3,11 +3,11 @@ package com.xtreeroot.mb.ui
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.provider.Settings
-import androidx.compose.material3.AlertDialog
+import com.xtreeroot.mb.ui.components.MBAlertDialog as AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.xtreeroot.mb.ui.components.MBIconButton as IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,12 +19,13 @@ import androidx.mediarouter.app.SystemOutputSwitcherDialogController
 import com.xtreeroot.mb.R
 
 @Composable
-internal fun AudioOutputButton(enabled: Boolean) {
+internal fun AudioOutputButton(enabled: Boolean, onOpen: () -> Unit = {}) {
     val context = LocalContext.current
     val label = mb("音频输出", "Audio Output")
     var showFallback by rememberSaveable { mutableStateOf(false) }
     var settingsUnavailable by rememberSaveable { mutableStateOf(false) }
     IconButton(enabled = enabled, onClick = {
+        onOpen()
         settingsUnavailable = false
         showFallback = try { !SystemOutputSwitcherDialogController.showDialog(context) }
         catch (_: ActivityNotFoundException) { true }

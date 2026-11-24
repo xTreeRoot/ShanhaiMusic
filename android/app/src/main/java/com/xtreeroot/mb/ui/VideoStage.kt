@@ -16,12 +16,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.xtreeroot.mb.ui.components.MBIconButton as IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -71,13 +72,13 @@ import com.xtreeroot.mb.playback.PlaybackState
 import kotlinx.coroutines.delay
 
 @Composable
-internal fun rememberVideoFrame(track: Track): VideoFrameState? {
+internal fun rememberVideoFrame(track: Track, systemWindow: Boolean = false): VideoFrameState? {
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
-    if (!lifecycle.isAtLeast(Lifecycle.State.STARTED)) return null
+    if (!systemWindow && !lifecycle.isAtLeast(Lifecycle.State.STARTED)) return null
     val application = LocalContext.current.applicationContext as MBApplication
-    val coordinator by application.videoPlayback.collectAsStateWithLifecycle()
+    val coordinator by application.videoPlayback.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.CREATED)
     val video = coordinator ?: return null
-    val current by video.frames.collectAsStateWithLifecycle()
+    val current by video.frames.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.CREATED)
     DisposableEffect(video, track.id) {
         val ticket = video.show(track)
         onDispose { ticket?.close() }
@@ -88,7 +89,7 @@ internal fun rememberVideoFrame(track: Track): VideoFrameState? {
 @Composable
 internal fun VideoStage(state: VideoFrameState?, playback: PlaybackState, toggle: () -> Unit, seek: (Long) -> Unit,
                         retry: () -> Unit, fullScreen: Boolean, setFullScreen: (Boolean) -> Unit,
-                        topBar: @Composable BoxScope.() -> Unit = {}) {
+                        portrait: Boolean = false, fillPicture: Boolean = false, topBar: @Composable BoxScope.() -> Unit = {}) {
     val error = state?.error
     if (error != null && !fullScreen) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Retry(error, retry)
@@ -120,16 +121,16 @@ internal fun VideoStage(state: VideoFrameState?, playback: PlaybackState, toggle
         if (error != null) Box(modifier, contentAlignment = Alignment.Center) {
             Retry(error, retry)
             header()
-        } else VideoFrame(state?.player, state?.loading != false, playback, toggle, seek, modifier, topBar = header)
-    } else VideoFrame(state?.player, state?.loading != false, playback, toggle, seek, Modifier.fillMaxSize(),
-        enterFullscreen = { setFullScreen(true) }, topBar = topBar)
+        } else VideoFrame(state?.player, state?.loading != false, playback, toggle, seek, modifier, qualityState = state, topBar = header)
+    } else VideoFrame(state?.player, state?.loading != false, playback, toggle, seek, Modifier.fillMaxSize(), qualityState = state,
+        enterFullscreen = { setFullScreen(true) }, portrait = portrait, fillPicture = fillPicture, topBar = topBar)
 }
 
 @OptIn(UnstableApi::class)
 @Composable
 private fun VideoFrame(engine: Player?, loading: Boolean, playback: PlaybackState, toggle: () -> Unit,
-                       seek: (Long) -> Unit, modifier: Modifier, enterFullscreen: (() -> Unit)? = null,
-                       topBar: @Composable BoxScope.() -> Unit = {}) {
+                       seek: (Long) -> Unit, modifier: Modifier, qualityState: VideoFrameState? = null, enterFullscreen: (() -> Unit)? = null,
+                       portrait: Boolean = false, fillPicture: Boolean = false, topBar: @Composable BoxScope.() -> Unit = {}) {
     var visible by remember(playback.current?.id, playback.index) { mutableStateOf(true) }
     var revision by remember { mutableIntStateOf(0) }
     val interactions = remember { MutableInteractionSource() }
@@ -148,18 +149,36 @@ private fun VideoFrame(engine: Player?, loading: Boolean, playback: PlaybackStat
         }
     }
     Box(modifier, contentAlignment = Alignment.Center) {
-        AndroidView(factory = { context -> PlayerView(context).apply { useController = false } },
-            update = { view -> view.player = engine }, onRelease = { view -> view.player = null },
+        AndroidView(factory = { context -> (if (portrait) {
+            // 竖屏视频会随评论面板缩放，使用 Media3 支持的 TextureView 与 Compose 一起合成。
+            android.view.LayoutInflater.from(context).inflate(com.xtreeroot.mb.R.layout.portrait_video_view, null) as PlayerView
+        } else PlayerView(context)).apply {
+            useController = false
+        } },
+            update = { view ->
+                view.resizeMode = if (fillPicture) androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    else androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                view.player = engine
+            }, onRelease = { view -> view.player = null },
             modifier = Modifier.fillMaxSize())
         if (loading) Loading()
-        Box(Modifier.matchParentSize().pointerInput(playback.current?.id, playback.index) {
-            detectTapGestures(onTap = { toggleControls() }, onDoubleTap = { currentToggle(); revision += 1 })
-        }.semantics {
-            contentDescription = pictureLabel
-            onClick(label = controlsLabel) { toggleControls(); true }
-            customActions = listOf(CustomAccessibilityAction(toggleLabel) { currentToggle(); revision += 1; true })
-        })
-        if (visible) {
+        val ratio = qualityState?.aspectRatio ?: playback.current?.let {
+            if (it.videoWidth > 0 && it.videoHeight > 0) it.videoWidth.toFloat() / it.videoHeight else 16f / 9f
+        } ?: 16f / 9f
+        VideoAdjustmentControls(enabled = !portrait && ratio >= 1f, modifier = Modifier.matchParentSize()) {
+            Box(Modifier.matchParentSize().pointerInput(playback.current?.id, playback.index) {
+                detectTapGestures(onTap = { if (portrait) currentToggle() else toggleControls() }, onDoubleTap = { currentToggle(); revision += 1 })
+            }.semantics {
+                contentDescription = pictureLabel
+                onClick(label = if (portrait) toggleLabel else controlsLabel) { if (portrait) currentToggle() else toggleControls(); true }
+                customActions = listOf(CustomAccessibilityAction(toggleLabel) { currentToggle(); revision += 1; true })
+            })
+        }
+        if (portrait && !playback.playWhenReady && !loading) {
+            Icon(Icons.Default.PlayArrow, null,
+                modifier = Modifier.padding(24.dp), tint = Color.White)
+        }
+        if (visible && !portrait) {
             topBar()
             MaterialTheme(colorScheme = darkColorScheme(primary = Color.White)) {
                 CompositionLocalProvider(LocalContentColor provides Color.White) {
@@ -170,8 +189,9 @@ private fun VideoFrame(engine: Player?, loading: Boolean, playback: PlaybackStat
                         Column(Modifier.weight(1f).padding(bottom = 6.dp)) {
                             PlayerProgress(playback, smoke = false, seek = { seek(it); revision += 1 }, interactions = interactions)
                         }
-                        if (enterFullscreen != null) TextButton(onClick = enterFullscreen) {
-                            Text(mb("全屏", "Fullscreen"), color = Color.White)
+                        VideoQualityMenu(qualityState)
+                        if (enterFullscreen != null) IconButton(onClick = enterFullscreen) {
+                            Icon(androidx.compose.ui.res.painterResource(com.xtreeroot.mb.R.drawable.ic_fullscreen), mb("全屏播放", "Fullscreen"), tint = Color.White)
                         }
                     }
                 }

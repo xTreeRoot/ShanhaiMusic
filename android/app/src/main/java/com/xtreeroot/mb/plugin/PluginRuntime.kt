@@ -1,9 +1,12 @@
 package com.xtreeroot.mb.plugin
 
 import android.content.res.AssetManager
+import com.xtreeroot.mb.cache.DiskResponseCache
 import com.xtreeroot.mb.music.PlaybackIssue
 import com.xtreeroot.mb.music.PlaybackIssueException
 import com.xtreeroot.mb.music.TrackUnavailableReason
+import com.xtreeroot.mb.playback.CencAudio
+import com.xtreeroot.mb.playback.PreparedCencAudio
 import java.io.File
 import java.net.URI
 import kotlinx.coroutines.CancellationException
@@ -37,57 +40,122 @@ internal class PluginRuntime(
     private val webSignIn: suspend (PluginWebSignIn) -> String = { throw PluginException("Web sign-in is unavailable") },
     private val openURL: suspend (PluginWebLink) -> Unit = { throw PluginException("Opening web links is unavailable") },
     private val oauthSignIn: suspend (PluginOAuthRequest) -> PluginFetchRequest = { throw PluginException("OAuth is unavailable") },
+    audioCacheDirectory: File? = null,
 ) {
+    private val preparedAudio = audioCacheDirectory?.let(::PreparedCencAudio)
+    val catalogCache = DiskResponseCache(File(dataDirectory, "catalog-cache"))
     private val dispatcher = Dispatchers.IO.limitedParallelism(1)
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
-    private val calls = Mutex()
+    private class Lane { val calls = Mutex(); var machine: Machine? = null }
+    private val catalog = Lane()
+    private val playback = Lane()
+    private fun lane(name: String) = if (name == "stream" || name == "video") playback else catalog
     private var host: PluginHostState? = null
     private var settings = settings.toMap()
     private var language = language
-    private var machine: Machine? = null
     private var closed = false
 
-    private class Machine(val context: QuickJsContext) {
+    private class Machine(state: PluginHostState) {
         val events = mutableMapOf<Int, Job>()
         val wake = Channel<Unit>(Channel.CONFLATED)
         var signInRequests: MutableSet<Int>? = null
-        var signInDiagnostics: PluginSignInDiagnostics? = null
+        var accountDiagnostics: PluginSignInDiagnostics? = null
+        val context = QuickJsContext { operation, arguments -> state.call(operation, arguments, accountDiagnostics) }
         var status = 0
         var failure: Exception? = null
     }
 
-    suspend fun supports(name: String): Boolean = useMachine { it.context.supports(name) }
+    suspend fun supports(name: String): Boolean = useMachine(lane(name)) { it.context.supports(name) }
 
     suspend fun headersFor(address: URI, kind: String): Map<String, String> = withContext(dispatcher) {
         check(!closed) { "Plugin runtime is closed" }
         hostState().headers(address, manifest, kind)
     }
 
-    suspend fun invoke(name: String, arguments: JSONObject = JSONObject(), timeoutMs: Long = 30_000): Any = useMachine { runtime ->
-        invoke(runtime, name, arguments, timeoutMs)
+    /** 平台只交付本次授权，宿主检查每跳网络权限并在后台准备通用 AAC 容器。 */
+    suspend fun prepareCencAudio(address: URI, headers: Map<String, String>, encryption: JSONObject): File {
+        val cache = preparedAudio ?: throw PluginException("当前宿主未启用授权音频播放")
+        if (encryption.opt("scheme") != "cenc") throw PluginException("不支持的音频加密格式")
+        val key = CencAudio.key(encryption.optString("key"))
+        fun validate(target: URI, redirect: Boolean) {
+            if (target.scheme != "https" || target.rawUserInfo != null) throw PluginException("音频地址必须使用 HTTPS，且不能包含账号密码")
+            if (!manifest.reaches(target.host.orEmpty())) {
+                val label = if (redirect) "音频重定向域名不在插件网络权限内" else "音频域名不在插件网络权限内"
+                throw PluginException("$label：${target.host.orEmpty()}")
+            }
+        }
+        validate(address, false)
+        return cache.prepare(address.toASCIIString(), headers, key) {
+            var request = PluginFetchRequest(address, "GET", headers.filterKeys { !it.equals("Range", true) && !it.equals("If-Range", true) } +
+                ("Accept-Encoding" to "identity"), null, PluginRedirectMode.Manual)
+            repeat(10) {
+                coroutineContext.ensureActive()
+                validate(request.url, request.url != address)
+                val response = transport.fetch(request, manifest)
+                if (response.bytes.size > 16 shl 20) throw PluginException("授权音频超过准备上限")
+                val next = request.copy(redirectMode = PluginRedirectMode.Follow).redirect(response.status, response.headers.entries.firstOrNull {
+                    it.key.equals("location", true)
+                }?.value)
+                if (next != null) request = next.copy(redirectMode = PluginRedirectMode.Manual)
+                else {
+                    if (response.status != 200) throw PluginException("音频请求失败（HTTP ${response.status}）")
+                    return@prepare response.bytes
+                }
+            }
+            throw PluginException("音频重定向次数过多")
+        }
     }
 
-    suspend fun stream(arguments: JSONObject): Any = useMachine { runtime ->
+    suspend fun invoke(name: String, arguments: JSONObject = JSONObject(), timeoutMs: Long = 30_000): Any = useMachine(lane(name)) { runtime ->
+        val operation = PluginSignInDiagnostics.Operation.entries.firstOrNull { it.name == name }
+        try {
+            if (operation == null) invoke(runtime, name, arguments, timeoutMs)
+            else withAccountDiagnostics(operation, runtime) { invoke(runtime, name, arguments, timeoutMs) }
+        }
+        finally {
+            if (name == "signOut" || name == "signOutAndClearCache") reset(playback)
+            if (name == "signOutAndClearCache") reset(catalog)
+        }
+    }
+
+    suspend fun stream(arguments: JSONObject): Any = useMachine(playback) { runtime ->
         if (!runtime.context.supports("stream")) {
             throw PlaybackIssueException(PlaybackIssue.SourceUnavailable, "Plugin does not provide audio streams")
         }
         invoke(runtime, "stream", arguments, 30_000)
     }
 
-    suspend fun signIn(prompt: (PluginPrompt) -> Unit): Any = useMachine { runtime ->
+    suspend fun signIn(arguments: JSONObject = JSONObject(), prompt: (PluginPrompt) -> Unit): Any = useMachine { runtime ->
         val requests = mutableSetOf<Int>()
-        val diagnostics = PluginSignInDiagnostics(dataDirectory)
         runtime.signInRequests = requests
-        runtime.signInDiagnostics = diagnostics
         hostState().onPrompt = prompt
-        var completed = false
-        try { invoke(runtime, "signIn", JSONObject(), 300_000).also { completed = true } }
+        try {
+            withAccountDiagnostics(PluginSignInDiagnostics.Operation.signIn, runtime) {
+                invoke(runtime, "signIn", arguments, 300_000)
+            }
+        }
         finally {
-            runtime.signInDiagnostics = null
-            diagnostics.finish(completed)
-            if (requests.isNotEmpty()) reset()
+            if (requests.isNotEmpty()) reset(catalog)
+            reset(playback)
             runtime.signInRequests = null
             hostState().onPrompt = null
+        }
+    }
+
+    private suspend fun <T : Any> withAccountDiagnostics(operation: PluginSignInDiagnostics.Operation,
+                                                         runtime: Machine? = null, action: suspend () -> T): T {
+        val diagnostics = PluginSignInDiagnostics(dataDirectory, operation, manifest.version)
+        runtime?.accountDiagnostics = diagnostics
+        var result: T? = null
+        var failure: Throwable? = null
+        try {
+            return action().also { result = it }
+        } catch (error: Throwable) {
+            failure = error
+            throw error
+        } finally {
+            runtime?.accountDiagnostics = null
+            diagnostics.finish(result, failure)
         }
     }
 
@@ -98,6 +166,7 @@ internal class PluginRuntime(
 
     suspend fun configure(settings: Map<String, String>, language: String) = withContext(dispatcher) {
         check(!closed) { "Plugin runtime is closed" }
+        reset(playback)
         this@PluginRuntime.settings = settings.toMap()
         this@PluginRuntime.language = language
         host?.let {
@@ -107,22 +176,33 @@ internal class PluginRuntime(
     }
 
     suspend fun close() = withContext(NonCancellable + dispatcher) {
-        calls.withLock {
-            closed = true
-            reset()
-            host = null
-            scope.cancel()
+        closed = true
+        reset(catalog); reset(playback)
+        host = null
+        scope.cancel()
+    }
+
+    /** 宿主能力，不要求插件实现清理导出；终止旧 VM，防止迟到响应重新写入登录状态。 */
+    suspend fun clearLoginCache() {
+        withContext(dispatcher) {
+            check(!closed) { "Plugin runtime is closed" }
+            withAccountDiagnostics(PluginSignInDiagnostics.Operation.clearLoginCache) {
+                reset(catalog); reset(playback)
+                catalog.calls.withLock { playback.calls.withLock { hostState().clearLoginStorage() } }
+                // 缓存加载可能正等待 VM，不能持有执行通道锁等待缓存锁。
+                catalogCache.invalidate()
+            }
         }
     }
 
-    private suspend fun <T> useMachine(operation: suspend (Machine) -> T): T = withContext(dispatcher) {
-        calls.withLock {
+    private suspend fun <T> useMachine(lane: Lane = catalog, operation: suspend (Machine) -> T): T = withContext(dispatcher) {
+        lane.calls.withLock {
             check(!closed) { "Plugin runtime is closed" }
             try {
-                machine?.failure?.let { reset() }
-                operation(machine ?: load())
+                lane.machine?.failure?.let { reset(lane) }
+                operation(lane.machine ?: load(lane))
             } catch (error: Throwable) {
-                reset()
+                reset(lane)
                 throw error
             }
         }
@@ -133,9 +213,8 @@ internal class PluginRuntime(
         host = it
     }
 
-    private suspend fun load(): Machine {
-        val state = hostState()
-        val runtime = Machine(QuickJsContext(state)).also { machine = it }
+    private suspend fun load(lane: Lane): Machine {
+        val runtime = Machine(hostState()).also { lane.machine = it }
         val bootstrap = assets.open("PluginBootstrap.js").bufferedReader().use { it.readText() }
         val platform = "platform: \"ios\", arch: \"arm64\""
         check(bootstrap.indexOf(platform) >= 0 && bootstrap.indexOf(platform) == bootstrap.lastIndexOf(platform)) {
@@ -149,9 +228,9 @@ internal class PluginRuntime(
             else -> "unknown"
         }
         withTimeout(10_000) {
-            val android = """platform: "android", arch: "$arch", capabilities: Object.freeze({ webSignInHTML: true }),
+            val android = """platform: "android", arch: "$arch",
                 oauthSignIn: options => request({ kind: "oauthSignIn", options })"""
-            runtime.status = runtime.context.evaluate(bootstrap.replace(platform, android), "host.js", false, 100)
+            runtime.status = runtime.context.evaluate(bootstrap.replace(platform, android).replace("cencAudio: true", "cencAudio: ${preparedAudio != null}"), "host.js", false, 100)
             finish(runtime)
             val entry = JSONObject.quote("./${manifest.entry}")
             runtime.status = runtime.context.evaluate("export * from $entry;", ".mb-android-entry.js", true, 500)
@@ -160,9 +239,9 @@ internal class PluginRuntime(
         return runtime
     }
 
-    private fun reset() {
-        val runtime = machine ?: return
-        machine = null
+    private fun reset(lane: Lane) {
+        val runtime = lane.machine ?: return
+        lane.machine = null
         runtime.events.values.forEach(Job::cancel)
         runtime.wake.close()
         runtime.context.close()
@@ -171,11 +250,13 @@ internal class PluginRuntime(
     private suspend fun finish(runtime: Machine): Any {
         while (true) {
             coroutineContext.ensureActive()
+            if (catalog.machine !== runtime && playback.machine !== runtime) throw CancellationException("Plugin session changed")
             runtime.failure?.let { throw it }
             checkStatus(runtime)
             schedule(runtime)
             if (runtime.status > 0) return JSONTokener(runtime.context.result()).nextValue() ?: JSONObject.NULL
-            runtime.wake.receive()
+            // 重置会关闭旧通道；回到循环按 VM 身份报告取消，不把关停误报成执行错误。
+            runtime.wake.receiveCatching()
         }
     }
 
@@ -188,19 +269,6 @@ internal class PluginRuntime(
                 ?: PlaybackIssue.Network.takeIf { code == pluginNetworkCode }
             if (issue != null) throw PlaybackIssueException(issue, message)
             throw PluginException(message)
-        }
-    }
-
-    private suspend fun fetch(event: JSONObject, diagnostics: PluginSignInDiagnostics?): String {
-        val request = PluginFetchRequest.parse(event, manifest)
-        try {
-            val response = transport.fetch(request, manifest)
-            return response.toJson().toString().also { diagnostics?.record(request.url, response = response) }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            diagnostics?.record(request.url, failure = error.cause ?: error)
-            throw error
         }
     }
 
@@ -219,24 +287,34 @@ internal class PluginRuntime(
             if (id <= 0 || runtime.events.containsKey(id)) throw PluginException("Invalid plugin host request")
             val signInAllowed = (kind == "webSignIn" || kind == "oauthSignIn") &&
                 runtime.signInRequests?.takeIf { it.isEmpty() }?.add(id) == true
-            val diagnostics = runtime.signInDiagnostics
+            val diagnostics = runtime.accountDiagnostics?.takeIf { kind == "fetch" || kind == "webSignIn" || kind == "oauthSignIn" }
             val job = scope.launch(start = CoroutineStart.LAZY) {
+                val started = if (diagnostics != null) System.currentTimeMillis() else 0L
+                var address: URI? = null
+                var request: PluginFetchRequest? = null
+                var fetched: PluginFetchResponse? = null
+                var failure: Exception? = null
                 val (success, response) = try {
                     val value = when (kind) {
                         "timer" -> {
                             delay(event.optLong("delay").coerceIn(0, 300_000))
                             "null"
                         }
-                        "fetch" -> fetch(event, diagnostics)
+                        "fetch" -> {
+                            val input = PluginFetchRequest.parse(event, manifest).also { request = it }
+                            transport.fetch(input, manifest).also { fetched = it }.toJson().toString()
+                        }
                         "webSignIn" -> {
                             if (!signInAllowed) throw PluginException("Web sign-in requires an active sign-in request")
-                            val cookie = webSignIn(PluginWebSignIn.parse(event, manifest))
+                            val input = PluginWebSignIn.parse(event, manifest).also { address = it.url }
+                            val cookie = webSignIn(input)
                             JSONObject().put("cookie", cookie).toString()
                         }
                         "oauthSignIn" -> {
                             if (!signInAllowed) throw PluginException("OAuth requires an active sign-in request")
-                            val exchange = oauthSignIn(PluginOAuthRequest.parse(event, manifest))
-                            oauthToken(transport.fetch(exchange, manifest)).toString()
+                            val input = PluginOAuthRequest.parse(event, manifest).also { address = it.authorizationEndpoint }
+                            val exchange = oauthSignIn(input).also { request = it }
+                            oauthToken(transport.fetch(exchange, manifest).also { fetched = it }).toString()
                         }
                         "openURL" -> {
                             val address = (event.opt("url") as? String)?.let(::uri)?.takeIf(URI::isHttp)
@@ -251,13 +329,19 @@ internal class PluginRuntime(
                     true to value
                 } catch (error: CancellationException) {
                     if (!coroutineContext[Job]!!.isActive) return@launch
+                    failure = error
                     false to JSONObject.quote("Plugin host request timed out")
                 } catch (error: PluginException) {
+                    failure = error
                     false to JSONObject().put("message", error.message).put("code", error.code).toString()
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    failure = error
                     false to JSONObject.quote("Plugin host request failed")
                 }
-                if (machine !== runtime) return@launch
+                if (catalog.machine !== runtime && playback.machine !== runtime) return@launch
+                if (failure !is CancellationException && coroutineContext[Job]!!.isActive) {
+                    diagnostics?.record(kind, started, address, request, fetched, failure)
+                }
                 runtime.events.remove(id)
                 if (signInAllowed) runtime.signInRequests?.remove(id)
                 try {

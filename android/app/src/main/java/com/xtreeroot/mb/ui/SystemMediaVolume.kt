@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
+import com.xtreeroot.mb.ui.components.MBSlider as Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,12 +38,12 @@ import kotlinx.coroutines.delay
 
 private const val mediaStream = AudioManager.STREAM_MUSIC
 
-private data class MediaVolume(val minimum: Int, val maximum: Int, val index: Int, val fixed: Boolean) {
+internal data class MediaVolume(val minimum: Int, val maximum: Int, val index: Int, val fixed: Boolean) {
     val span get() = maximum - minimum
     fun fraction(value: Float) = if (span > 0) ((value - minimum) / span).coerceIn(0f, 1f) else 0f
 }
 
-private fun AudioManager.mediaVolume(): MediaVolume {
+internal fun AudioManager.mediaVolume(): MediaVolume {
     val minimum = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) getStreamMinVolume(mediaStream) else 0
     val maximum = getStreamMaxVolume(mediaStream).coerceAtLeast(minimum)
     return MediaVolume(minimum, maximum, getStreamVolume(mediaStream).coerceIn(minimum, maximum), isVolumeFixed)

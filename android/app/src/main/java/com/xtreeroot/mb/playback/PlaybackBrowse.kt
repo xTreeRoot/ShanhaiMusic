@@ -15,7 +15,7 @@ internal const val playbackBrowseRootId = "mb.playback.root"
 internal const val resumeMediaId = "mb.playback.resume"
 
 internal val playbackBrowseRoot: MediaItem = MediaItem.Builder().setMediaId(playbackBrowseRootId)
-    .setMediaMetadata(MediaMetadata.Builder().setTitle("MB").setIsBrowsable(true).setIsPlayable(false)
+    .setMediaMetadata(MediaMetadata.Builder().setTitle("山海").setIsBrowsable(true).setIsPlayable(false)
         .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED).build()).build()
 
 internal fun MediaItem.resumeBrowserItem(): MediaItem = MediaItem.Builder().setMediaId(resumeMediaId)

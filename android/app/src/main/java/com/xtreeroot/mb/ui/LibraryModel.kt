@@ -18,10 +18,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 internal class LibraryModel(application: Application, source: LibrarySource) : AndroidViewModel(application) {
-    constructor(application: Application) : this(application, (application as MBApplication).bilibili)
+    constructor(application: Application) : this(application, object : LibrarySource { override val id = ""; override suspend fun search(query: String, page: Int) = com.xtreeroot.mb.music.TrackPage(emptyList(), false); override suspend fun library(route: LibraryRoute, cursor: String?) = LibraryPage() })
 
-    val pages = LibraryPages(viewModelScope, source::library)
-    val creatorPages = LibraryPages(viewModelScope, source::library)
+    val pages = LibraryPages(viewModelScope, source::invalidateLibraryCache, source::library)
+    val creatorPages = LibraryPages(viewModelScope, source::invalidateLibraryCache, source::library)
 }
 
 internal data class LibraryPageState(val value: LibraryPage = LibraryPage(), val loading: Boolean = false,
@@ -29,7 +29,7 @@ internal data class LibraryPageState(val value: LibraryPage = LibraryPage(), val
     val retryingAppend get() = error != null && appending
 }
 
-internal class LibraryPages(private val scope: CoroutineScope, private val fetch: suspend (LibraryRoute, String?) -> LibraryPage) {
+internal class LibraryPages(private val scope: CoroutineScope, private val invalidateCache: suspend () -> Unit = {}, private val fetch: suspend (LibraryRoute, String?) -> LibraryPage) {
     private val mutable = MutableStateFlow(LibraryPageState())
     private var currentRoute: LibraryRoute? = null
     private var failedCursor: String? = null
@@ -47,7 +47,7 @@ internal class LibraryPages(private val scope: CoroutineScope, private val fetch
     fun refresh() {
         if (mutable.value.loading && !mutable.value.appending) return
         job?.cancel()
-        load(null)
+        load(null, refresh = true)
     }
 
     fun retry() {
@@ -55,15 +55,16 @@ internal class LibraryPages(private val scope: CoroutineScope, private val fetch
     }
 
     fun loadMore() {
-        if (!mutable.value.loading) mutable.value.value.nextCursor?.let(::load)
+        if (!mutable.value.loading) mutable.value.value.nextCursor?.let { load(it) }
     }
 
-    private fun load(cursor: String?) {
+    private fun load(cursor: String?, refresh: Boolean = false) {
         val route = currentRoute ?: return
         val previous = mutable.value.value
         mutable.value = LibraryPageState(previous, loading = true, appending = cursor != null)
         job = scope.launch {
             try {
+                if (refresh) invalidateCache()
                 val result = fetch(route, cursor)
                 ensureActive()
                 val existing = previous.takeIf { cursor != null }

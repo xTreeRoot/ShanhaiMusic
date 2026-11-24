@@ -14,6 +14,13 @@ internal val enqueueTrack = SessionCommand("com.xtreeroot.mb.ENQUEUE_TRACK", Bun
 internal val nextStationTrack = SessionCommand("com.xtreeroot.mb.NEXT_STATION_TRACK", Bundle.EMPTY)
 internal val leaveStation = SessionCommand("com.xtreeroot.mb.LEAVE_STATION", Bundle.EMPTY)
 private const val stationKey = "mb.station"
+private const val pagesKey = "mb.queuePages"
+
+internal fun MediaItem.withPages(token: String): MediaItem = buildUpon().setRequestMetadata(
+    MediaItem.RequestMetadata.Builder().setExtras(Bundle().apply { putString(pagesKey, token) }).build(),
+).build()
+
+internal fun MediaItem.pagesToken(): String? = requestMetadata.extras?.getString(pagesKey)?.takeIf { it.length == 36 }
 
 internal fun MediaItem.withStation(station: PlaybackStation): MediaItem = buildUpon().setRequestMetadata(
     MediaItem.RequestMetadata.Builder().setExtras(Bundle().apply { putString(stationKey, station.encode().toString()) }).build(),
@@ -36,7 +43,10 @@ internal fun Track.mediaItem(): MediaItem = MediaItem.Builder()
             putLong("mb.duration", durationMs)
             putString("mb.page", pageUrl)
             putString("mb.author", artistId)
-            if (sourceId == "bilibili") putBundle("mb.artworkHeaders", Bundle().apply {
+            putInt("mb.videoWidth", videoWidth)
+            putInt("mb.videoHeight", videoHeight)
+            putBoolean("mb.shortVideo", shortVideo)
+            putBundle("mb.artworkHeaders", Bundle().apply {
                 artworkHeaders.filterKeys(::publicArtworkHeader).forEach { (key, value) -> putString(key, value) }
             })
         })
@@ -52,5 +62,6 @@ internal fun MediaMetadata.track(): Track? {
     val headers = extras.getBundle("mb.artworkHeaders")
     return Track(source, identifier, title?.toString().orEmpty(), artist?.toString().orEmpty(),
         artworkUri?.toString(), extras.getLong("mb.duration"), extras.getString("mb.page"),
-        extras.getString("mb.author"), headers?.keySet()?.associateWith { headers.getString(it).orEmpty() }.orEmpty())
+        extras.getString("mb.author"), headers?.keySet()?.associateWith { headers.getString(it).orEmpty() }.orEmpty(),
+        videoWidth = extras.getInt("mb.videoWidth"), videoHeight = extras.getInt("mb.videoHeight"), shortVideo = extras.getBoolean("mb.shortVideo"))
 }

@@ -6,22 +6,33 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 internal class GitHubPluginImport(private val installer: PluginInstaller,
-                                 private val download: suspend (String, File) -> Unit,
-                                 private val builtInId: String) {
+                                 private val latest: suspend (String) -> GitHubPluginRevision,
+                                 private val download: suspend (GitHubPluginRevision, File) -> Unit) {
     suspend fun run(repositories: List<String>, review: suspend (List<PendingPlugin>) -> Boolean): PluginUpdateReport {
         val candidates = linkedMapOf<String, PendingPlugin>()
         val installed = mutableListOf<String>()
         val skipped = mutableListOf<String>()
+        val unchanged = mutableListOf<String>()
         val failed = mutableListOf<PluginUpdateFailure>()
         try {
-            for (repository in repositories.distinctBy { it.lowercase() }) {
+            for (repository in repositories.map(PluginRepository::parse).distinctBy { it.lowercase() }) {
                 if (nonPluginRepositories.any { it.equals(repository, ignoreCase = true) }) {
                     skipped += repository
                     continue
                 }
                 try {
-                    val candidate = installer.prepareArchive(repository) { download(repository, it) }
-                    if (candidate.manifest.id.equals(builtInId, true) || candidates.containsKey(candidate.manifest.id)) {
+                    val previous = installer.installed().firstOrNull { it.repository.equals(repository, ignoreCase = true) }
+                    val remote = latest(repository)
+                    if (previous != null && previous.remoteRevision == remote.revision) {
+                        unchanged += previous.manifest.name
+                        continue
+                    }
+                    val candidate = installer.prepareArchive(repository, previous, remoteRevision = remote.revision) { download(remote, it) }.copy(releaseNotes = remote.notes)
+                    if (candidate.replaces != null && !candidate.replaces.repository.equals(repository, ignoreCase = true)) {
+                        installer.discard(candidate)
+                        throw PluginException("Plugin ID belongs to a different repository")
+                    }
+                    if (candidate.manifest.id == com.xtreeroot.mb.local.localSourceId || candidates.containsKey(candidate.manifest.id)) {
                         installer.discard(candidate)
                         throw PluginException("Reserved or duplicate plugin ID: ${candidate.manifest.id}")
                     }
@@ -41,10 +52,10 @@ internal class GitHubPluginImport(private val installer: PluginInstaller,
         } finally {
             withContext(NonCancellable) { candidates.values.forEach { installer.discard(it) } }
         }
-        return PluginUpdateReport(installed = installed, skipped = skipped, failures = failed)
+        return PluginUpdateReport(installed = installed, skipped = skipped, failures = failed, unchanged = unchanged)
     }
 
     private companion object {
-        val nonPluginRepositories = setOf("xTreeRoot/MB", "xTreeRoot/mb-plugin-template")
+        val nonPluginRepositories = setOf("xTreeRoot/ShanhaiMusic", "xTreeRoot/MB", "xTreeRoot/mb-plugin-template")
     }
 }

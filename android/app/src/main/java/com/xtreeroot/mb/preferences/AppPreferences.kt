@@ -13,13 +13,19 @@ internal enum class PlaybackMode { Music, Video }
 internal data class AppPreferences(
     val appearance: AppAppearance = AppAppearance.System,
     val language: AppLanguage = AppLanguage.System,
+    val inAppVideoWindow: Boolean = true,
+    val systemVideoWindow: Boolean = true,
+    val pauseOtherSourcesOnSwitch: Boolean = false,
+    val backgroundOpacity: Float? = null,
+    val backgroundStyle: BackgroundSkinStyle = BackgroundSkinStyle(),
     val volume: Float = 0.8f,
     val quality: AudioQuality = AudioQuality.High,
+    val videoQuality: String = "auto",
     val normalization: AudioNormalization = AudioNormalization.Standard,
     val playbackMode: PlaybackMode = PlaybackMode.Music,
-    val builtInEnabled: Boolean = true,
     val lyricsStage: Boolean = false,
     val nowPlayingLyrics: Boolean = true,
+    val automaticUpdateChecks: Boolean = true,
     val hotComments: Boolean = false,
     val playerStyle: PlayerStyle = PlayerStyle.Cover,
     val lyricStyle: LyricStyle = LyricStyle.Flow,
@@ -31,8 +37,11 @@ internal data class AppPreferences(
     val selectedSourceId: String? = null,
 ) {
     fun toJson(): JSONObject = JSONObject().put("appearance", appearance.name).put("language", language.name)
-        .put("volume", volume.toDouble()).put("quality", quality.name).put("normalization", normalization.name)
-        .put("builtInEnabled", builtInEnabled).put("playbackMode", playbackMode.name)
+        .put("inAppVideoWindow", inAppVideoWindow).put("systemVideoWindow", systemVideoWindow)
+        .put("pauseOtherSourcesOnSwitch", pauseOtherSourcesOnSwitch)
+        .put("backgroundStyle", backgroundStyle.toJson()).put("videoQuality", videoQuality)
+        .put("backgroundOpacity", backgroundOpacity?.toDouble()).put("volume", volume.toDouble()).put("quality", quality.name).put("normalization", normalization.name)
+        .put("playbackMode", playbackMode.name).put("automaticUpdateChecks", automaticUpdateChecks)
         .put("lyricsStage", lyricsStage).put("nowPlayingLyrics", nowPlayingLyrics).put("hotComments", hotComments)
         .put("playerStyle", playerStyle.name).put("lyricStyle", lyricStyle.name).put("stageSparks", stageSparks)
         .put("smoke", smoke).put("fog", fog).put("growFromCover", growFromCover)
@@ -43,14 +52,20 @@ internal data class AppPreferences(
         fun parse(json: JSONObject): AppPreferences = AppPreferences(
             appearance = json.choice("appearance", AppAppearance.System),
             language = json.choice("language", AppLanguage.System),
+            inAppVideoWindow = json.optBoolean("inAppVideoWindow", true),
+            systemVideoWindow = json.optBoolean("systemVideoWindow", true),
+            pauseOtherSourcesOnSwitch = json.optBoolean("pauseOtherSourcesOnSwitch", false),
+            backgroundOpacity = json.optDouble("backgroundOpacity").takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)?.toFloat(),
+            backgroundStyle = BackgroundSkinStyle.parse(json.optJSONObject("backgroundStyle")),
             volume = json.optDouble("volume", 0.8).takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)?.toFloat() ?: 0.8f,
             quality = json.choice("quality", AudioQuality.High),
+            videoQuality = json.optString("videoQuality", "auto").takeIf(com.xtreeroot.mb.music.VideoQualityOption::valid) ?: "auto",
             normalization = json.choice("normalization", AudioNormalization.Standard),
             playbackMode = json.choice("playbackMode", PlaybackMode.Music),
-            builtInEnabled = json.optBoolean("builtInEnabled", true),
             selectedSourceId = (json.opt("selectedSourceId") as? String)?.takeIf(String::isNotBlank),
             lyricsStage = json.optBoolean("lyricsStage"),
             nowPlayingLyrics = json.optBoolean("nowPlayingLyrics", true),
+            automaticUpdateChecks = json.optBoolean("automaticUpdateChecks", true),
             hotComments = json.optBoolean("hotComments"),
             playerStyle = json.choice("playerStyle", PlayerStyle.Cover),
             lyricStyle = json.choice("lyricStyle", LyricStyle.Flow),

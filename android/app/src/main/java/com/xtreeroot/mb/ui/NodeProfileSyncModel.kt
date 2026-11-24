@@ -71,7 +71,7 @@ internal class NodeProfileSyncModel(application: Application) : AndroidViewModel
                 ensureActive()
                 if (expected == revision && isCurrent()) {
                     app.settings.cacheNodeProfile(target.binding, target.platform, synced)
-                    if (publish) mutable.value = NodeProfileSyncState.Published
+                    mutable.value = if (publish) NodeProfileSyncState.Published else NodeProfileSyncState.Idle
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled

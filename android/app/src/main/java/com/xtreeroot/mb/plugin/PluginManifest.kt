@@ -14,13 +14,15 @@ internal data class PluginManifest(
     val minAppVersion: String? = null,
     val settings: List<PluginSetting> = emptyList(),
     val navigation: List<PluginNavigation> = emptyList(),
+    val signInMethods: List<com.xtreeroot.mb.music.SignInMethod> = emptyList(),
+    val discovery: List<PluginDiscoverySection> = emptyList(),
 ) {
     fun reaches(host: String): Boolean = host.isNotEmpty() && network.any { it == "*" || hostMatches(it, host) }
 
     companion object {
         private val idPattern = Regex("[A-Za-z0-9][A-Za-z0-9_.-]*")
         private val versionPattern = Regex("[0-9]+\\.[0-9]+\\.[0-9]+")
-        private val hostVersion = listOf(0, 1, 27)
+        private val hostVersion = listOf(0, 1, 28)
 
         fun parse(json: JSONObject): PluginManifest {
             val id = json.requiredText("id")
@@ -29,10 +31,16 @@ internal data class PluginManifest(
             if (entry.startsWith('/') || '\\' in entry || '\u0000' in entry || ".." in entry.split('/') || !entry.endsWith(".js")) {
                 throw PluginException("Invalid entry path")
             }
-            val minAppVersion = json.optionalText("minAppVersion")
+            val defaultMinVersion = json.optionalText("minAppVersion")?.also { versionNumbers(it) }
+            val overrides = if (json.isNull("minAppVersionByPlatform")) null else
+                json.optJSONObject("minAppVersionByPlatform") ?: throw PluginException("Invalid minAppVersionByPlatform")
+            overrides?.keys()?.forEach { platform ->
+                if (platform !in setOf("desktop", "ios", "android")) throw PluginException("Invalid minAppVersionByPlatform key $platform")
+                versionNumbers(overrides.requiredText(platform))
+            }
+            val minAppVersion = overrides?.optionalText("android") ?: defaultMinVersion
             minAppVersion?.let { version ->
-                if (!versionPattern.matches(version)) throw PluginException("Invalid compatibility version")
-                val required = version.split('.').map { it.toIntOrNull() ?: throw PluginException("Invalid compatibility version") }
+                val required = versionNumbers(version)
                 val difference = required.zip(hostVersion).firstOrNull { (needed, available) -> needed != available }
                 if (difference != null && difference.first > difference.second) throw PluginException("Requires host $version")
             }
@@ -55,10 +63,20 @@ internal data class PluginManifest(
             val navigation = if (json.isNull("navigation")) null else json.getJSONArray("navigation")
             val destinations = List(navigation?.length() ?: 0) { index ->
                 val item = checkNotNull(navigation).getJSONObject(index)
-                PluginNavigation(item.optionalText("title"), item.optionalText("page"), item.optionalText("builtin"), item.optionalText("icon"))
+                val placement = item.optionalText("placement")?.let { value ->
+                    PluginNavigationPlacement.entries.find { it.key == value } ?: throw PluginException("Invalid navigation placement")
+                } ?: PluginNavigationPlacement.Discovery
+                PluginNavigation(item.optionalText("title"), item.optionalText("page"), item.optionalText("builtin"), item.optionalText("icon"), placement)
             }
+            val methods = json.optJSONArray("signInMethods")
+            val signInMethods = List(methods?.length() ?: 0) { index ->
+                val method = checkNotNull(methods).getJSONObject(index)
+                com.xtreeroot.mb.music.SignInMethod(method.requiredText("id"), method.requiredText("label"))
+            }
+            if (signInMethods.size > 16 || signInMethods.any { !idPattern.matches(it.id) || it.label.isBlank() } ||
+                signInMethods.distinctBy { it.id }.size != signInMethods.size) throw PluginException("Invalid sign-in methods")
             val manifest = PluginManifest(id, json.optionalText("name") ?: id, entry, permissions.textList("network"), emptyList(),
-                json.optionalText("version"), minAppVersion, values, destinations)
+                json.optionalText("version"), minAppVersion, values, destinations, signInMethods, parseDiscovery(json))
             val rules = if (json.isNull("requestHeaders")) null else json.getJSONArray("requestHeaders")
             return manifest.copy(requestHeaders = List(rules?.length() ?: 0) { index ->
                 val rule = checkNotNull(rules).getJSONObject(index)
@@ -80,6 +98,11 @@ internal data class PluginManifest(
             })
         }
 
+        private fun versionNumbers(version: String): List<Int> {
+            if (!versionPattern.matches(version)) throw PluginException("Invalid compatibility version")
+            return version.split('.').map { it.toIntOrNull() ?: throw PluginException("Invalid compatibility version") }
+        }
+
         private fun JSONObject.requiredText(key: String): String = optionalText(key) ?: throw PluginException("Missing $key")
         private fun JSONObject.optionalText(key: String): String? = if (isNull(key)) null else
             opt(key) as? String ?: throw PluginException("Invalid $key")
@@ -94,7 +117,10 @@ internal data class PluginManifest(
 
 internal data class PluginHeaderRule(val hosts: List<String>, val kinds: Set<String>, val headers: Map<String, String>)
 
-internal data class PluginNavigation(val title: String?, val page: String?, val builtin: String?, val icon: String?)
+internal enum class PluginNavigationPlacement(val key: String) { Discovery("discovery"), Personal("personal") }
+
+internal data class PluginNavigation(val title: String?, val page: String?, val builtin: String?, val icon: String?,
+                                    val placement: PluginNavigationPlacement = PluginNavigationPlacement.Discovery)
 
 internal data class PluginSetting(val key: String, val label: String, val type: String?, val help: String?,
                                   val link: String?, val options: List<Option>) {

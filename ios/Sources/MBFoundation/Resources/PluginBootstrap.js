@@ -17,13 +17,14 @@
     pending.delete(id);
     if (success) found.resolve(value);
     else {
-      const error = new Error(value?.message ?? String(value));
-      if (typeof value?.code === "string") error.code = value.code;
+      const error = new Error(value.message);
+      if (value.code) error.code = value.code;
       found.reject(error);
     }
   };
   globalThis.host = Object.freeze({
     platform: "ios", arch: "arm64", dir: ".", dataDir: ".",
+    capabilities: Object.freeze({ webSignInHTML: true, cencAudio: true }),
     storage: Object.freeze({ get: key => call("storage.get", String(key)), set: (key, value) => call("storage.set", String(key), value), remove: key => call("storage.remove", String(key)) }),
     language: () => call("language"), t: text => call("t", String(text)),
     setting: key => call("setting", String(key)),
@@ -33,6 +34,7 @@
     spawn: () => { throw new Error("iOS does not provide external processes"); },
     waitForRedirect: () => { throw new Error("This sign-in callback needs a desktop host"); },
     webSignIn: options => request({ kind: "webSignIn", options }),
+    oauthSignIn: options => request({ kind: "oauthSignIn", options }),
     removeDataDir: path => call("removeDataDir", path),
   });
   globalThis.console = Object.freeze(Object.fromEntries(["log", "info", "warn", "error", "debug"].map(name => [name, (...args) => call("console")])));

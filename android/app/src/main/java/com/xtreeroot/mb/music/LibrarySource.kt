@@ -22,4 +22,5 @@ data class LibraryPage(
 
 interface LibrarySource : MusicSource {
     suspend fun library(route: LibraryRoute, cursor: String?): LibraryPage
+    suspend fun invalidateLibraryCache() {}
 }

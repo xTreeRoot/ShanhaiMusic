@@ -17,12 +17,20 @@ internal class QuickJsContext(host: QuickJsHost) {
         nativeEvaluate(handle, source.encodeToByteArray(), name.encodeToByteArray(), module, budget)
     }
 
-    suspend fun start(name: String, json: String) = interruptible {
-        nativeStart(handle, name.encodeToByteArray(), json.encodeToByteArray(), callBudgetMs)
+    private var activeCallBudgetMs = defaultCallBudgetMs
+
+    suspend fun start(name: String, json: String): Int {
+        // 二维码解码和设备加密属于合法的登录计算；普通调用仍使用较小限额。
+        // 每次调用重新选择，避免登录预算泄漏到后续搜索、播放等操作。
+        activeCallBudgetMs = if (name == "signIn") signInBudgetMs else defaultCallBudgetMs
+        return interruptible {
+            nativeStart(handle, name.encodeToByteArray(), json.encodeToByteArray(), activeCallBudgetMs)
+        }
     }
 
+    // 登录的异步响应沿用登录预算；较大响应另保留既有解析预算。
     fun settle(id: Int, success: Boolean, json: String) =
-        nativeSettle(handle, id, success, json.encodeToByteArray(), callBudgetMs)
+        nativeSettle(handle, id, success, json.encodeToByteArray(), maxOf(activeCallBudgetMs, if (json.length > 64 * 1024) largeResponseBudgetMs else defaultCallBudgetMs))
 
     fun supports(name: String) = nativeHasExport(handle, name.encodeToByteArray())
     fun event() = nativeRead(handle, event = true)?.decodeToString()
@@ -54,7 +62,9 @@ internal class QuickJsContext(host: QuickJsHost) {
     private external fun nativeErrorCode(handle: Long): ByteArray?
 
     companion object {
-        private const val callBudgetMs = 100
+        private const val defaultCallBudgetMs = 100
+        private const val signInBudgetMs = 5_000
+        private const val largeResponseBudgetMs = 2_000
         init { System.loadLibrary("mbquickjs") }
     }
 }

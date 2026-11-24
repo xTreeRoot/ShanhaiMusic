@@ -93,7 +93,7 @@ internal fun PlayerArtwork(track: Track, state: PlaybackState, style: PlayerStyl
                     Box(Modifier.size(8.dp).background(accent, CircleShape))
                     Text("33 ⅓", color = Color.White.copy(alpha = 0.75f), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                     Spacer(Modifier.weight(1f))
-                    Text("MB", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    Text("山海", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Black)
                 }
             }
             PlayerStyle.Cassette -> {

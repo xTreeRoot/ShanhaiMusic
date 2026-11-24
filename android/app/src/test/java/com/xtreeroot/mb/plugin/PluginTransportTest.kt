@@ -16,6 +16,17 @@ import org.junit.Test
 class PluginTransportTest {
     private val manifest = PluginManifest.parse(JSONObject("""{"id":"fixture","permissions":{"network":["127.0.0.1"]}}"""))
 
+    @Test fun manifestChecksAndroidRequirementWithoutIgnoringMalformedOverrides() {
+        fun parse(overrides: String) = PluginManifest.parse(JSONObject("""
+            {"id":"fixture","minAppVersion":"0.1.28","minAppVersionByPlatform":$overrides}
+        """))
+        assertEquals("0.1.28", parse("""{"desktop":"0.1.25"}""").minAppVersion)
+        assertEquals("0.1.27", parse("""{"android":"0.1.27","ios":"0.1.29"}""").minAppVersion)
+        for (overrides in listOf("""{"android":"0.1.29"}""", """{"ios":"v0.1.25"}""", """{"macos":"0.1.25"}""", """{"android":null}""")) {
+            assertThrows(PluginException::class.java) { parse(overrides) }
+        }
+    }
+
     @Test fun manifestRejectsUnsupportedHostAndMatchesOnlyTheAllowedDomain() {
         listOf(
             """{"id":"../escape"}""",
@@ -31,11 +42,11 @@ class PluginTransportTest {
     }
 
     @Test fun manifestAcceptsTheImplementedLoginContractsButNotFutureRequirements() {
-        for (version in listOf("0.1.26", "0.1.27")) {
+        for (version in listOf("0.1.26", "0.1.27", "0.1.28")) {
             val info = PluginManifest.parse(JSONObject().put("id", "fixture").put("minAppVersion", version))
             assertEquals(version, info.minAppVersion)
         }
-        val future = JSONObject().put("id", "fixture").put("minAppVersion", "0.1.28")
+        val future = JSONObject().put("id", "fixture").put("minAppVersion", "0.1.29")
         assertThrows(PluginException::class.java) { PluginManifest.parse(future) }
     }
 

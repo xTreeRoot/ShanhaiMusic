@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -219,14 +219,14 @@ private fun PluginBrowserIssue.text(english: Boolean): String {
     val detail = if (english) when (this) {
         PluginBrowserIssue.MissingProvider -> "No usable WebView. Enable the system WebView provider in Android settings."
         PluginBrowserIssue.UnsupportedProvider -> "This WebView cannot isolate sign-in. Update the active WebView provider or Android."
-        PluginBrowserIssue.Startup -> "Could not start the isolated WebView. Reopen MB and retry."
+        PluginBrowserIssue.Startup -> "Could not start the isolated WebView. Reopen Shanhai and retry."
         PluginBrowserIssue.Navigation -> "Could not load the page. Check your connection and try again."
         PluginBrowserIssue.ServerUnavailable -> "The website is temporarily unavailable. Try again later."
         PluginBrowserIssue.Renderer -> "The isolated WebView stopped responding. Close this page and retry."
     } else when (this) {
         PluginBrowserIssue.MissingProvider -> "没有可用的 WebView，请在系统设置中启用 WebView 提供程序。"
         PluginBrowserIssue.UnsupportedProvider -> "当前 WebView 不支持隔离登录，请更新系统正在使用的 WebView 或 Android。"
-        PluginBrowserIssue.Startup -> "隔离 WebView 启动失败，请重新打开 MB 后重试。"
+        PluginBrowserIssue.Startup -> "隔离 WebView 启动失败，请重新打开山海后重试。"
         PluginBrowserIssue.Navigation -> "网页无法加载，请检查网络后重试。"
         PluginBrowserIssue.ServerUnavailable -> "网站暂时不可用，请稍后重试。"
         PluginBrowserIssue.Renderer -> "隔离 WebView 已退出，请关闭页面后重试。"

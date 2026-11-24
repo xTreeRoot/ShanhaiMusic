@@ -23,20 +23,24 @@ internal fun canPrefetchAudio(positionMs: Long, durationMs: Long, playing: Boole
 
 internal data class PreparedAudio(val resource: MediaResource, val prefix: MediaRangeGuard.Prefix)
 
-internal suspend fun primeAudio(client: OkHttpClient, media: MediaResource): PreparedAudio? = suspendCancellableCoroutine { result ->
-    val guard = MediaRangeGuard()
-    val request = Request.Builder().url(media.url).apply { media.headers.forEach(::header) }
-        .header("Range", "bytes=0-${audioPrefixBytes - 1}").build()
-    val call = guardedMediaClient(client, guard).newCall(request)
-    call.timeout().timeout(12, TimeUnit.SECONDS)
-    result.invokeOnCancellation { call.cancel() }
-    call.enqueue(object : Callback {
-        override fun onFailure(call: Call, e: IOException) { result.resume(null) }
-        override fun onResponse(call: Call, response: Response) {
-            val prefix = response.use { runCatching { guard.prime(it, request.url) }.getOrNull() }
-            result.resume(prefix?.let { PreparedAudio(media, it) })
-        }
-    })
+internal suspend fun primeAudio(client: OkHttpClient, media: MediaResource): PreparedAudio? {
+    // 音源解析已将授权容器准备到独立本地缓存，无需再发 HTTP Range 预载。
+    if (java.net.URI(media.url).scheme == "file") return null
+    return suspendCancellableCoroutine { result ->
+        val guard = MediaRangeGuard()
+        val request = Request.Builder().url(media.url).apply { media.headers.forEach(::header) }
+            .header("Range", "bytes=0-${audioPrefixBytes - 1}").build()
+        val call = guardedMediaClient(client, guard).newCall(request)
+        call.timeout().timeout(12, TimeUnit.SECONDS)
+        result.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { result.resume(null) }
+            override fun onResponse(call: Call, response: Response) {
+                val prefix = response.use { runCatching { guard.prime(it, request.url) }.getOrNull() }
+                result.resume(prefix?.let { PreparedAudio(media, it) })
+            }
+        })
+    }
 }
 
 internal class NextAudioPreloader<Key : Any, Value : Any>(private val scope: CoroutineScope, private val now: () -> Long,

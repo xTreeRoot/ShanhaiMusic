@@ -20,8 +20,16 @@ class PlaybackPresentationTest {
         val video = PlaybackPresentation().update(supportsVideo = true, contentPreference = PlaybackMode.Video)
         val local = video.update(supportsVideo = false, contentPreference = PlaybackMode.Video)
         assertEquals(PlaybackMode.Music, local.mode)
-        assertEquals(video.opening, local.opening)
+        assertEquals(video.opening + 1, local.opening)
         assertEquals(local, local.update(supportsVideo = true))
         assertEquals(PlaybackMode.Video, local.update(supportsVideo = true, contentPreference = PlaybackMode.Video).mode)
+    }
+
+    @Test fun selectingMusicAlwaysOpensMusicPlayerButTransportDoesNotReopenIt() {
+        val music = PlaybackPresentation().update(supportsVideo = true, contentPreference = PlaybackMode.Music)
+        assertEquals(PlaybackMode.Music, music.mode)
+        assertEquals(1L, music.opening)
+        assertEquals(music, music.update(supportsVideo = true))
+        assertEquals(2L, music.update(supportsVideo = true, contentPreference = PlaybackMode.Music).opening)
     }
 }

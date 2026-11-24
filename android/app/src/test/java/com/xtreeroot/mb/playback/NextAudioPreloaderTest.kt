@@ -25,6 +25,11 @@ class NextAudioPreloaderTest {
     @get:Rule val server = MockWebServer()
     private val client = OkHttpClient.Builder().callTimeout(2, SECONDS).build()
 
+    @Test fun alreadyPreparedLocalAudioDoesNotOpenAnHttpRangeRequest() = runBlocking {
+        assertNull(primeAudio(client, MediaResource("file:///cache/prepared-fixture.m4a", emptyMap())))
+        assertEquals(0, server.requestCount)
+    }
+
     @Test fun triggersOnlyWhilePlayingFromSeventyPercentWithoutVideo() {
         assertFalse(canPrefetchAudio(699, 1_000, playing = true, videoActive = false))
         assertTrue(canPrefetchAudio(700, 1_000, playing = true, videoActive = false))

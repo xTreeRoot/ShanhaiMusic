@@ -46,7 +46,7 @@ class GuestPlaybackDeviceTest {
         var player: PlaybackModel? = null
         try {
             app.offline.store.setLimit(0)
-            app.settings.update { it.copy(playbackMode = PlaybackMode.Music, builtInEnabled = false, selectedSourceId = id) }
+            app.settings.update { it.copy(playbackMode = PlaybackMode.Music, selectedSourceId = id) }
             app.plugins.setEnabled(plugin, true)
             app.refreshPlugins()
             val source = app.playbackSource(id) as PluginSource

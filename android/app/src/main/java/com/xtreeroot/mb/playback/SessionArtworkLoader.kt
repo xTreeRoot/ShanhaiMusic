@@ -10,7 +10,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.session.CacheBitmapLoader
 import coil.imageLoader
-import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Precision
@@ -19,6 +18,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.SettableFuture
 import com.xtreeroot.mb.MBApplication
+import com.xtreeroot.mb.cache.cachedArtwork
 import com.xtreeroot.mb.plugin.PluginSource
 import java.net.URI
 import kotlinx.coroutines.CancellationException
@@ -52,14 +52,8 @@ internal class SessionArtworkLoader(private val app: MBApplication, private val 
         val job = scope.launch {
             try {
                 val headers = plugin?.artworkHeaders(URI(address.toString())) ?: cover.headers
-                val request = ImageRequest.Builder(app).data(address).size(384, 384).scale(Scale.FIT)
-                    .precision(Precision.EXACT).allowHardware(false).apply {
-                        if (headers.isNotEmpty()) {
-                            memoryCachePolicy(CachePolicy.DISABLED)
-                            diskCachePolicy(CachePolicy.DISABLED)
-                            headers.forEach { (name, value) -> addHeader(name, value) }
-                        }
-                    }.build()
+                val request = ImageRequest.Builder(app).cachedArtwork(address.toString(), headers)
+                    .size(384, 384).scale(Scale.FIT).precision(Precision.EXACT).allowHardware(false).build()
                 val image = app.imageLoader.execute(request) as? SuccessResult
                 result.set((image?.drawable as? BitmapDrawable)?.bitmap)
             } catch (cancelled: CancellationException) { throw cancelled }

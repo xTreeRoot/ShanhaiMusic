@@ -18,11 +18,10 @@ import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.xtreeroot.mb.ui.components.MBAlertDialog as AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,50 +50,24 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun AccountView(model: AccountModel, open: (LibraryRoute) -> Unit) {
-    val state by model.account.collectAsStateWithLifecycle()
-    var signOut by rememberSaveable { mutableStateOf(false) }
-    val current = state.account
-    val refreshing = state.loading && !state.signingIn && current != null
-    RefreshableList(refreshing = refreshing, refresh = { if (!state.loading) model.refresh() }) {
-        item {
-            AccountHeader(mb("哔哩哔哩", "Bilibili"), current, state.loading,
-                mb("扫码登录", "QR Sign In").takeIf { state.canSignIn }, model::signIn)
-        }
-        if (current != null) {
-            item {
-                AccountDestinations(listOf(LibraryRoute.Creator(current.id) to Icons.Default.AccountBox,
-                    LibraryRoute.Favorites to Icons.AutoMirrored.Filled.List,
-                    LibraryRoute.Liked to Icons.Default.Favorite, LibraryRoute.History to Icons.Default.PlayArrow,
-                    LibraryRoute.Following to Icons.Default.Person).map { (route, icon) ->
-                    val title = if (route is LibraryRoute.Creator) mb("我的投稿", "My Uploads") else route.title()
-                    AccountDestination(title, icon) { open(route) }
-                })
-            }
-            item {
-                TextButton(onClick = { signOut = true }, enabled = !state.loading, modifier = Modifier.padding(horizontal = 20.dp)) {
-                    Text(mb("退出登录", "Sign Out"), color = if (state.loading) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
-                }
-            }
-        }
-        if (!state.signingIn) {
-            if (state.loading && !refreshing) item { Loading() }
-            state.error?.let { message -> item { Retry(message, model::refresh) } }
-        }
-    }
-    if (state.signingIn) SignInDialog(state, model, builtIn = true)
-    if (signOut) AccountSignOutDialog({ signOut = false }, model::signOut)
-}
-
-@Composable
-internal fun AccountSignOutDialog(close: () -> Unit, signOut: () -> Unit) {
-    AlertDialog(onDismissRequest = close, title = { Text(mb("退出登录？", "Sign out?")) },
+internal fun AccountSignOutDialog(close: () -> Unit, signOut: () -> Unit, clearCache: Boolean = false) {
+    AlertDialog(onDismissRequest = close, title = { Text(if (clearCache) mb("退出并清理登录缓存？", "Clear this sign-in session?") else mb("退出登录？", "Sign out?")) },
+        text = if (clearCache) {{ Text(mb("将清理此插件的登录会话，下次登录需要重新授权。资料库、下载和插件设置会保留。", "Clear this plugin's sign-in session and sign in again. Your library, downloads and plugin settings will be kept.")) }} else null,
         confirmButton = { TextButton(onClick = { close(); signOut() }) { Text(mb("退出", "Sign Out")) } },
         dismissButton = { TextButton(onClick = close) { Text(mb("取消", "Cancel")) } })
 }
 
 @Composable
-internal fun SignInDialog(state: AccountState, model: AccountModel, builtIn: Boolean = false) {
+internal fun SignInDialog(state: AccountState, model: AccountModel) {
+    if (state.choosingSignInMethod) {
+        AlertDialog(onDismissRequest = model::cancelSignIn, title = { Text(mb("选择登录方式", "Choose sign-in method")) },
+            text = { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                state.signInMethods.forEach { method ->
+                    TextButton(onClick = { model.chooseSignInMethod(method.id) }, modifier = Modifier.fillMaxWidth()) { Text(method.label) }
+                }
+            } }, confirmButton = {}, dismissButton = { TextButton(onClick = model::cancelSignIn) { Text(mb("取消", "Cancel")) } })
+        return
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prompt = state.prompt
@@ -103,7 +76,7 @@ internal fun SignInDialog(state: AccountState, model: AccountModel, builtIn: Boo
     val qrLabel = mb("登录二维码", "Sign In QR Code")
     val shareLabel = mb("分享二维码", "Share QR Code")
     AlertDialog(onDismissRequest = model::cancelSignIn,
-        title = { Text(if (builtIn) mb("扫码登录", "QR Sign In") else mb("登录音源", "Sign In to Source")) },
+        title = { Text(mb("登录音源", "Sign In to Source")) },
         text = {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -121,8 +94,8 @@ internal fun SignInDialog(state: AccountState, model: AccountModel, builtIn: Boo
                 if (state.error != null) Text(state.error, color = MaterialTheme.colorScheme.error)
                 else if (prompt == null) Loading()
                 else Text(when (prompt.status) {
-                    SignInStatus.Scan -> mb("用哔哩哔哩 App 扫码登录", "Scan with the Bilibili app.")
-                    SignInStatus.Confirm -> mb("已扫码，请在哔哩哔哩 App 确认登录", "Scanned. Confirm sign in in the Bilibili app.")
+                    SignInStatus.Scan -> mb("使用对应平台 App 扫码登录", "Scan with the platform app.")
+                    SignInStatus.Confirm -> mb("已扫码，请在对应平台 App 确认登录", "Scanned. Confirm sign in in the platform app.")
                     SignInStatus.Refreshed -> mb("二维码已刷新，请扫描新的二维码", "QR code refreshed. Scan the new code.")
                     SignInStatus.Message -> prompt.message
                 })

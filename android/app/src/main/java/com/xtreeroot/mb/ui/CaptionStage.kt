@@ -1,7 +1,23 @@
 package com.xtreeroot.mb.ui
 
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
@@ -48,13 +64,18 @@ import kotlin.math.sin
 
 @Composable
 internal fun CaptionStage(lines: List<CaptionLine>, position: Long, style: LyricStyle, sparks: Boolean,
-                          animate: Boolean, seek: (Long) -> Unit) {
+                          animate: Boolean, compact: Boolean = false, seek: (Long) -> Unit) {
+    var selectedIndex by remember(lines) { mutableStateOf<Int?>(null) }
     val index = lines.activeCaption(position)
     val list = rememberLazyListState(initialFirstVisibleItemIndex = index.coerceAtLeast(0))
     val fontScale = LocalDensity.current.fontScale
     BoxWithConstraints(Modifier.fillMaxSize().semantics { testTag = "lyric-style-${style.name.lowercase()}" }) {
-        LaunchedEffect(index, lines, style, maxWidth, maxHeight, fontScale, animate) {
-            if (index < 0) return@LaunchedEffect
+        LaunchedEffect(index, lines, style, maxWidth, maxHeight, fontScale, animate, selectedIndex) {
+            if (index < 0 || selectedIndex != null) return@LaunchedEffect
+            if (compact) {
+                if (animate) list.animateScrollToItem(index) else list.scrollToItem(index)
+                return@LaunchedEffect
+            }
             val alreadyVisible = list.layoutInfo.visibleItemsInfo.any { it.index == index }
             if (!alreadyVisible) list.scrollToItem(index)
             val layout = list.layoutInfo
@@ -64,26 +85,46 @@ internal fun CaptionStage(lines: List<CaptionLine>, position: Long, style: Lyric
             if (animate && alreadyVisible) list.animateScrollBy(distance, tween(250)) else list.scrollBy(distance)
         }
         LazyColumn(state = list, modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(vertical = maxHeight / 2)) {
+            contentPadding = PaddingValues(top = if (compact) 0.dp else maxHeight / 2, bottom = if (compact) 48.dp else maxHeight / 2)) {
             itemsIndexed(lines, key = { lineIndex, line -> "${line.startMs}:$lineIndex" }) { lineIndex, line ->
                 val active = lineIndex == index
                 val words = remember(line) { line.timedWords() }
-                Column(Modifier.fillMaxWidth().clickable(onClickLabel = mb("跳转到 ${line.text}", "Seek to ${line.text}")) {
-                    seek(line.startMs)
-                }.semantics {
-                    selected = active
-                    contentDescription = listOfNotNull(line.text, line.translation).joinToString("\n")
-                }.padding(vertical = 10.dp)) {
-                    WordLayout(style) {
-                        words.forEachIndexed { wordIndex, word ->
-                            LyricWord(word, if (active) position else -1, style, wordIndex, animate, sparks && animate && active)
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                    .background(if (selectedIndex == lineIndex) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f) else Color.Transparent)
+                    .padding(horizontal = 8.dp).then(if (compact) Modifier.height(48.dp) else Modifier.heightIn(min = 64.dp)), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).clickable(onClickLabel = mb("选择歌词 ${line.text}", "Select lyric ${line.text}")) {
+                        selectedIndex = lineIndex
+                    }.semantics {
+                        selected = selectedIndex == lineIndex || active
+                        contentDescription = listOfNotNull(line.text, line.translation).joinToString("\n")
+                    }.padding(vertical = if (compact) 4.dp else 10.dp)) {
+                        if (compact) {
+                            Text(line.text, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
+                                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else WordLayout(style) {
+                            words.forEachIndexed { wordIndex, word ->
+                                LyricWord(word, if (active) position else -1, style, wordIndex, animate, sparks && animate && active, compact)
+                            }
+                        }
+                        line.translation?.takeIf { !compact && it.isNotBlank() }?.let { translation ->
+                            Text(translation, Modifier.padding(top = 4.dp).clearAndSetSemantics { }, style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    line.translation?.takeIf(String::isNotBlank)?.let { translation ->
-                        Text(translation, Modifier.padding(top = 4.dp).clearAndSetSemantics { }, style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    if (selectedIndex == lineIndex) {
+                        val confirmLabel = mb("从这一句播放 ${line.text}", "Play from lyric ${line.text}")
+                        Column(Modifier.width(if (compact) 48.dp else 64.dp).heightIn(min = 48.dp).clickable(role = Role.Button) {
+                            selectedIndex = null
+                            seek(line.startMs)
+                        }.semantics { contentDescription = confirmLabel },
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.primary)
+                            Text(timeLabel(line.startMs), Modifier.clearAndSetSemantics { }, style = MaterialTheme.typography.labelSmall)
+                        }
+                    } else Spacer(Modifier.width(if (compact) 48.dp else 64.dp))
                 }
+
             }
         }
     }
@@ -119,8 +160,8 @@ private fun WordLayout(style: LyricStyle, words: @Composable () -> Unit) {
 }
 
 @Composable
-private fun LyricWord(word: CaptionWord, position: Long, style: LyricStyle, index: Int, animate: Boolean, sparks: Boolean) {
-    val typography = if (style == LyricStyle.Tilt) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineSmall
+private fun LyricWord(word: CaptionWord, position: Long, style: LyricStyle, index: Int, animate: Boolean, sparks: Boolean, compact: Boolean) {
+    val typography = if (compact) MaterialTheme.typography.bodyLarge else if (style == LyricStyle.Tilt) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineSmall
     val weight = if (style == LyricStyle.Tilt && index % 2 == 0) FontWeight.Black else FontWeight.SemiBold
     val accent = MaterialTheme.colorScheme.primary
     val dim = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (position >= 0) 0.92f else 0.62f)

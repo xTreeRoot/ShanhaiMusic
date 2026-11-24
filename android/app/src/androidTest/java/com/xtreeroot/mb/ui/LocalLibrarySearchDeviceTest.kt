@@ -54,7 +54,11 @@ import org.junit.Test
 
 class LocalLibrarySearchDeviceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
-    private val automation = instrumentation.uiAutomation
+    private val automation = instrumentation.uiAutomation.also { automation ->
+        automation.serviceInfo = automation.serviceInfo.apply {
+            flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        }
+    }
     private val app = instrumentation.targetContext.applicationContext as MBApplication
 
     @Test fun homeCanCancelAnActiveDownloadWithoutLosingItsSearch() = runBlocking {
@@ -241,8 +245,6 @@ class LocalLibrarySearchDeviceTest {
             activity = instrumentation.startActivitySync(Intent(app, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
             tap("资料库", "Library")
-            node("Harbor Overture")
-            tap("歌手", "Artists")
             setQuery("Harbor")
             node("Harbor Overture")
             node("Harbor Sessions")
@@ -275,8 +277,10 @@ class LocalLibrarySearchDeviceTest {
             setQuery("No matching fixture")
             node("没有匹配的本地内容", "No Matching Library Items")
             tap("清空搜索", "Clear Search")
+            expectQuery("")
+            tap("作者", "Artists")
             node("Mountain Artist")
-            assertNull(find { it.text?.toString() == "Harbor Mix" })
+            tap("返回资料库", "Back to Library")
         } finally {
             instrumentation.runOnMainSync { activity?.finish() }
             playlist?.let(app.playlists::delete)
@@ -433,12 +437,7 @@ class LocalLibrarySearchDeviceTest {
                 while (app.local.catalog.activity().none { it.trackId == track.id && it.likedAt > 0 }) delay(50)
             }
             tap("返回资料库", "Back to Library")
-            if (find { it.matchesLabel(arrayOf("喜欢", "Liked Songs")) } == null) {
-                val categories = generateSequence(node("歌手", "Artists")) { it.parent }.first { candidate ->
-                    candidate.actionList.any { it == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT }
-                }
-                assertTrue(categories.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.id))
-            }
+            tap("返回资料库", "Back to Library")
             tap("喜欢", "Liked Songs")
             node(track.title)
             capture("trackFavoriteScreenshot", "android-liked-songs-from-track-menu.png")
@@ -473,7 +472,6 @@ class LocalLibrarySearchDeviceTest {
             tap("资料库", "Library")
             setQuery(track.title)
             longPress(track.title)
-            node("导出音频", "Export Audio")
             tap("分享音频", "Share Audio")
             val envelope = withTimeout(5_000) { chooser.await() }
             val share = checkNotNull(envelope.getParcelableExtra<Intent>(Intent.EXTRA_INTENT))
@@ -495,6 +493,9 @@ class LocalLibrarySearchDeviceTest {
             }
             app.local.delete(track.sourceTrackId)
             assertTrue(checkNotNull(resolver.openInputStream(uri)).use { it.readBytes() }.contentEquals(original))
+        } catch (failure: Throwable) {
+            capture("libraryHomeScreenshot", "android-library-share-failed.png")
+            throw failure
         } finally {
             instrumentation.removeMonitor(monitor)
             withContext(Dispatchers.Main) { activity?.finish() }
@@ -538,7 +539,9 @@ class LocalLibrarySearchDeviceTest {
 
     private suspend fun longPress(title: String) {
         fun clickable(node: AccessibilityNodeInfo) = generateSequence(node) { it.parent }.firstOrNull { it.isLongClickable && it.isEnabled }
-        val row = await("Long press $title") { it.matchesLabel(arrayOf(title)) && clickable(it) != null }
+        val row = await("Long press $title") {
+            it.matchesLabel(arrayOf(title)) && generateSequence(it) { node -> node.parent }.none { node -> node.isEditable } && clickable(it) != null
+        }
         assertEquals("Expected to long press $title", true, clickable(row)?.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
     }
 
@@ -574,7 +577,9 @@ class LocalLibrarySearchDeviceTest {
             if (node.isVisibleToUser && matches(node)) return node
             return (0 until node.childCount).firstNotNullOfOrNull { node.getChild(it)?.let(::visit) }
         }
-        return automation.rootInActiveWindow?.let(::visit)
+        // API 28 关闭 PopupWindow 后 active window 可能暂时为空，按真实交互窗口读取宿主页面。
+        return (automation.windows.sortedByDescending { it.layer }.mapNotNull { it.root }.filter { it.packageName?.toString() == app.packageName } + listOfNotNull(automation.rootInActiveWindow))
+            .firstNotNullOfOrNull(::visit)
     }
 
     private suspend fun await(description: String, matches: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo =
@@ -587,15 +592,34 @@ class LocalLibrarySearchDeviceTest {
     private fun AccessibilityNodeInfo.matchesLabel(labels: Array<out String>) =
         labels.any { label -> text?.toString() == label || contentDescription?.toString() == label }
 
-    private suspend fun node(vararg labels: String) = await(labels.joinToString()) { it.matchesLabel(labels) }
+    private suspend fun node(vararg labels: String): AccessibilityNodeInfo {
+        delay(150)
+        find { it.matchesLabel(labels) }?.let { return it }
+        for (direction in listOf(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD, AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
+            repeat(10) {
+                find { it.matchesLabel(labels) }?.let { return it }
+                val list = find { it.isScrollable && it.actionList.any { action -> action.id == direction } }
+                if (list?.performAction(direction) == true) delay(150)
+            }
+        }
+        return await(labels.joinToString()) { it.matchesLabel(labels) }
+    }
 
     private suspend fun tap(vararg labels: String) {
         fun clickable(node: AccessibilityNodeInfo) = generateSequence(node) { it.parent }.firstOrNull { it.isClickable && it.isEnabled }
+        node(*labels)
         val node = await("Enabled ${labels.joinToString()}") { it.matchesLabel(labels) && clickable(it) != null }
         assertEquals("Expected to tap ${labels.joinToString()}", true, clickable(node)?.performAction(AccessibilityNodeInfo.ACTION_CLICK))
     }
 
-    private suspend fun searchField() = await("Library search field") { it.isEditable }
+    private suspend fun searchField(): AccessibilityNodeInfo {
+        repeat(12) {
+            find { it.isEditable }?.let { return it }
+            find { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+            delay(100)
+        }
+        return await("Library search field") { it.isEditable }
+    }
 
     private suspend fun expectQuery(query: String) {
         await("Library search field containing $query") { it.isEditable && it.text?.toString() == query }

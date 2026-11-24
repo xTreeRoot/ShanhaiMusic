@@ -19,9 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
@@ -31,13 +31,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
+import com.xtreeroot.mb.ui.components.MBListItem as ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -67,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.xtreeroot.mb.cache.cachedArtwork
 import com.xtreeroot.mb.music.DiscoveryCategory
 import com.xtreeroot.mb.R
 import com.xtreeroot.mb.music.SuggestionSource
@@ -112,17 +112,9 @@ internal fun Discover(
         home.error?.let { message -> item(span = { GridItemSpan(maxLineSpan) }) { Retry(message, model::refresh) } }
         home.value.forEach { section ->
             item(key = "header-${section.category}", span = { GridItemSpan(maxLineSpan) }) {
-                Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 3.dp).fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(section.category.title(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        section.week?.let { Text(mb("第 $it 周", "Week $it"), style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    }
-                    TextButton(onClick = { open(section.category) }) {
-                        Text(mb("更多", "More"))
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp))
-                    }
+                Box(Modifier.padding(top = 14.dp, bottom = 3.dp)) {
+                    DiscoverySectionHeading(section.category.title(), section.week?.let { mb("第 $it 周", "Week $it") },
+                        horizontalPadding = if (wideCovers) 10.dp else 20.dp, open = { open(section.category) })
                 }
             }
             section.error?.let { item(span = { GridItemSpan(maxLineSpan) }) { Retry(it, model::refresh) } }
@@ -133,29 +125,11 @@ internal fun Discover(
                 wideCovers -> gridItems(section.tracks, key = { "${section.category}-${it.id}" }) { track ->
                     VideoCoverCard(track) { play(section.tracks, track) }
                 }
-                section.category != DiscoveryCategory.Chart -> item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(section.tracks, key = Track::id) { track ->
-                            val lead = section.category == DiscoveryCategory.Recommended
-                            val width = if (lead) 236.dp else 136.dp
-                            Column(Modifier.width(width).clip(RoundedCornerShape(8.dp))
-                                .clickable(enabled = !track.isUnavailable) { play(section.tracks, track) }) {
-                                Box {
-                                    Artwork(track, Modifier.fillMaxWidth().aspectRatio(if (lead) 16f / 9f else 1f))
-                                    TrackActionsButton(track, Modifier.align(Alignment.TopEnd), onArtwork = true)
-                                }
-                                Spacer(Modifier.height(8.dp))
-                                Text(track.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                    style = if (lead) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold)
-                                TrackSubtitle(track)
-                            }
-                        }
+                else -> item(span = { GridItemSpan(maxLineSpan) }) {
+                    DiscoveryShelf(section.tracks.size, itemKey = { section.tracks[it].id }) { index ->
+                        val track = section.tracks[index]
+                        MusicCoverCard(track) { play(section.tracks, track) }
                     }
-                }
-                else -> gridItems(section.tracks.take(3), key = { "${section.category}-${it.id}" }) { track ->
-                    val rank = section.tracks.indexOf(track) + 1
-                    TrackRow(track, rank = rank) { play(section.tracks, track) }
                 }
             }
         }
@@ -177,7 +151,7 @@ internal fun CategoryView(model: BrowseModel, category: DiscoveryCategory,
         }
         val first = tracks.firstOrNull { !it.isUnavailable }
         if (first != null) item(span = { GridItemSpan(maxLineSpan) }) {
-            Button(onClick = { play(tracks, first) },
+            TextButton(onClick = { play(tracks, first) },
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) { Text(mb("播放全部", "Play All")) }
         }
         gridItems(tracks, key = Track::id) { track ->
@@ -189,77 +163,75 @@ internal fun CategoryView(model: BrowseModel, category: DiscoveryCategory,
 
 @Composable
 internal fun Search(model: BrowseModel, activeSource: String, plugin: PluginSource?,
-                    openCatalog: (() -> Unit)?, openCategory: ((DiscoveryCategory) -> Unit)?, play: (List<Track>, Track) -> Unit) {
-    var supportsVideos by remember(plugin) { mutableStateOf(false) }
-    LaunchedEffect(plugin) {
-        supportsVideos = try { plugin?.catalog?.supports("searchVideos") == true }
-        catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { false }
-    }
-    var selected by rememberSaveable { mutableStateOf(SearchScope.Music) }
-    val videoBrowsing = LocalVideoBrowse.current
-    val showScopes = supportsVideos && videoBrowsing
-    val mode = selected.takeIf { showScopes } ?: SearchScope.Music
-    val focus = LocalFocusManager.current
-    LaunchedEffect(videoBrowsing) { if (!videoBrowsing) selected = SearchScope.Music }
-    LaunchedEffect(mode) {
-        val inactive = if (mode == SearchScope.Music) SearchScope.Video else SearchScope.Music
-        model.searchPages(inactive).cancel()
-    }
-    val changeScope: ((SearchScope) -> Unit)? = if (showScopes) ({ option ->
-        focus.clearFocus()
-        selected = option
-    }) else null
-    val state = rememberSaveableStateHolder()
-    state.SaveableStateProvider(mode.name) {
-        SearchResults(model, mode, activeSource, plugin, changeScope, openCatalog, openCategory, play)
-    }
-}
-
-@Composable
-private fun SearchResults(model: BrowseModel, mode: SearchScope, activeSource: String,
-                          suggestionSource: SuggestionSource?, changeScope: ((SearchScope) -> Unit)?,
-                          openCatalog: (() -> Unit)?, openCategory: ((DiscoveryCategory) -> Unit)?, play: (List<Track>, Track) -> Unit) {
-    val pages = model.searchPages(mode)
+                    openCatalog: (() -> Unit)?, openCategory: ((DiscoveryCategory) -> Unit)?, play: (List<Track>, Track) -> Unit,
+                    platforms: Map<String, String> = emptyMap(), target: String = activeSource,
+                    chooseTarget: (String) -> Unit = {}, saved: SavedLibraryModel? = null,
+                    playPages: ((List<Track>, Track, com.xtreeroot.mb.playback.PlaybackPages) -> Unit)? = null) {
+    val pages = model.searchPages(SearchScope.Music)
     val result by pages.state.collectAsStateWithLifecycle()
     val history by model.history.collectAsStateWithLifecycle()
-    var query by rememberSaveable { mutableStateOf(result.value.query.takeIf { result.value.sourceId == activeSource }.orEmpty()) }
+    var query by rememberSaveable { mutableStateOf(result.value.query) }
     var focused by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
     val focus = LocalFocusManager.current
-    val submit = { term: String ->
-        query = term
-        model.submitSearch(mode, term)
-        focus.clearFocus()
+    val submit = { term: String -> query = term; expanded = false; model.submitSearch(SearchScope.Music, term); focus.clearFocus() }
+    val allLabel = mb("全平台搜索", "All Platforms")
+    val targetName = when (target) {
+        "all" -> mb("全平台搜索", "All Platforms")
+        else -> platforms[target] ?: target
     }
     Column(Modifier.fillMaxSize()) {
-        SearchField(query, { query = it }, focused, { focused = it }, { focus.clearFocus() }, submit)
-        if (changeScope != null) SearchScopePicker(mode, changeScope)
-        SearchSuggestions(suggestionSource, query, focused, submit)
-        LazyColumn(Modifier.fillMaxSize().pointerInput(focus) {
-            awaitEachGesture {
-                awaitFirstDown(requireUnconsumed = false)
-                waitForUpOrCancellation(PointerEventPass.Final)
-                focus.clearFocus()
+        SearchField(query, { query = it }, focused, { focused = it }, { focus.clearFocus() }, submit, platform = {
+            TextButton(onClick = { focus.clearFocus(); expanded = !expanded }, modifier = Modifier.widthIn(max = 130.dp)) {
+                Text("$targetName ▾", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-        }) {
-            if (result.value.query.isEmpty()) {
-                if (history.isNotEmpty()) item("recent-searches") { RecentSearches(history, model::clearHistory, submit) }
-                if (openCategory != null) item("browse-music") { BrowseMusicCategories(openCategory) }
-                if (openCatalog != null) item("search-source") {
-                    TextButton(modifier = Modifier.padding(start = 12.dp), onClick = openCatalog) {
-                        Text(mb("搜索音源", "Search Source"))
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp))
+        })
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            Column {
+                SearchSuggestions(plugin, query, focused, submit)
+                LazyColumn(Modifier.fillMaxSize().pointerInput(focus) {
+                    awaitEachGesture { awaitFirstDown(requireUnconsumed = false); waitForUpOrCancellation(PointerEventPass.Final); focus.clearFocus() }
+                }) {
+                    if (result.value.query.isEmpty()) {
+                        if (history.isNotEmpty()) item("recent-searches") { RecentSearches(history, model::clearHistory, model::removeHistory, submit) }
+                        if (openCategory != null) item("browse-music") { BrowseMusicCategories(openCategory) }
+                    }
+                    items(result.value.warnings) { Text(it, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall) }
+                    items(result.value.tracks, key = Track::id) { track ->
+                        ResourceRow(track, saved) {
+                            val queue = result.value.tracks.filter { it.resourceUrl == null }
+                            val continuation = model.searchPlaybackPages(result.value)
+                            if (continuation != null && playPages != null) playPages(queue, track, continuation) else play(queue, track)
+                        }
+                    }
+                    when {
+                        result.loading -> item { Loading() }
+                        result.error != null -> item { Retry(checkNotNull(result.error), pages::loadNext) }
+                        result.value.hasMore -> item(key = "search-next-${result.value.cursor}") {
+                            LaunchedEffect(result.value.query, result.value.cursor) { pages.loadNext() }
+                            Loading()
+                        }
+                        result.value.query.isNotEmpty() && result.value.tracks.isEmpty() -> item { EmptyMessage(mb("未找到结果", "No results")) }
                     }
                 }
             }
-            items(result.value.tracks, key = Track::id) { track ->
-                BrowsingTrackRow(track, enabled = track.sourceId == activeSource) { play(result.value.tracks, track) }
-            }
-            when {
-                result.loading -> item { Loading() }
-                result.error != null -> item { Retry(checkNotNull(result.error), pages::loadNext) }
-                result.value.hasMore -> item { TextButton(onClick = pages::loadNext) { Text(mb("加载更多", "Load More")) } }
-                result.value.query.isNotEmpty() && result.value.tracks.isEmpty() -> item { EmptyMessage(mb("未找到结果", "No results")) }
+            if (expanded) {
+                Box(Modifier.fillMaxSize().clickable { expanded = false })
+                androidx.compose.material3.Surface(Modifier.padding(start = 16.dp).width(250.dp), shape = RoundedCornerShape(12.dp),
+                    tonalElevation = 2.dp, shadowElevation = 6.dp) {
+                    LazyColumn(Modifier.heightIn(max = 340.dp).padding(vertical = 4.dp)) {
+                        val choices = listOf("all" to allLabel) + platforms.toList()
+                        items(choices, key = { it.first }) { (id, name) ->
+                            Row(Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                                .background(if (id == target) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)
+                                .clickable { expanded = false; chooseTarget(id) }.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                                    color = if (id == target) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                                if (id == target) Text("✓", color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -356,9 +328,7 @@ internal fun Artwork(address: String?, headers: Map<String, String>, modifier: M
             tint = MaterialTheme.colorScheme.onSurfaceVariant)
         if (address != null) {
             val request = remember(context, address, headers) {
-                ImageRequest.Builder(context).data(address).apply {
-                    headers.forEach { (name, value) -> addHeader(name, value) }
-                }.build()
+                ImageRequest.Builder(context).cachedArtwork(address, headers).build()
             }
             AsyncImage(request, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }

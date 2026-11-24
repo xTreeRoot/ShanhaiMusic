@@ -27,19 +27,19 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.xtreeroot.mb.ui.components.MBAlertDialog as AlertDialog
+import com.xtreeroot.mb.ui.components.MBCheckbox as Checkbox
+import com.xtreeroot.mb.ui.components.MBDropdownMenu as DropdownMenu
+import com.xtreeroot.mb.ui.components.MBMenuItem as DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
+import com.xtreeroot.mb.ui.components.MBFilterChip as FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
+import com.xtreeroot.mb.ui.components.MBIconButton as IconButton
+import com.xtreeroot.mb.ui.components.MBListItem as ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import com.xtreeroot.mb.ui.components.MBTextField as OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,7 +50,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.xtreeroot.mb.MBApplication
+import com.xtreeroot.mb.plugin.discoveryHome
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,8 +69,13 @@ import com.xtreeroot.mb.plugin.PluginEntityKind
 import com.xtreeroot.mb.plugin.PluginSearchKind
 import com.xtreeroot.mb.plugin.PluginSource
 import com.xtreeroot.mb.playback.PlaybackStation
+import com.xtreeroot.mb.playback.PlaybackPages
+import com.xtreeroot.mb.playback.playbackPages
+import androidx.compose.runtime.staticCompositionLocalOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+
+internal val LocalPlayCatalogPages = staticCompositionLocalOf<((List<Track>, Track, PlaybackPages) -> Unit)?> { null }
 
 @Composable
 internal fun PluginCatalogBrowser(source: PluginSource, destination: CatalogDestination, navigator: PluginCatalogNavigator,
@@ -86,7 +95,7 @@ internal fun catalogTitle(destination: CatalogDestination, source: PluginSource)
     is CatalogDestination.Content -> {
         val status by destination.pager.state.collectAsStateWithLifecycle()
         when (val request = destination.request) {
-            PluginCatalogRequest.Home -> source.manifest.name
+            PluginCatalogRequest.Home -> LocalSourceNames.current[source.id] ?: source.manifest.name
             is PluginCatalogRequest.Browse -> status.page?.title?.takeIf(String::isNotBlank)
                 ?: request.title.ifBlank { mb("更多", "More") }
             is PluginCatalogRequest.Collection -> request.title.ifBlank { request.collection.label() }
@@ -101,7 +110,10 @@ internal fun catalogTitle(destination: CatalogDestination, source: PluginSource)
 private fun PluginCatalogContent(source: PluginSource, destination: CatalogDestination.Content, navigator: PluginCatalogNavigator,
                                  play: (List<Track>, Track) -> Unit,
                                  playStation: ((List<Track>, Track, PlaybackStation) -> Unit)? = null) {
-    val request = destination.request
+    val app = LocalContext.current.applicationContext as MBApplication
+    val discovery by app.plugins.discoveryPreferences.collectAsStateWithLifecycle()
+    var displayedPreferences by remember(source) { mutableStateOf<com.xtreeroot.mb.plugin.DiscoveryPreferences?>(null) }
+    val request = destination.currentRequest
     val pager = destination.pager
     val status by pager.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -113,8 +125,18 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
     var edit by remember { mutableStateOf<PlaylistDialog?>(null) }
     var changing by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
-    suspend fun load(append: Boolean = false) = pager.load(append) { catalog.load(request, it) }
-    LaunchedEffect(source, request, status.needsReload) {
+    suspend fun load(append: Boolean = false) = pager.load(append) {
+        if (request == PluginCatalogRequest.Home) {
+            val preferences = app.plugins.loadDiscoveryPreferences()
+            displayedPreferences = preferences
+            catalog.discoveryHome(source.manifest, preferences, refresh = false)
+        }
+        else catalog.load(if (append) pager.state.value.page?.nextPage ?: request else request, it)
+    }
+    LaunchedEffect(discovery) {
+        if (request == PluginCatalogRequest.Home && displayedPreferences != null && displayedPreferences != discovery) pager.invalidate(clear = true)
+    }
+    LaunchedEffect(source, request, status.revision) {
         if (status.needsReload) load()
     }
     LaunchedEffect(source, request) {
@@ -142,42 +164,48 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
         }
     }
     val page = status.page
+    LaunchedEffect(page) { destination.rememberTabs(page) }
+    PrefetchArtwork(page?.sections.orEmpty().flatMap { section ->
+        section.tracks.mapNotNull { it.artworkReference() } +
+            (section.entities.mapNotNull { it.image } + section.links.mapNotNull { it.image }).map { ArtworkReference(it.url, it.headers) }
+    })
     val tracks = page?.sections?.flatMap { it.tracks }.orEmpty()
     val station = entity?.takeIf { it.kind == PluginEntityKind.Station }?.let { PlaybackStation(source.id, it.id, it.title) }
+    val playPages = LocalPlayCatalogPages.current
+    val continuation = if (station == null && page != null) catalogPlaybackPages(source, request, page) else null
     val select: (List<Track>, Track) -> Unit = if (station != null && playStation != null) {
         { batch, track -> playStation(batch, track, station) }
+    } else if (continuation != null && playPages != null) {
+        { _, track -> playPages(tracks, track, continuation) }
     } else play
     val videoMode = LocalVideoBrowse.current
     val saveMethod = entity?.saveMethod
     val content: LazyGridScope.() -> Unit = {
-        if (request == PluginCatalogRequest.Home) {
-            links.forEach { link -> item(span = { GridItemSpan(maxLineSpan) }) { CatalogLinkRow(link, navigator::open) } }
-            if ("search" in capabilities || "searchVideos" in capabilities) item(span = { GridItemSpan(maxLineSpan) }) {
-                TextButton(onClick = navigator::search) { Text(mb("搜索音源", "Search Source")) }
-            }
-        }
         if (page != null) {
-            if (page.subtitle.isNotBlank() || page.description.isNotBlank()) item(span = { GridItemSpan(maxLineSpan) }) {
+            if (request != PluginCatalogRequest.Home && (page.subtitle.isNotBlank() || page.description.isNotBlank())) item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     if (page.subtitle.isNotBlank()) Text(page.subtitle, style = MaterialTheme.typography.titleMedium)
                     if (page.description.isNotBlank()) Text(page.description, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            val firstPlayable = tracks.firstOrNull { !it.isUnavailable }
-            if (entity != null && firstPlayable != null) item(span = { GridItemSpan(maxLineSpan) }) {
-                TextButton(onClick = { select(tracks, firstPlayable) }) { Text(mb("播放全部", "Play All")) }
-            }
             var trackIndex = 0
             page.sections.forEach { section ->
+                if (destination.request == PluginCatalogRequest.Home) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        val more = section.more ?: links.firstOrNull { it.title.isNotBlank() && it.title == section.title }
+                        PluginDiscoverySection(section.copy(more = more), navigator::open, select)
+                    }
+                    return@forEach
+                }
                 if (section.title.isNotBlank()) item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(section.title, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium)
                 }
-                section.tracks.forEach { track ->
+                section.tracks.forEachIndexed { position, track ->
                     val index = trackIndex++
                     val playSection = { select(if (entity != null) tracks else section.tracks, track) }
                     if (section.videos || videoMode && entity?.editable != true) item { VideoCoverCard(track, playSection) }
                     else item(span = { GridItemSpan(maxLineSpan) }) {
-                        TrackRow(track, actions = {
+                        TrackRow(track, rank = position + 1, actions = {
                             if (entity?.editable == true && ("removeFromPlaylist" in capabilities || "movePlaylistTrack" in capabilities && index > 0)) {
                                 PluginPlaylistTrackMenu(track, changing,
                                     remove = if ("removeFromPlaylist" in capabilities) ({
@@ -193,11 +221,11 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                 section.entities.forEach { item -> item(span = { GridItemSpan(maxLineSpan) }) {
                     ListItem(modifier = Modifier.clickable { navigator.open(PluginCatalogRequest.Entity(item)) },
                         headlineContent = { Text(item.title) }, supportingContent = item.subtitle.takeIf(String::isNotBlank)?.let { subtitle ->
-                            { Text(subtitle, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-                        }, leadingContent = { Artwork(item.image?.url, item.image?.headers.orEmpty(), Modifier.size(48.dp)) })
+                            { Text(subtitle) }
+                        }, leadingContent = { Artwork(item.image?.url, item.image?.headers.orEmpty(), Modifier.size(52.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(if (item.kind == PluginEntityKind.Artist) 26.dp else 10.dp))) })
                 } }
                 section.links.forEach { link -> item(span = { GridItemSpan(maxLineSpan) }) { CatalogLinkRow(link, navigator::open) } }
-                section.more?.let { link -> item(span = { GridItemSpan(maxLineSpan) }) { CatalogLinkRow(link, navigator::open) } }
+                section.more?.takeUnless { it.destination == request }?.let { link -> item(span = { GridItemSpan(maxLineSpan) }) { CatalogLinkRow(link, navigator::open) } }
                 if (section.empty.isNotBlank() && section.tracks.isEmpty() && section.entities.isEmpty() && section.links.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) { EmptyMessage(section.empty) }
                 }
@@ -226,22 +254,32 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                 }
             }
         }
+
         if (status.busy && (page == null || status.appending)) item(span = { GridItemSpan(maxLineSpan) }) { Loading() }
         status.error?.let { error -> item(span = { GridItemSpan(maxLineSpan) }) { Retry(error) { scope.launch { load(status.appendRetry) } } } }
         actionError?.let { error -> item(span = { GridItemSpan(maxLineSpan) }) {
             Text(error, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
         } }
-        if (!status.busy && status.error == null && page?.nextOffset != null) item(span = { GridItemSpan(maxLineSpan) }) {
-            TextButton(onClick = { scope.launch { load(append = true) } }, enabled = !changing) { Text(mb("加载更多", "Load More")) }
+        if (!status.busy && status.error == null && (page?.nextOffset != null || page?.nextPage != null)) item(span = { GridItemSpan(maxLineSpan) }) {
+            PaginationTrigger(checkNotNull(page).let { it.nextPage to it.nextOffset }, enabled = !changing) { scope.launch { load(append = true) } }
         }
         if (!status.busy && status.error == null && page != null && page.sections.none { it.hasContent } && links.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { EmptyMessage(mb("暂无内容", "No content")) }
         }
     }
+    Column(Modifier.fillMaxSize()) {
+        if (destination.tabs.isNotEmpty()) {
+            val options = destination.tabs.mapNotNull { link -> (link.destination as? PluginCatalogRequest.Browse)?.let { it.page to link.title } }.toMap()
+            MusicTabs(options, destination.filter?.page ?: page?.selectedTab ?: options.keys.first()) { selected ->
+                destination.tabs.firstOrNull { (it.destination as? PluginCatalogRequest.Browse)?.page == selected }
+                    ?.let { destination.selectFilter(it.destination as PluginCatalogRequest.Browse) }
+            }
+        }
     PullToRefreshBox(isRefreshing = status.busy && !status.appending && page != null,
-        onRefresh = { if (!changing) pager.invalidate() }, modifier = Modifier.fillMaxSize()) {
+        onRefresh = { if (!changing) scope.launch { destination.refresh(source, discovery) } }, modifier = Modifier.fillMaxWidth().weight(1f)) {
         LazyVerticalGrid(columns = GridCells.Adaptive(155.dp), modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 12.dp), content = content)
+    }
     }
     when (edit) {
         PlaylistDialog.Name -> PlaylistNameDialog(mb("歌单名称", "Playlist Name"), entity?.let { page?.title ?: it.title }.orEmpty(),
@@ -257,11 +295,24 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
     }
 }
 
+private fun catalogPlaybackPages(source: PluginSource, request: PluginCatalogRequest, page: com.xtreeroot.mb.plugin.PluginCatalogPage): PlaybackPages? {
+    if (request == PluginCatalogRequest.Home) return null
+    fun cursor(value: com.xtreeroot.mb.plugin.PluginCatalogPage): Pair<PluginCatalogRequest, Int>? =
+        value.nextPage?.let { it to (value.nextOffset ?: 0) } ?: value.nextOffset?.let { request to it }
+    val next = cursor(page) ?: return null
+    return playbackPages(next, visited = setOf(request to 0)) { (destination, offset) ->
+        val loaded = source.catalog.load(destination, offset)
+        loaded.sections.flatMap { it.tracks } to cursor(loaded)
+    }
+}
+
 @Composable
-internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalogNavigator, model: AccountModel, state: AccountState) {
+internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalogNavigator, model: AccountModel, state: AccountState,
+                                   openSettings: () -> Unit = {}, openPlugins: () -> Unit = {}, openService: () -> Unit = {}) {
     val account = state.account
-    var signOut by remember(source) { mutableStateOf(false) }
+    var signOut by remember(source) { mutableStateOf<Boolean?>(null) }
     var collections by remember(source) { mutableStateOf(emptyList<PluginCollection>()) }
+    var personal by remember(source) { mutableStateOf(emptyList<PluginCatalogLink>()) }
     var error by remember(source) { mutableStateOf<String?>(null) }
     var loading by remember(source) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -271,6 +322,7 @@ internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalo
         error = null
         try {
             collections = PluginCollection.entries.filter { source.catalog.supports(it.method) }
+            personal = source.catalog.navigation(com.xtreeroot.mb.plugin.PluginNavigationPlacement.Personal)
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { error = failure.message ?: "Could not load source account" }
         finally { loading = false }
@@ -280,21 +332,27 @@ internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalo
     RefreshableList(refreshing = refreshing, refresh = {
         if (!state.loading && !loading) {
             model.refresh()
-            scope.launch { refresh() }
+            scope.launch { source.catalog.invalidate(); refresh() }
         }
-    }) {
-        if (account != null || state.canSignIn) item {
-            AccountHeader(source.manifest.name, account, state.loading,
+    }, contentPadding = PaddingValues(bottom = 24.dp)) {
+        item {
+            AccountHeader(LocalSourceNames.current[source.id] ?: source.manifest.name, account, state.loading,
                 mb("登录音源", "Sign In to Source").takeIf { state.canSignIn }, model::signIn)
         }
         val profile = account?.page?.takeIf(String::isNotBlank)
-        if (profile != null || collections.isNotEmpty()) item {
+        if (profile != null || collections.isNotEmpty() || personal.isNotEmpty()) item {
             val destinations = buildList {
-                if (profile != null) {
+                personal.forEach { link ->
+                    val collection = (link.destination as? PluginCatalogRequest.Collection)?.collection
+                    val icon = if (collection == PluginCollection.Liked) Icons.Default.Favorite else Icons.Default.Person
+                    val title = link.title.ifBlank { collection?.label().orEmpty() }
+                    add(AccountDestination(title, icon) { navigator.open(link.destination) })
+                }
+                if (profile != null && personal.none { (it.destination as? PluginCatalogRequest.Browse)?.page == profile }) {
                     val title = mb("我的主页", "My Profile")
                     add(AccountDestination(title, Icons.Default.Person) { navigator.open(PluginCatalogRequest.Browse(profile, title)) })
                 }
-                collections.forEach { collection ->
+                collections.filter { collection -> personal.none { (it.destination as? PluginCatalogRequest.Collection)?.collection == collection } }.forEach { collection ->
                     val title = collection.label()
                     val icon = when (collection) {
                         PluginCollection.Liked -> Icons.Default.Favorite
@@ -306,19 +364,16 @@ internal fun PluginPersonalContent(source: PluginSource, navigator: PluginCatalo
             }
             AccountDestinations(destinations)
         }
-        if (account != null && state.canSignOut) item {
-            TextButton(onClick = { signOut = true }, enabled = !state.loading, modifier = Modifier.padding(horizontal = 20.dp)) {
-                Text(mb("退出登录", "Sign Out"), color = if (state.loading) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
-            }
+        item { AccountTools(openSettings, openPlugins, openService) }
+        if (account != null && (state.canSignOut || state.canClearLoginCache)) item {
+            AccountSignOutRow(state.loading, { signOut = false }, if (state.canClearLoginCache) {{ signOut = true }} else null, state.canSignOut)
         }
         if (!refreshing && (loading || state.loading && !state.signingIn)) item { Loading() }
         state.error?.takeUnless { state.signingIn }?.let { message -> item { Retry(message, model::refresh) } }
         error?.let { message -> item { Retry(message) { scope.launch { refresh() } } } }
-        if (!loading && !state.loading && !state.canSignIn && account == null && collections.isEmpty() && error == null) {
-            item { EmptyMessage(mb("暂无个人内容", "No personal content")) }
-        }
+
     }
-    if (signOut) AccountSignOutDialog({ signOut = false }, model::signOut)
+    signOut?.let { clearCache -> AccountSignOutDialog({ signOut = null }, { model.signOut(clearCache) }, clearCache) }
 }
 
 @Composable
@@ -381,7 +436,7 @@ private fun PluginPlaylistAddDialog(source: PluginSource, playlist: PluginEntity
                     if (status.busy) item { Loading() }
                     status.error?.let { message -> item { Retry(message) { scope.launch { load(status.appendRetry) } } } }
                     if (!status.busy && status.error == null && status.page?.nextOffset != null) item {
-                        TextButton(onClick = { scope.launch { load(append = true) } }) { Text(mb("加载更多", "Load More")) }
+                        PaginationTrigger(checkNotNull(status.page?.nextOffset)) { scope.launch { load(append = true) } }
                     }
                     if (status.page != null && tracks.isEmpty() && status.error == null) item { EmptyMessage(mb("暂无内容", "No content")) }
                 }
@@ -428,6 +483,7 @@ private enum class PlaylistDialog { Name, Delete, Add }
 private fun CatalogLinkRow(link: PluginCatalogLink, open: (PluginCatalogRequest) -> Unit) {
     val title = link.title.ifBlank { (link.destination as? PluginCatalogRequest.Collection)?.collection?.label() ?: mb("查看更多", "See More") }
     ListItem(modifier = Modifier.clickable { open(link.destination) }, headlineContent = { Text(title) },
+        leadingContent = link.image?.let { image -> { Artwork(image.url, image.headers, Modifier.size(52.dp).clip(androidx.compose.foundation.shape.CircleShape)) } },
         supportingContent = link.subtitle.takeIf(String::isNotBlank)?.let { subtitle -> { Text(subtitle) } })
 }
 

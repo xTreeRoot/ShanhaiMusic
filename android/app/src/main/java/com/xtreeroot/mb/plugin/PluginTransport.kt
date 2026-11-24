@@ -89,11 +89,11 @@ internal fun interface PluginTransport {
 
 internal const val pluginNetworkCode = "network"
 
-internal class PluginHttpTransport(proxySelector: ProxySelector? = null) : PluginTransport {
+internal class PluginHttpTransport(proxySelector: ProxySelector? = null, callTimeoutSeconds: Long = 30) : PluginTransport {
     private val client = OkHttpClient.Builder().let { builder ->
         if (proxySelector == null) builder.proxy(Proxy.NO_PROXY) else builder.proxySelector(proxySelector)
     }.followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
-        .callTimeout(30, TimeUnit.SECONDS).build()
+        .callTimeout(callTimeoutSeconds, TimeUnit.SECONDS).build()
 
     override suspend fun fetch(request: PluginFetchRequest, manifest: PluginManifest): PluginFetchResponse =
         receive(request, { manifest.reaches(it.host.orEmpty()) }) { response, url -> response.read(url, request.maximumResponseBytes) }

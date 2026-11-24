@@ -8,7 +8,11 @@ data class CommentPage(val comments: List<TrackComment>, val total: Int, val nex
 data class InteractionCapabilities(val likes: Boolean = true, val comments: Boolean = true,
                                    val posting: Boolean = true, val commentLikes: Boolean = false)
 
+/** null 表示平台未提供公开总数，不能用 0 替代。 */
+data class TrackInteractionSummary(val likes: Long? = null, val comments: Long? = null)
+
 interface InteractionSource : MusicSource {
+    suspend fun interactionSummary(trackId: String): TrackInteractionSummary = TrackInteractionSummary()
     suspend fun interactionCapabilities(): InteractionCapabilities = InteractionCapabilities()
     suspend fun isLiked(trackId: String): Boolean
     suspend fun like(trackId: String, enabled: Boolean)

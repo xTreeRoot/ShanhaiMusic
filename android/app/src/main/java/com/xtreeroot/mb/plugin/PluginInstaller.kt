@@ -28,8 +28,11 @@ internal data class InstalledPlugin(
     val dataDirectory: File,
     val repository: String?,
     val enabled: Boolean,
+    val remoteRevision: String? = null,
+    val localName: String? = null,
 ) {
     val id: String get() = manifest.id
+    val displayName: String get() = localName ?: manifest.name
 }
 
 internal data class PendingPlugin(
@@ -38,6 +41,8 @@ internal data class PendingPlugin(
     val directory: File,
     val repository: String?,
     val replaces: InstalledPlugin?,
+    val remoteRevision: String? = null,
+    val releaseNotes: String? = null,
 )
 
 internal class PluginInstaller(private val root: File) {
@@ -50,9 +55,88 @@ internal class PluginInstaller(private val root: File) {
     private val mutations = MutableStateFlow(0L)
     val changes = mutations.asStateFlow()
 
+    private val presentationFile = File(root, "presentation.json")
+    private val preferenceCache = PreferenceCache(root, PluginPreferences::parse)
+    private val discoveryCache = PreferenceCache(File(root, "discovery"), DiscoveryPreferences::parse)
+    private val discoveryState = MutableStateFlow(DiscoveryPreferences())
+    val discoveryPreferences = discoveryState.asStateFlow()
+    suspend fun loadDiscoveryPreferences(): DiscoveryPreferences = locked {
+        discoveryCache.load { DiscoveryPreferences() }.also { discoveryState.value = it }
+    }
+    suspend fun mergeDiscoveryPreferences(remote: DiscoveryPreferences): DiscoveryPreferences {
+        val task = coroutineContext
+        return locked {
+            task.ensureActive()
+            discoveryCache.update({ DiscoveryPreferences() }) { current, _ -> current.merged(remote) }.also { discoveryState.value = it }
+        }
+    }
+    suspend fun saveDiscovery(plugin: String, before: DiscoveryPreferences.Selection, draft: DiscoveryPreferences.Selection) = locked {
+        discoveryCache.update({ DiscoveryPreferences() }) { current, writer -> current.edited(plugin, before, draft, writer) }.also { discoveryState.value = it }
+    }
+    private fun migratePreferences(writer: String): PluginPreferences {
+        val old = if (presentationFile.isFile) PluginPresentation.read(presentationFile.readText()) else PluginPresentation()
+        var document = PluginPreferences()
+        old.names.toSortedMap().forEach { (id, name) -> document = document.withName(id, name, writer) }
+        if (old.order.isNotEmpty()) document = document.withOrder(old.order, writer)
+        val index = index()
+        index.keys().asSequence().sorted().filter { !index.getJSONObject(it).getBoolean("enabled") }.forEach { id -> document = document.withEnabled(id, false, writer) }
+        return document
+    }
+    private fun preferences() = preferenceCache.load(::migratePreferences)
+    private fun presentation(): PluginPresentation {
+        val document = preferences()
+        return PluginPresentation(document.names.mapValues { it.value.value }.filterValues { it.isNotEmpty() }, document.order?.value.orEmpty())
+    }
+    private fun savePresentation(value: PluginPresentation) {
+        preferenceCache.update(::migratePreferences) { current, writer ->
+            var next = current
+            (current.names.keys + value.names.keys).sorted().forEach { id ->
+                val name = value.names[id].orEmpty()
+                if (current.names[id]?.value.orEmpty() != name) next = next.withName(id, name, writer)
+            }
+            val order = preservingMissingPluginOrder(current.order?.value.orEmpty(), value.order)
+            if (current.order?.value.orEmpty() != order) next = next.withOrder(order, writer)
+            next
+        }
+    }
+    suspend fun pluginPreferences(): PluginPreferences = locked { preferences() }
+    suspend fun mergePluginPreferences(remote: PluginPreferences): PluginPreferences {
+        val context = coroutineContext
+        return locked {
+        context.ensureActive()
+        val before = preferences()
+        preferenceCache.update(::migratePreferences) { current, _ -> current.merged(remote) }.also {
+            if (it != before) changed()
+        }
+        }
+    }
+
     suspend fun installed(): List<InstalledPlugin> = locked {
         val index = index()
-        index.keys().asSequence().map { plugin(index, it) }.sortedBy { it.manifest.name.lowercase() }.toList()
+        val order = presentation().order.withIndex().associate { it.value to it.index }
+        index.keys().asSequence().map { plugin(index, it) }.sortedWith(
+            compareBy<InstalledPlugin> { order[it.id] ?: Int.MAX_VALUE }.thenBy { it.manifest.name.lowercase() }).toList()
+    }
+
+    suspend fun rename(current: InstalledPlugin, name: String) = locked {
+        checkRevision(index(), current)
+        savePresentation(presentation().renamed(current.id, name))
+        changed()
+    }
+
+    suspend fun move(id: String, step: Int) = locked {
+        val index = index()
+        val preferences = presentation()
+        val positions = preferences.order.withIndex().associate { it.value to it.index }
+        val ids = index.keys().asSequence().map { plugin(index, it) }.sortedWith(
+            compareBy<InstalledPlugin> { positions[it.id] ?: Int.MAX_VALUE }.thenBy { it.manifest.name.lowercase() }).map { it.id }.toMutableList()
+        val from = ids.indexOf(id)
+        val to = from + step
+        if (from >= 0 && to in ids.indices) {
+            ids.add(to, ids.removeAt(from))
+            savePresentation(preferences.copy(order = ids))
+            changed()
+        }
     }
 
     suspend fun prepareZip(open: () -> InputStream): PendingPlugin = prepareArchive(download = { archive ->
@@ -62,19 +146,19 @@ internal class PluginInstaller(private val root: File) {
         } }
     })
 
-    suspend fun prepareArchive(repository: String? = null, expected: InstalledPlugin? = null,
-                               download: suspend (File) -> Unit): PendingPlugin = prepare(repository, expected) { staging, folder ->
+    suspend fun prepareArchive(repository: String? = null, expected: InstalledPlugin? = null, remoteRevision: String? = null,
+                               download: suspend (File) -> Unit): PendingPlugin = prepare(repository, expected, remoteRevision) { staging, folder ->
         val archive = File(staging, "source.zip")
         download(archive)
         PluginPackage.unzip(archive, folder)
         archive.delete()
     }
 
-    suspend fun prepareTree(resolver: ContentResolver, tree: Uri): PendingPlugin = prepare(null, null) { _, folder ->
+    suspend fun prepareTree(resolver: ContentResolver, tree: Uri): PendingPlugin = prepare(null, null, null) { _, folder ->
         PluginPackage.copyTree(resolver, tree, folder)
     }
 
-    private suspend fun prepare(repository: String?, expected: InstalledPlugin?,
+    private suspend fun prepare(repository: String?, expected: InstalledPlugin?, remoteRevision: String?,
                                 extract: suspend (File, File) -> Unit): PendingPlugin = withContext(Dispatchers.IO) {
         locked { Unit }
         val token = UUID.randomUUID()
@@ -93,7 +177,7 @@ internal class PluginInstaller(private val root: File) {
                 if (expected != null && current?.revision != expected.revision) throw PluginException("Plugin changed while checking for updates")
                 current
             }
-            PendingPlugin(token, manifest, directory, repository, replaces)
+            PendingPlugin(token, manifest, directory, repository?.let(PluginRepository::parse), replaces, remoteRevision)
         } catch (error: Throwable) {
             staging.deleteRecursively()
             throw error
@@ -111,9 +195,17 @@ internal class PluginInstaller(private val root: File) {
         val index = index()
         val previous = if (index.has(manifest.id)) plugin(index, manifest.id) else null
         if (previous?.revision != candidate.replaces?.revision) throw PluginException("Plugin changed after review")
+        // 远程改名不应让原先按默认名称排列的平台跳位置。
+        if (previous != null && previous.manifest.name != manifest.name) {
+            val preferences = presentation()
+            val positions = preferences.order.withIndex().associate { it.value to it.index }
+            val ids = index.keys().asSequence().map { plugin(index, it) }.sortedWith(
+                compareBy<InstalledPlugin> { positions[it.id] ?: Int.MAX_VALUE }.thenBy { it.manifest.name.lowercase() }).map { it.id }.toList()
+            savePresentation(preferences.copy(order = ids))
+        }
         val target = File(code, candidate.token.toString())
         if (!code.isDirectory && !code.mkdirs()) throw PluginException("Cannot create plugin store")
-        val enabled = previous?.enabled ?: (restoredSettings == null)
+        val enabled = preferences().enabled[manifest.id]?.value ?: previous?.enabled ?: (restoredSettings == null)
         Files.move(folder.toPath(), target.toPath(), ATOMIC_MOVE)
         try {
             val settings = File(File(data, manifest.id), "settings.json")
@@ -122,7 +214,8 @@ internal class PluginInstaller(private val root: File) {
                 if (verified.isNotEmpty()) writeAtomic(settings, JSONObject(verified).toString())
             }
             index.put(manifest.id, JSONObject().put("revision", candidate.token.toString())
-                .put("repository", candidate.repository ?: JSONObject.NULL).put("enabled", enabled))
+                .put("repository", candidate.repository ?: JSONObject.NULL).put("enabled", enabled)
+                .put("remoteRevision", candidate.remoteRevision ?: JSONObject.NULL))
             writeAtomic(indexFile, index.toString())
         } catch (error: Throwable) {
             Files.move(target.toPath(), folder.toPath(), ATOMIC_MOVE)
@@ -139,6 +232,9 @@ internal class PluginInstaller(private val root: File) {
     suspend fun setEnabled(current: InstalledPlugin, enabled: Boolean) = locked {
         val index = index()
         checkRevision(index, current)
+        preferenceCache.update(::migratePreferences) { document, writer ->
+            if (document.enabled[current.id]?.value == enabled) document else document.withEnabled(current.id, enabled, writer)
+        }
         index.getJSONObject(current.id).put("enabled", enabled)
         writeAtomic(indexFile, index.toString())
         changed()
@@ -194,8 +290,8 @@ internal class PluginInstaller(private val root: File) {
         val directory = File(code, revision.toString())
         val manifest = PluginPackage.readManifest(directory)
         if (id != manifest.id) throw PluginException("Installed plugin ID does not match")
-        val source = record.opt("repository") as? String
-        return InstalledPlugin(manifest, revision, directory, File(data, id), source, record.getBoolean("enabled"))
+        val source = (record.opt("repository") as? String)?.let { runCatching { PluginRepository.parse(it) }.getOrNull() }
+        return InstalledPlugin(manifest, revision, directory, File(data, id), source, preferences().enabled[id]?.value ?: record.getBoolean("enabled"), record.opt("remoteRevision") as? String, presentation().names[id])
     }
 
     private fun checkRevision(index: JSONObject, current: InstalledPlugin) {

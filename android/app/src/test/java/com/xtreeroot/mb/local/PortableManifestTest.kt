@@ -133,7 +133,7 @@ class PortableManifestTest {
 
     @Test fun restoresNonSensitiveSettingsAndStillReadsBackupsWithoutSettings() {
         val values = AppPreferences(appearance = AppAppearance.Dark, language = AppLanguage.English, volume = 0.3f,
-            quality = AudioQuality.Lossless, normalization = AudioNormalization.Dynamic, builtInEnabled = false,
+            quality = AudioQuality.Lossless, normalization = AudioNormalization.Dynamic,
             playbackMode = PlaybackMode.Video,
             lyricsStage = true, nowPlayingLyrics = false,
             hotComments = true, playerStyle = PlayerStyle.Cassette, lyricStyle = LyricStyle.Steps,

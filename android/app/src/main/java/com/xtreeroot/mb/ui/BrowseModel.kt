@@ -28,7 +28,7 @@ internal data class LoadState<T>(val value: T, val loading: Boolean = false, val
 internal enum class SearchScope { Music, Video }
 
 internal class BrowseModel(application: Application, private val source: DiscoverySource) : AndroidViewModel(application) {
-    constructor(application: Application) : this(application, (application as MBApplication).bilibili)
+    constructor(application: Application) : this(application, EmptyDiscoverySource)
 
     private val app = application as MBApplication
     private val prefs = application.getSharedPreferences("browse", 0)
@@ -61,7 +61,6 @@ internal class BrowseModel(application: Application, private val source: Discove
     override fun onCleared() { prefs.unregisterOnSharedPreferenceChangeListener(preferenceListener) }
 
     fun refresh() {
-        if (!app.settings.values.value.builtInEnabled) return
         homeJob?.cancel()
         homeJob = viewModelScope.launch { load(homeState) { source.home().keepingFailedSections(homeState.value.value) } }
     }
@@ -74,19 +73,18 @@ internal class BrowseModel(application: Application, private val source: Discove
     }
 
     fun open(category: DiscoveryCategory) {
-        if (!app.settings.values.value.builtInEnabled) return
         categoryJob?.cancel()
         detailsState.value = LoadState(DiscoverySection(category))
         categoryJob = viewModelScope.launch { load(detailsState) { source.discovery(category) } }
     }
 
     fun refreshCategory(category: DiscoveryCategory) {
-        if (!app.settings.values.value.builtInEnabled || categoryJob?.isActive == true || detailsState.value.value?.category != category) return
+        if (categoryJob?.isActive == true || detailsState.value.value?.category != category) return
         categoryJob = viewModelScope.launch { load(detailsState) { source.discovery(category) } }
     }
 
     fun activateSearch(source: MusicSource?) {
-        val selected = if (source === app.bilibili) this.source else source
+        val selected = source
         if (searchSource === selected) return
         searchSource = selected
         searches.values.forEach { it.submit(selected?.id.orEmpty(), "") }
@@ -94,12 +92,23 @@ internal class BrowseModel(application: Application, private val source: Discove
 
     fun searchPages(mode: SearchScope) = searches.getValue(mode)
 
+    fun searchPlaybackPages(result: SearchResult): com.xtreeroot.mb.playback.PlaybackPages? {
+        val source = searchSource?.takeIf { it.id == result.sourceId && result.hasMore } ?: return null
+        val query = result.query
+        return com.xtreeroot.mb.playback.playbackPages(result.cursor) { cursor ->
+            val page = source.search(query, cursor)
+            page.tracks to (cursor + 1).takeIf { page.hasMore }
+        }
+    }
+
     fun submitSearch(mode: SearchScope, input: String) {
         val source = searchSource ?: return
         val term = input.trim()
         if (term.isNotEmpty()) writeHistory((listOf(term) + historyState.value).distinct().take(30))
         searchPages(mode).submit(source.id, term)
     }
+
+    fun removeHistory(term: String) = writeHistory(historyState.value.filterNot { it == term })
 
     fun clearHistory() = writeHistory(emptyList())
 
@@ -135,4 +144,12 @@ internal fun List<DiscoverySection>.keepingFailedSections(previous: List<Discove
         val old = byCategory[section.category]
         if (section.error != null && section.tracks.isEmpty() && old != null) old.copy(error = section.error) else section
     }
+}
+
+/** 无插件时只提供空状态；测试可注入通用发现协议。 */
+internal object EmptyDiscoverySource : DiscoverySource {
+    override val id = ""
+    override suspend fun search(query: String, page: Int) = TrackPage(emptyList(), false)
+    override suspend fun home() = emptyList<DiscoverySection>()
+    override suspend fun discovery(category: DiscoveryCategory) = DiscoverySection(category)
 }

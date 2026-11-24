@@ -1,22 +1,15 @@
 package com.xtreeroot.mb.ui
 
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
+
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,37 +18,38 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xtreeroot.mb.music.SourceAccount
+import com.xtreeroot.mb.ui.components.MBFormDivider
+import com.xtreeroot.mb.ui.components.MBFormRow
+import com.xtreeroot.mb.ui.components.MBGroupedSection
 
 @Composable
-internal fun AccountHeader(source: String, account: SourceAccount?, loading: Boolean, signInLabel: String?, signIn: () -> Unit) {
+internal fun AccountHeader(source: String, account: SourceAccount?, loading: Boolean, signInLabel: String?, signIn: () -> Unit,
+                            upload: AccountDestination? = null) {
     val colors = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)
-        .clip(RoundedCornerShape(22.dp)).background(colors.surfaceContainerLow).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            val avatar = Modifier.size(54.dp).clip(CircleShape)
-            if (account?.avatarUrl != null) Artwork(account.avatarUrl, account.avatarHeaders, avatar)
-            else Box(avatar.background(colors.primaryContainer), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Person, null, Modifier.size(26.dp), tint = colors.onPrimaryContainer)
+    MBGroupedSection {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                val avatar = Modifier.size(64.dp).clip(CircleShape)
+                if (account?.avatarUrl != null) Artwork(account.avatarUrl, account.avatarHeaders, avatar)
+                else Box(avatar.background(colors.primaryContainer), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Person, null, Modifier.size(30.dp), tint = colors.onPrimaryContainer)
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(account?.name?.takeIf(String::isNotBlank) ?: mb("我的音乐", "My Music"), Modifier.semantics { heading() },
+                        style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(source, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+                }
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(account?.name?.takeIf(String::isNotBlank) ?: source, Modifier.semantics { heading() },
-                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                val subtitle = if (account != null) source else if (signInLabel != null) mb("未登录", "Not Signed In") else null
-                subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant) }
-            }
+            if (account == null && signInLabel != null) TextButton(onClick = signIn, enabled = !loading) { Text(signInLabel) }
         }
-        if (account == null && signInLabel != null) {
-            Button(onClick = signIn, enabled = !loading, modifier = Modifier.heightIn(min = 48.dp)) { Text(signInLabel) }
-        }
+        if (upload != null) MBFormRow(upload.title, disclosure = true, onClick = upload.open)
     }
 }
 
@@ -63,17 +57,37 @@ internal data class AccountDestination(val title: String, val icon: ImageVector,
 
 @Composable
 internal fun AccountDestinations(destinations: List<AccountDestination>) {
-    val colors = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
-        .clip(RoundedCornerShape(18.dp)).background(colors.surfaceContainerLow)) {
+    MBGroupedSection(mb("我的内容", "My Content")) {
         destinations.forEachIndexed { index, destination ->
-            if (index > 0) HorizontalDivider(Modifier.padding(start = 54.dp), color = colors.outlineVariant)
-            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(role = Role.Button, onClick = destination.open)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(destination.icon, null, Modifier.size(24.dp), tint = colors.primary)
-                Text(destination.title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(20.dp), tint = colors.onSurfaceVariant)
+            if (index > 0) MBFormDivider()
+            MBFormRow(destination.title, disclosure = true, leading = {
+                Icon(destination.icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+            }, onClick = destination.open)
+        }
+    }
+}
+
+@Composable
+internal fun AccountTools(openSettings: () -> Unit, openPlugins: () -> Unit, openService: () -> Unit = {}) {
+    MBGroupedSection {
+        MBFormRow(mb("设置", "Settings"), leading = { Icon(Icons.Default.Settings, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary) },
+            disclosure = true, onClick = openSettings)
+        MBFormDivider()
+        MBFormRow(mb("插件", "Plugins"), leading = { Icon(Icons.AutoMirrored.Filled.List, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary) },
+            disclosure = true, onClick = openPlugins)
+        MBFormDivider()
+        MBFormRow(mb("山海服务", "Shanhai Service"), leading = { Icon(Icons.Default.Refresh, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary) },
+            disclosure = true, onClick = openService)
+    }
+}
+
+@Composable
+internal fun AccountSignOutRow(loading: Boolean, signOut: () -> Unit, clearCache: (() -> Unit)? = null, canSignOut: Boolean = true) {
+    MBGroupedSection {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = signOut, enabled = !loading && canSignOut) { Text(mb("退出登录", "Sign Out"), color = MaterialTheme.colorScheme.error) }
+            if (clearCache != null) TextButton(onClick = clearCache, enabled = !loading) {
+                Text(mb("退出并清理缓存", "Sign Out and Clear Cache"), color = MaterialTheme.colorScheme.error)
             }
         }
     }

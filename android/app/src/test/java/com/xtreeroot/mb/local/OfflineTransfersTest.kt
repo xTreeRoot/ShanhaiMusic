@@ -37,6 +37,18 @@ class OfflineTransfersTest {
     @Before fun setMain() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
     @After fun resetMain() { Dispatchers.resetMain() }
 
+    @Test fun preparedLocalAudioIsSavedWithoutRemovingItsPlaybackCache() = runBlocking {
+        val cached = folder.newFile("prepared.m4a").apply { writeText("prepared audio fixture") }
+        val store = OfflineMediaStore(folder.newFolder())
+        val transfers = OfflineTransfers(store, { error("Local audio must not open an HTTP connection") }) {
+            MediaResource(cached.toURI().toASCIIString(), emptyMap())
+        }
+        transfers.downloadAndWait()
+        assertNull(transfers.error.value)
+        assertEquals("prepared audio fixture", store.lease(track.id, downloadsOnly = true)?.use { it.path.readText() })
+        assertEquals("prepared audio fixture", cached.readText())
+    }
+
     @Test fun followsSameOriginAndCdnRedirectsWithoutForwardingPrivateHeaders() = runBlocking {
         val start = "https://source.example/start"
         val next = "https://source.example/media/redirect"

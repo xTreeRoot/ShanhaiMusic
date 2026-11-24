@@ -1,5 +1,6 @@
 package com.xtreeroot.mb.plugin
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -8,6 +9,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginRepositoryTest {
+    @Test fun universalReleaseUsesOneAssetDespiteLegacyPlatformPackages() {
+        val metadata = JSONObject("""{"tag_name":"v1.2.3","body":"notes","assets":[
+            {"name":"plugin-android-arm64.zip","id":1},{"name":"plugin-universal.zip","id":2}]}""")
+        val release = checkNotNull(PluginRepository.universalRelease("Owner/Fixture", metadata))
+        assertEquals("asset-2", release.revision)
+        assertEquals("https://github.com/Owner/Fixture/releases/download/v1.2.3/plugin-universal.zip", release.archive.toString())
+        assertEquals("notes", release.notes)
+        assertNull(PluginRepository.universalRelease("Owner/Fixture", JSONObject("""{"assets":[{"name":"legacy.zip"}]}""")))
+        assertThrows(PluginException::class.java) { PluginRepository.universalRelease("Owner/Fixture", metadata.put("tag_name", "../invalid")) }
+    }
+    @Test fun catalogReadsOrdinaryWebPageAndDirectLinks() {
+        val address = checkNotNull(GitHubStarsList.address(" catalog.test/plugins/?group=audio#details "))
+        assertEquals("https://catalog.test/plugins/?group=audio", address.toString())
+        val html = """
+            <a href="mb://install-plugin?repo=Owner%2FAudio&amp;from=catalog">Install</a>
+            <a href="//github.com/owner/audio/releases">Duplicate</a>
+            <a href=https://github.com/Other/Video/releases/download/v1/plugin-universal.zip>Download</a>
+            <a href="https://github.com.fake.test/Other/Fake">Fake</a>
+            <a data-href="https://github.com/Other/Hidden" href="#details">Hidden</a>
+        """.trimIndent()
+        assertEquals(listOf("Owner/Audio", "Other/Video"), GitHubStarsList.read(html, address).repositories)
+        for (input in listOf("Owner/Audio", " github.com/Owner/Audio/releases ", "mb://install-plugin?repo=Owner%2FAudio")) {
+            assertEquals("Owner/Audio", GitHubStarsList.repository(input))
+        }
+        assertNull(GitHubStarsList.address("file:///tmp/plugin.zip"))
+    }
+
     @Test fun starsListReadsOnlyRepositoryHeadingsInsideTheListAndKeepsPaginationOnThatList() {
         val address = checkNotNull(GitHubStarsList.address("https://github.com/stars/example/lists/%E6%B5%8B%E8%AF%95"))
         val html = """
@@ -40,10 +68,10 @@ class PluginRepositoryTest {
 
     @Test fun repositoryAndInstallLinksAreStrict() {
         assertEquals("octocat/player", PluginRepository.parse("octocat/player"))
-        assertEquals("octocat/player", PluginRepository.parse("https://github.com/octocat/player/tree/main"))
+        assertEquals("octocat/player", PluginRepository.parse("https://github.com/octocat/player.git/"))
         assertEquals("octocat/player", PluginRepository.fromInstallLink("mb://install-plugin?repo=octocat%2Fplayer"))
         assertEquals("octocat/player", PluginRepository.fromInstallLink("mygo-music://install-plugin?repo=octocat%2Fplayer"))
-        listOf("octocat", "../repo", "octocat/../repo", "https://github.com.evil.test/octocat/player", "octocat/player#fragment")
+        listOf("octocat", "../repo", "octocat/../repo", "https://github.com.evil.test/octocat/player", "octocat/player#fragment", "https://github.com/octocat/player/tree/main", "https://github.com/octocat/player?q=1")
             .forEach { value -> assertThrows(PluginException::class.java) { PluginRepository.parse(value) } }
         listOf(
             "https://install-plugin?repo=octocat%2Fplayer",

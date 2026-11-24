@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 internal data class SearchResult(val sourceId: String = "", val query: String = "", val tracks: List<Track> = emptyList(),
-                                 val cursor: Int, val hasMore: Boolean = false)
+                                 val cursor: Int, val hasMore: Boolean = false, val warnings: List<String> = emptyList())
 
 internal class SearchPages(private val scope: CoroutineScope, private val initialCursor: Int,
                            private val fetch: suspend (String, String, Int) -> Pair<TrackPage, Int>) {
@@ -41,7 +41,7 @@ internal class SearchPages(private val scope: CoroutineScope, private val initia
                 val (page, next) = fetch(result.sourceId, result.query, result.cursor)
                 ensureActive()
                 mutable.value = LoadState(result.copy(tracks = (result.tracks + page.tracks).distinctBy(Track::id),
-                    cursor = next, hasMore = page.hasMore && next > result.cursor))
+                    cursor = next, hasMore = page.hasMore && next > result.cursor, warnings = page.warnings))
             } catch (timedOut: TimeoutCancellationException) {
                 ensureActive()
                 mutable.value = current.copy(error = "搜索超时，请重试")

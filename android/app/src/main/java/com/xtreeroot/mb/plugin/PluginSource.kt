@@ -1,7 +1,6 @@
 package com.xtreeroot.mb.plugin
 
 import com.xtreeroot.mb.local.parseLrc
-import com.xtreeroot.mb.music.AccountSource
 import com.xtreeroot.mb.music.AudioQuality
 import com.xtreeroot.mb.music.CaptionLine
 import com.xtreeroot.mb.music.CaptionWord
@@ -23,6 +22,11 @@ import com.xtreeroot.mb.music.TrackComment
 import com.xtreeroot.mb.music.TrackPage
 import com.xtreeroot.mb.music.VideoSource
 import java.net.URI
+import com.xtreeroot.mb.cache.DiskResponseCache
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import org.json.JSONTokener
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -34,12 +38,41 @@ import org.json.JSONObject
 internal class PluginSource(
     val manifest: PluginManifest,
     private val runtime: PluginRuntime,
-) : PlaybackSource, VideoSource, AccountSource, InteractionSource, PlaybackRecorder, StationPlaybackSource, SuggestionSource {
+) : PlaybackSource, VideoSource, com.xtreeroot.mb.music.AccountCacheResetSource, com.xtreeroot.mb.music.SignInMethodSource, InteractionSource, PlaybackRecorder, StationPlaybackSource, SuggestionSource {
     override val id: String get() = manifest.id
-    val catalog = PluginCatalog(manifest, runtime, ::tracks, ::image)
+    val catalog = PluginCatalog(manifest, runtime, ::tracks, ::image, ::catalogInvoke)
+    private val accountCacheLock = Any()
+    private var cacheAccount: String? = null
+    private var accountGeneration = 0L
+    override val mediaRevision: Long get() = synchronized(accountCacheLock) { accountGeneration }
+
+    private fun rememberAccount(account: SourceAccount?, force: Boolean = false) = synchronized(accountCacheLock) {
+        val key = account?.let { "user:${it.id}" } ?: "guest"
+        if (force || cacheAccount != null && cacheAccount != key) accountGeneration++
+        cacheAccount = key
+    }
+
+    private suspend fun catalogInvoke(method: String, arguments: JSONObject): Any {
+        if (synchronized(accountCacheLock) { cacheAccount == null }) {
+            try { account(); synchronized(accountCacheLock) { if (cacheAccount == null) cacheAccount = "guest" } }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { return runtime.invoke(method, arguments) }
+        }
+        val (account, revision) = synchronized(accountCacheLock) { cacheAccount.orEmpty() to accountGeneration }
+        val parameters = arguments.keys().asSequence().filter { it != "refresh" }.sorted().flatMap { sequenceOf(it, arguments.get(it).toString()) }.toList()
+        val key = DiskResponseCache.key(*(listOf(manifest.id, manifest.version.orEmpty(), account, method) + parameters).toTypedArray())
+        val data = runtime.catalogCache.data(key, lifetimeMs = if (arguments.optBoolean("refresh")) 0 else 6L * 60 * 60 * 1000) {
+            synchronized(accountCacheLock) { if (revision != accountGeneration) throw CancellationException() }
+            val result = runtime.invoke(method, arguments)
+            synchronized(accountCacheLock) { if (revision != accountGeneration) throw CancellationException() }
+            result.toString().toByteArray(Charsets.UTF_8)
+        }
+        currentCoroutineContext().ensureActive()
+        synchronized(accountCacheLock) { if (revision != accountGeneration) throw CancellationException() }
+        return JSONTokener(data.toString(Charsets.UTF_8)).nextValue()
+    }
     private val searchLock = Mutex()
-    private var searchTerm = ""
-    private val offsets = mutableMapOf<Int, Int>()
+    private val offsets = mutableMapOf<String, MutableMap<Int, Int>>()
 
     override suspend fun suggestions(query: String): List<String> {
         if (!runtime.supports("suggest")) return emptyList()
@@ -50,18 +83,14 @@ internal class PluginSource(
     override suspend fun search(query: String, page: Int): TrackPage = searchLock.withLock {
         val term = query.trim()
         if (term.isEmpty()) return TrackPage(emptyList(), false)
-        if (page == 1) {
-            searchTerm = term
-            offsets.clear()
-            offsets[1] = 0
-        }
-        val offset = offsets[page]?.takeIf { term == searchTerm } ?: throw PluginException("Search page has no previous cursor")
+        val offset = if (page == 1) 0 else offsets[term]?.get(page) ?: throw PluginException("Search page has no previous cursor")
         val result = runtime.invoke("search", JSONObject().put("query", term).put("kind", "tracks").put("offset", offset)) as? JSONObject
             ?: throw PluginException("Invalid plugin search response")
         val values = result.optJSONArray("tracks") ?: JSONArray()
         val tracks = tracks(values)
-        offsets[page + 1] = offset + values.length()
-        TrackPage(tracks, result.optBoolean("more") && tracks.isNotEmpty())
+        val next = result.catalogNextOffset(offset, values.length())
+        if (next != null) offsets.getOrPut(term) { mutableMapOf() }[page + 1] = next
+        TrackPage(tracks, next != null)
     }
 
     override suspend fun audio(trackId: String): MediaResource = media("stream", JSONObject().put("id", trackId).put("quality", ""))
@@ -74,6 +103,11 @@ internal class PluginSource(
     override suspend fun video(trackId: String, quality: AudioQuality): MediaResource =
         media("video", JSONObject().put("id", trackId).put("quality", quality.name.lowercase()))
 
+    override suspend fun video(trackId: String, qualityID: String): MediaResource {
+        require(com.xtreeroot.mb.music.VideoQualityOption.valid(qualityID))
+        return media("video", JSONObject().put("id", trackId).put("quality", qualityID).put("network", com.xtreeroot.mb.music.MediaNetworkConditions.snapshot()))
+    }
+
     override suspend fun supportsVideo(): Boolean = runtime.supports("video")
 
     override suspend fun supportsSignIn(): Boolean = runtime.supports("signIn")
@@ -81,24 +115,61 @@ internal class PluginSource(
 
     override suspend fun account(): SourceAccount? {
         if (!runtime.supports("account")) return null
-        return account(runtime.invoke("account"))
+        val revision = synchronized(accountCacheLock) { accountGeneration }
+        val found = account(runtime.invoke("account"))
+        synchronized(accountCacheLock) {
+            if (revision != accountGeneration) throw CancellationException()
+            rememberAccount(found)
+        }
+        return found
     }
 
-    override suspend fun signIn(prompt: suspend (SignInPrompt) -> Unit): SourceAccount = coroutineScope {
+    override val signInMethods get() = manifest.signInMethods
+    override suspend fun signIn(prompt: suspend (SignInPrompt) -> Unit): SourceAccount = signInWithArguments(JSONObject(), prompt)
+    override suspend fun signIn(method: String, prompt: suspend (SignInPrompt) -> Unit): SourceAccount {
+        if (signInMethods.none { it.id == method }) throw PluginException("Unknown sign-in method")
+        return signInWithArguments(JSONObject().put("method", method), prompt)
+    }
+    private suspend fun signInWithArguments(arguments: JSONObject, prompt: suspend (SignInPrompt) -> Unit): SourceAccount = coroutineScope {
         val prompts = Channel<PluginPrompt>(Channel.CONFLATED)
         val observer = launch {
             for (item in prompts) prompt(SignInPrompt(item.qrUrl, message = item.message))
         }
-        try { account(runtime.signIn { prompts.trySend(it) }) ?: throw PluginException("Sign-in returned no account") }
+        try {
+            val found = account(runtime.signIn(arguments) { prompts.trySend(it) }) ?: throw PluginException("Sign-in returned no account")
+            rememberAccount(found, force = true)
+            found
+        }
         finally { observer.cancel(); prompts.cancel() }
     }
 
-    override suspend fun signOut() { runtime.invoke("signOut") }
+    override suspend fun signOut() { runtime.invoke("signOut"); rememberAccount(null, force = true) }
+
+    override suspend fun supportsAccountCacheReset(): Boolean = true
+    override suspend fun signOutAndClearCache() {
+        synchronized(accountCacheLock) { accountGeneration++; cacheAccount = null }
+        runtime.clearLoginCache()
+        rememberAccount(null, force = true)
+        searchLock.withLock { offsets.clear() }
+        catalog.invalidate()
+    }
 
     override suspend fun interactionCapabilities() = InteractionCapabilities(
         likes = runtime.supports("like"), comments = runtime.supports("comments"),
         posting = runtime.supports("postComment"), commentLikes = runtime.supports("likeComment"),
     )
+
+    override suspend fun interactionSummary(trackId: String): com.xtreeroot.mb.music.TrackInteractionSummary {
+        val method = if (runtime.supports("interactionSummary")) "interactionSummary" else if (runtime.supports("comments")) "comments"
+            else return com.xtreeroot.mb.music.TrackInteractionSummary()
+        val value = runtime.invoke(method, JSONObject().put("trackId", trackId).put("offset", 0)) as? JSONObject
+            ?: throw PluginException("Invalid interaction summary")
+        fun count(key: String): Long? = (value.opt(key) as? Number)?.toDouble()?.takeIf {
+            it.isFinite() && it >= 0 && it <= 9_007_199_254_740_991.0 && it % 1.0 == 0.0
+        }?.toLong()
+        return if (method == "comments") com.xtreeroot.mb.music.TrackInteractionSummary(comments = count("total"))
+        else com.xtreeroot.mb.music.TrackInteractionSummary(count("likes"), count("comments"))
+    }
 
     override suspend fun isLiked(trackId: String): Boolean {
         if (!runtime.supports("isLiked")) return false
@@ -108,6 +179,7 @@ internal class PluginSource(
 
     override suspend fun like(trackId: String, enabled: Boolean) {
         runtime.invoke("like", JSONObject().put("id", trackId).put("on", enabled))
+        runtime.catalogCache.invalidate()
     }
 
     override suspend fun comments(trackId: String, cursor: Int?): CommentPage {
@@ -165,7 +237,11 @@ internal class PluginSource(
 
     suspend fun close() = runtime.close()
 
-    suspend fun configure(settings: Map<String, String>, language: String) = runtime.configure(settings, language)
+    suspend fun configure(settings: Map<String, String>, language: String) {
+        synchronized(accountCacheLock) { cacheAccount = null; accountGeneration++ }
+        runtime.catalogCache.invalidate()
+        runtime.configure(settings, language)
+    }
 
     private suspend fun media(method: String, arguments: JSONObject): MediaResource {
         val result = if (method == "stream") runtime.stream(arguments) else runtime.invoke(method, arguments)
@@ -187,7 +263,22 @@ internal class PluginSource(
         }
         val defaultExtension = if (method == "video") "mp4" else "m4a"
         val extension = value.optString("type", defaultExtension).lowercase().takeIf { it.matches(Regex("[a-z0-9]{1,8}")) } ?: defaultExtension
-        return MediaResource(parsed.toASCIIString(), headers, extension)
+        val choices = value.optJSONArray("videoQualities")
+        val qualities = (0 until minOf(32, choices?.length() ?: 0)).mapNotNull { index ->
+            val option = choices?.optJSONObject(index) ?: return@mapNotNull null
+            val id = option.optString("id")
+            val label = option.optString("label").trim().take(64)
+            if (!com.xtreeroot.mb.music.VideoQualityOption.valid(id) || id == "auto" || label.isEmpty()) null
+            else com.xtreeroot.mb.music.VideoQualityOption(id, label)
+        }.distinctBy { it.id }
+        val actual = (value.opt("videoQuality") as? String)?.takeIf(com.xtreeroot.mb.music.VideoQualityOption::valid)
+        if (!value.isNull("encryption")) {
+            if (method != "stream" || extension != "m4a") throw PluginException("不支持的加密音频容器")
+            val encryption = value.optJSONObject("encryption") ?: throw PluginException("无效的音频授权")
+            val local = runtime.prepareCencAudio(parsed, headers, encryption)
+            return MediaResource(local.toURI().toASCIIString(), emptyMap(), "m4a")
+        }
+        return MediaResource(parsed.toASCIIString(), headers, extension, videoQuality = actual, videoQualities = qualities)
     }
 
     private suspend fun tracks(values: JSONArray): List<Track> =
@@ -205,14 +296,19 @@ internal class PluginSource(
         val title = (value.opt("name") as? String)?.takeIf(String::isNotBlank) ?: return null
         val artists = value.optJSONArray("artists") ?: JSONArray()
         val artist = (0 until artists.length()).mapNotNull { artists.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank) }
-            .joinToString(", ")
+            .joinToString(", ", transform = ::pluginPlainTitle)
         val album = value.optJSONObject("album")
         val image = image(album?.opt("imageUrl") as? String)
         val page = value.opt("url") as? String
         val artistId = artists.optJSONObject(0)?.opt("id") as? String
-        return Track(sourceId = manifest.id, sourceTrackId = id, title = title, artist = artist,
+        return Track(sourceId = manifest.id, sourceTrackId = id, title = pluginPlainTitle(title), artist = artist,
             artworkUrl = image?.url, durationMs = value.optLong("duration").coerceAtLeast(0), pageUrl = page,
             artistId = artistId, artworkHeaders = image?.headers.orEmpty(),
+            resourceType = value.optString("resourceType").takeIf { it.isNotBlank() },
+            resourceUrl = value.optString("resourceUrl").takeIf { link -> runCatching { val uri = java.net.URI(link); uri.scheme == "https" && uri.host != null }.getOrDefault(false) },
+            videoWidth = value.optJSONObject("video")?.optInt("width")?.coerceAtLeast(0) ?: 0,
+            videoHeight = value.optJSONObject("video")?.optInt("height")?.coerceAtLeast(0) ?: 0,
+            shortVideo = value.optJSONObject("video")?.optBoolean("short") == true,
             unavailable = value.optBoolean("unavailable"),
             unavailableReason = TrackUnavailableReason.fromCode(value.optString("unavailableReason")))
     }

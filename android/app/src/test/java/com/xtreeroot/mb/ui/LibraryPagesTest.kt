@@ -17,6 +17,19 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LibraryPagesTest {
+    @Test fun onlyExplicitRefreshInvalidatesTheDiskCache() = runTest {
+        var invalidations = 0
+        val model = LibraryPages(this, { invalidations++ }) { _, cursor -> page(cursor ?: "first", next = "more") }
+        model.open(LibraryRoute.Favorites)
+        runCurrent()
+        model.loadMore()
+        runCurrent()
+        assertEquals(0, invalidations)
+        model.refresh()
+        runCurrent()
+        assertEquals(1, invalidations)
+    }
+
     @Test fun failedRefreshAndAppendKeepOldRowsAndRetryTheFailedCursor() = runTest {
         val cursors = mutableListOf<String?>()
         val model = LibraryPages(this) { _, cursor ->

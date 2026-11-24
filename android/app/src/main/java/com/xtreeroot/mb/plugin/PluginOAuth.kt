@@ -38,7 +38,7 @@ internal class PluginOAuthRequest private constructor(
             val token = endpoint("tokenEndpoint")
             val client = (options.opt("clientID") as? String)?.takeIf { it.isOAuthText(512) }
                 ?: throw PluginException("Invalid OAuth client")
-            if (options.opt("redirectURI") != pluginOAuthRedirect) throw PluginException("OAuth callback is not registered for MB Android")
+            if (options.opt("redirectURI") != pluginOAuthRedirect) throw PluginException("OAuth callback is not registered for Shanhai Android")
             val values = options.optJSONArray("scopes")?.takeIf { it.length() in 1..16 }
                 ?: throw PluginException("Invalid OAuth scopes")
             val scopes = List(values.length()) { index ->

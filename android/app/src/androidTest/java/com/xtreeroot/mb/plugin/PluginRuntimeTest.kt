@@ -19,6 +19,8 @@ import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.filterNotNull
@@ -27,6 +29,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -39,6 +42,84 @@ import org.junit.Test
 class PluginRuntimeTest {
     private val app = InstrumentationRegistry.getInstrumentation().targetContext
     private val manifest = PluginManifest.parse(JSONObject("""{"id":"fixture","permissions":{"network":["api.example.test"]}}"""))
+
+    @Test fun discoveryOnlyRequestsEnabledSectionsInSavedOrder() {
+        val plugin = PluginManifest.parse(JSONObject("""{"id":"fixture","discovery":[{"id":"one","title":"One","page":"one"},{"id":"two","title":"Two","page":"two"},{"id":"three","title":"Three","page":"three"}]}"""))
+        fixture("""
+            let calls = [];
+            export function home() { throw Error('aggregate home must not execute'); }
+            export function browse({page,refresh}) { calls.push(page); return {sections:[{tracks:[{id:page,name:page}],morePage:'next:'+page}]}; }
+            export function probe() { return calls; }
+        """.trimIndent(), plugin = plugin) { runtime, _, _ ->
+            val source = PluginSource(plugin, runtime)
+            val empty = DiscoveryPreferences()
+            val before = empty.resolve(plugin.id, plugin.discoverySections.map { it.preferenceSection })
+            val draft = before.copy(order = listOf("three", "two", "one"), enabled = before.enabled + ("two" to false))
+            val doc = empty.edited(plugin.id, before, draft, PluginPreferences.newWriter())
+            val page = source.catalog.discoveryHome(plugin, doc, refresh = true)
+            assertEquals(listOf("Three", "One"), page.sections.map { it.title })
+            assertEquals(listOf("three", "one"), page.sections.flatMap { it.tracks }.map { it.sourceTrackId })
+            val destination = page.sections[0].more?.destination as PluginCatalogRequest.Browse
+            assertEquals("three", destination.page)
+            val disabled = draft.copy(enabled = draft.enabled.mapValues { false })
+            val off = doc.edited(plugin.id, draft, disabled, PluginPreferences.newWriter())
+            assertTrue(source.catalog.discoveryHome(plugin, off, refresh = true).sections.isEmpty())
+            assertEquals("[\"three\",\"one\"]", runtime.invoke("probe").toString())
+            val opened = source.catalog.load(destination, refresh = true)
+            assertEquals("next:three", (opened.nextPage as PluginCatalogRequest.Browse).page)
+        }
+    }
+
+    @Test fun videoQualityForwardsIndependentPreferenceAndReadsActualFallbackAndRealChoices() = fixture(
+        """
+        export function video({quality}) { return {url:'https://api.example.test/video.mp4',type:'mp4',videoQuality:quality==='1080p'?'720p':quality,
+            videoQualities:[{id:'1080p',label:'1080p60'},{id:'720p',label:'720p'},{id:'720p',label:'duplicate'},{id:'bad key',label:'invalid'}]}; }
+        """.trimIndent(),
+    ) { runtime, _, _ ->
+        val source = PluginSource(manifest, runtime)
+        val result = source.video("one", "1080p")
+        assertEquals("720p", result.videoQuality)
+        assertEquals(listOf("1080p", "720p"), result.videoQualities.map { it.id })
+        assertEquals("1080p60", result.videoQualities.first().label)
+        assertEquals("720p", source.video("one", "720p").videoQuality)
+    }
+
+    @Test fun explicitCatalogRefreshReplacesPluginSnapshotAndHostCache() = fixture(
+        """
+        let revision = 0, snapshot;
+        export function browse({refresh}={}) {
+            if (!snapshot || refresh) snapshot = {sections:[{tracks:[{id:'snapshot',name:'Snapshot '+(++revision)}]}],more:false};
+            return snapshot;
+        }
+        """.trimIndent(),
+    ) { runtime, _, _ ->
+        val source = PluginSource(manifest, runtime)
+        val request = PluginCatalogRequest.Browse("shelf", "Shelf")
+        assertEquals("Snapshot 1", source.catalog.load(request).sections[0].tracks[0].title)
+        assertEquals("Snapshot 2", source.catalog.load(request, refresh = true).sections[0].tracks[0].title)
+        assertEquals("Snapshot 2", source.catalog.load(request).sections[0].tracks[0].title)
+    }
+
+    @Test fun browsePagesForwardOffsetsAndPreservePortraitMetadata() = fixture(
+        """
+        export function browse({page,offset = 0}) { return {tabs:[{title:'All',page:'all'},{title:'Music',page:'music'}],selectedTab:page,sections:[{tracks:[{id:String(offset),name:'Portrait',video:{width:1080,height:1920,short:true}}]}],more:offset===0}; }
+        """.trimIndent(),
+    ) { runtime, _, _ ->
+        val source = PluginSource(manifest, runtime)
+        val request = PluginCatalogRequest.Browse("shorts", "Shorts")
+        val first = source.catalog.load(request)
+        assertEquals(1, first.nextOffset)
+        assertEquals("shorts", first.selectedTab)
+        assertEquals(listOf("all", "music"), first.tabs.map { (it.destination as PluginCatalogRequest.Browse).page })
+        val track = first.sections.single().tracks.single()
+        assertEquals(1080, track.videoWidth)
+        assertEquals(1920, track.videoHeight)
+        assertTrue(track.shortVideo)
+        assertEquals(track, track.toMetadataJson().toTrackMetadata())
+        val second = source.catalog.load(request, checkNotNull(first.nextOffset))
+        assertEquals("1", second.sections.single().tracks.single().sourceTrackId)
+        assertNull(second.nextOffset)
+    }
 
     @Test fun openUrlResolvesWithoutNetworkFetchAndRejectsInvalidAddresses() {
         val requests = mutableListOf<PluginWebLink>()
@@ -267,6 +348,84 @@ class PluginRuntimeTest {
             assertTrue(operation.isCancelled)
             assertEquals(42, next.await())
         }
+    }
+
+    @Test fun playbackBypassesBlockedCatalogAndItsVmSurvivesCatalogCancellation() {
+        val started = CompletableDeferred<Unit>()
+        fixture(
+            """
+            let count = 0;
+            export async function search() { host.storage.set('shared', 'catalog'); await fetch('https://api.example.test/wait'); }
+            export function stream() { return {count: ++count, shared: host.storage.get('shared')}; }
+            export function video() { return ++count; }
+            """.trimIndent(),
+            transport = PluginTransport { _, _ -> started.complete(Unit); awaitCancellation() },
+        ) { runtime, _, _ ->
+            val catalog = async { runtime.invoke("search") }
+            started.await()
+            val timeout = launch { delay(1_000); catalog.cancel() }
+            try {
+                assertTrue(runtime.supports("video"))
+                val first = runtime.stream(JSONObject()) as JSONObject
+                assertFalse(catalog.isCancelled)
+                assertEquals("catalog", first.getString("shared"))
+                assertEquals(1, first.getInt("count"))
+                catalog.cancelAndJoin()
+                assertEquals(2, runtime.invoke("video"))
+            } finally { timeout.cancel(); catalog.cancelAndJoin() }
+        }
+    }
+
+    @Test fun largePublicResponseCanBeParsedWithinABoundedBudget() = fixture(
+        """
+        export async function parse() { const value = await (await fetch('https://api.example.test/large')).json(); return value.rows.filter(row => row.title.includes('fixture')).length; }
+        """.trimIndent(), transport = PluginTransport { request, _ ->
+            val row = JSONObject().put("title", "fixture".repeat(20))
+            val rows = org.json.JSONArray((1..7000).map { row })
+            PluginFetchResponse(200, request.url, emptyMap(), emptyList(), JSONObject().put("rows", rows).toString().encodeToByteArray())
+        },
+    ) { runtime, _, _ -> assertEquals(7000, runtime.invoke("parse")) }
+
+    @Test fun declaredLoginMethodReachesPluginArgumentsAndUnknownChoiceNeverExecutes() = fixture(
+        """
+        let calls = 0;
+        export function signIn({method}) { calls++; return {id:method,name:method}; }
+        export function count() { return calls; }
+        """.trimIndent(), plugin = PluginManifest.parse(JSONObject("""{"id":"choice","signInMethods":[{"id":"first","label":"First"},{"id":"second","label":"Second"}]}""")),
+    ) { runtime, _, _ ->
+        val manifest = PluginManifest.parse(JSONObject("""{"id":"choice","signInMethods":[{"id":"first","label":"First"},{"id":"second","label":"Second"}]}"""))
+        val source = PluginSource(manifest, runtime)
+        assertEquals("second", source.signIn("second") {}.id)
+        rejected { source.signIn("invalid") {} }
+        assertEquals(1, runtime.invoke("count"))
+    }
+
+    @Test fun loginComputationBudgetCoversStartAndResponsesWithoutLeakingToOrdinaryCalls() = fixture(
+        """
+        function work() { let sum = 0; for (let n = 1; n <= 3000000; n++) sum = (sum + n) % 65521; return sum; }
+        export async function signIn() { const first = work(); await fetch('https://api.example.test/qr'); return first + work(); }
+        export function ordinary() { return work(); }
+        export function ok() { return 42; }
+        """.trimIndent(), transport = PluginTransport { request, _ ->
+            PluginFetchResponse(200, request.url, emptyMap(), emptyList(), "small response".encodeToByteArray())
+        },
+    ) { runtime, _, _ ->
+        val sum = ((3_000_000L * 3_000_001L / 2) % 65521).toInt()
+        assertEquals(sum * 2, runtime.signIn {})
+        rejected { runtime.invoke("ordinary") }
+        assertEquals(42, runtime.invoke("ok"))
+    }
+
+    @Test fun loginInfiniteLoopStillHasABoundedBudgetAndNextCallRecovers() = fixture(
+        """
+        export async function signIn() { await fetch('https://api.example.test/qr'); while (true) {} }
+        export function ok() { return 42; }
+        """.trimIndent(), transport = PluginTransport { request, _ ->
+            PluginFetchResponse(200, request.url, emptyMap(), emptyList(), byteArrayOf())
+        },
+    ) { runtime, _, _ ->
+        rejected { runtime.signIn {} }
+        assertEquals(42, runtime.invoke("ok"))
     }
 
     @Test fun infiniteLoopAndSymlinkImportAreRejectedWithoutPoisoningNextInvocation() = fixture(
@@ -506,6 +665,54 @@ class PluginRuntimeTest {
         }
     }
 
+    @Test fun hostClearsLoginCacheWithoutPluginExportAndPreservesSettings() {
+        fixture("""
+            const cached = host.storage.get('session');
+            export function account() { return host.storage.get('disabled') || !host.storage.get('session') ? null : {id:'me',name:'Fixture'}; }
+            export function seed() { host.storage.set('session','fixture-session'); host.storage.set('keep','fixture-setting'); }
+            export function signOut() { host.storage.set('disabled',true); }
+            export function session() { return cached || ''; }
+            export function keep() { return host.storage.get('keep'); }
+            export function quality() { return host.setting('quality'); }
+            export function stream() { return {url:'https://api.example.test/'+(cached || 'guest'),type:'m4a'}; }
+        """.trimIndent()) { runtime, _, _ ->
+            val source = PluginSource(manifest, runtime)
+            assertTrue(source.supportsAccountCacheReset())
+            runtime.invoke("seed")
+            assertTrue(source.audio("fixture").url.endsWith("fixture-session"))
+            val revision = source.mediaRevision
+            source.signOut()
+            assertEquals(null, source.account())
+            assertTrue(source.audio("fixture").url.endsWith("fixture-session"))
+            source.signOutAndClearCache()
+            assertTrue(source.mediaRevision > revision)
+            assertEquals(null, source.account())
+            assertEquals("", runtime.invoke("session"))
+            assertTrue(source.audio("fixture").url.endsWith("guest"))
+            assertEquals(JSONObject.NULL, runtime.invoke("keep"))
+            assertEquals("high", runtime.invoke("quality"))
+        }
+    }
+
+    @Test fun hostCacheResetCancelsPendingLoginAndRejectsLateCookies() {
+        val requested = CompletableDeferred<Unit>()
+        val reply = CompletableDeferred<String>()
+        fixture("""
+            export async function signIn() {
+                const result = await host.webSignIn({url:'https://api.example.test/login',cookiesOf:'https://api.example.test',until:['session']});
+                host.storage.set('session',result.cookie); return {id:'me',name:'Fixture'};
+            }
+            export function account() { return host.storage.get('session'); }
+        """.trimIndent(), webSignIn = { requested.complete(Unit); reply.await() }) { runtime, _, _ ->
+            val signingIn = async { runtime.signIn {} }
+            requested.await()
+            runtime.clearLoginCache()
+            assertTrue(signingIn.runCatching { await() }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+            reply.complete("session=late-fixture")
+            assertEquals(JSONObject.NULL, runtime.invoke("account"))
+        }
+    }
+
     @Test fun androidCallbackCompletesOnlyTheActiveQuickJsSignIn() {
         val broker = (app.applicationContext as MBApplication).pluginOAuth
         val exchangeSeen = CompletableDeferred<PluginFetchRequest>()
@@ -575,6 +782,9 @@ class PluginRuntimeTest {
             assertEquals(hash("/sensitive-route/33"), entries.getJSONObject(31).getString("pathHash"))
             assertEquals(403, entry.getInt("status"))
             assertEquals("[-1,42]", entry.getJSONArray("serviceCodes").toString())
+            assertFalse(entry.getBoolean("cookieHeaderPresent"))
+            assertTrue(entry.getBoolean("authorizationHeaderPresent"))
+            assertEquals(1, entry.getInt("setCookieCount"))
             assertFalse(contents.contains("fixture-"))
             assertFalse(contents.contains("sensitive-route"))
             assertEquals(403, runtime.invoke("home"))
@@ -618,10 +828,109 @@ class PluginRuntimeTest {
             attempt.cancelAndJoin()
             val report = JSONObject(File(data, "sign-in-diagnostics.json").readText())
             assertFalse(report.getBoolean("completed"))
+            assertEquals("cancelled", report.getString("outcome"))
             val entries = report.getJSONArray("entries")
             assertEquals(1, entries.length())
             assertEquals(202, entries.getJSONObject(0).getInt("status"))
             assertFalse(entries.getJSONObject(0).has("serviceCodes"))
+        }
+    }
+
+    @Test fun accountDiagnosticsDistinguishCacheMissNetworkFailureAndRejectedSession() {
+        val verifyStarted = CompletableDeferred<Unit>()
+        val finishVerify = CompletableDeferred<Unit>()
+        var serviceCode = 0
+        var timeout = false
+        val plugin = manifest.copy(version = "1.2.3")
+        fixture(
+            """
+            export function signIn() {
+                host.storage.set('fixture-storage-key', 'session=fixture-cookie');
+                return {id:'fixture-id',name:'fixture-account'};
+            }
+            export async function account() {
+                const session = host.storage.get('fixture-storage-key');
+                if (!session || host.storage.get('fixture-disabled')) return null;
+                const response = await fetch('https://api.example.test/fixture-path?token=fixture-query', {headers:{Cookie:session}});
+                if ((await response.json()).status_info.status_code === 0) return {id:'fixture-id',name:'fixture-account'};
+                host.storage.set('fixture-disabled', true);
+                return null;
+            }
+            export function stream() { return host.storage.get('fixture-storage-key') !== null; }
+            export function signOut() { host.storage.remove('fixture-storage-key'); }
+            """.trimIndent(), plugin = plugin,
+            transport = PluginTransport { request, _ ->
+                assertEquals("session=fixture-cookie", request.headers.entries.single { it.key.equals("cookie", true) }.value)
+                if (timeout) throw PluginException("fixture-network", pluginNetworkCode, SocketTimeoutException("fixture-timeout"))
+                if (serviceCode == 0) {
+                    verifyStarted.complete(Unit)
+                    finishVerify.await()
+                }
+                PluginFetchResponse(200, request.url, emptyMap(), listOf("next=fixture-set-cookie"),
+                    """{"status_info":{"status_code":$serviceCode,"status_msg":"fixture-message"}}""".encodeToByteArray())
+            },
+        ) { runtime, _, data ->
+            val file = File(data, "account-diagnostics.json")
+            fun history() = JSONArray(file.readText())
+            fun latest() = history().let { it.getJSONObject(it.length() - 1) }
+            fun entry(report: JSONObject) = report.getJSONArray("entries").getJSONObject(0)
+
+            assertEquals(JSONObject.NULL, runtime.invoke("account"))
+            val missing = latest()
+            assertEquals("noAccount", missing.getString("outcome"))
+            assertEquals(1, missing.getJSONObject("storage").getInt("misses"))
+            assertEquals(0, missing.getJSONArray("entries").length())
+
+            runtime.signIn {}
+            assertEquals(1, latest().getJSONObject("storage").getInt("writes"))
+            val signInReport = File(data, "sign-in-diagnostics.json").readText()
+            val verifying = async { runtime.invoke("account") }
+            verifyStarted.await()
+            assertEquals(true, runtime.stream(JSONObject()))
+            finishVerify.complete(Unit)
+            assertEquals("fixture-id", (verifying.await() as JSONObject).getString("id"))
+            val verified = latest()
+            assertEquals("1.2.3", verified.getString("pluginVersion"))
+            assertEquals("accountReturned", verified.getString("outcome"))
+            assertEquals(1, verified.getJSONObject("storage").getInt("hits"))
+            assertTrue(entry(verified).getBoolean("cookieHeaderPresent"))
+            assertFalse(entry(verified).getBoolean("authorizationHeaderPresent"))
+            assertEquals(1, entry(verified).getInt("setCookieCount"))
+
+            timeout = true
+            try {
+                runtime.invoke("account")
+                fail("Account request should fail on network timeout")
+            } catch (error: PlaybackIssueException) { assertEquals(PlaybackIssue.Network, error.issue) }
+            val failed = latest()
+            assertEquals("failed", failed.getString("outcome"))
+            assertEquals("SocketTimeoutException", entry(failed).getString("failureType"))
+            assertEquals(0, failed.getJSONObject("storage").getInt("writes"))
+
+            timeout = false
+            serviceCode = 1000016
+            assertEquals(JSONObject.NULL, runtime.invoke("account"))
+            val rejected = latest()
+            assertEquals("noAccount", rejected.getString("outcome"))
+            assertEquals(200, entry(rejected).getInt("status"))
+            assertEquals(1000016, entry(rejected).getJSONArray("serviceCodes").getInt(0))
+            assertEquals(1, rejected.getJSONObject("storage").getInt("hits"))
+            assertEquals(1, rejected.getJSONObject("storage").getInt("writes"))
+
+            runtime.invoke("signOut")
+            assertEquals("signOut", latest().getString("operation"))
+            assertEquals(1, latest().getJSONObject("storage").getInt("removals"))
+            runtime.clearLoginCache()
+            assertEquals("clearLoginCache", latest().getString("operation"))
+            assertEquals("completed", latest().getString("outcome"))
+            assertEquals("{}", File(data, "storage.json").readText())
+            assertFalse(file.readText().contains("fixture-"))
+            assertEquals(signInReport, File(data, "sign-in-diagnostics.json").readText())
+
+            repeat(24) { assertEquals(JSONObject.NULL, runtime.invoke("account")) }
+            val recent = history()
+            assertEquals(24, recent.length())
+            for (index in 0 until recent.length()) assertEquals("account", recent.getJSONObject(index).getString("operation"))
         }
     }
 

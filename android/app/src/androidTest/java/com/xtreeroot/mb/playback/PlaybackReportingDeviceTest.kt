@@ -77,6 +77,38 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class PlaybackReportingDeviceTest {
+    @Test fun neighboringPreviewAndSourceSwitchKeepQueuePositionAndRespectPauseOptIn() = runBlocking {
+        withFixture { player ->
+            val store = ViewModelStore()
+            val model = withContext(Dispatchers.Main) {
+                ViewModelProvider(store, ViewModelProvider.AndroidViewModelFactory.getInstance(app))[PlaybackModel::class.java]
+            }
+            try {
+                eventually { model.playback.value.connected }
+                withContext(Dispatchers.Main) { model.play(listOf(first, second), first) }
+                eventually { player.isPlaying && model.playback.value.current?.id == first.id }
+                withContext(Dispatchers.Main) {
+                    repeat(3) { assertEquals(second.id, model.neighboringTrack(true)?.id) }
+                    assertEquals(first.id, model.playback.value.current?.id)
+                    model.didSwitchSource("another", false)
+                    assertTrue(player.playWhenReady)
+                    model.didSwitchSource(first.sourceId, true)
+                    assertTrue(player.playWhenReady)
+                    model.didSwitchSource("another", true)
+                    assertEquals(2, player.mediaItemCount)
+                    assertEquals(first.id, player.currentMediaItem?.mediaId)
+                }
+                eventually { !player.playWhenReady }
+                withContext(Dispatchers.Main) {
+                    assertEquals(2, player.mediaItemCount)
+                    assertEquals(first.id, player.currentMediaItem?.mediaId)
+                    player.shuffleModeEnabled = true
+                    assertEquals(player.getMediaItemAt(player.manualNeighbor(true)).mediaId, model.neighboringTrack(true)?.id)
+                }
+            } finally { withContext(Dispatchers.Main) { store.clear() } }
+        }
+    }
+
     @Test fun signInRequiredIsReportedWithoutReissuingTheAudioRequest() = runBlocking {
         withFixture { player ->
             val restricted = first.copy(sourceTrackId = "restricted", title = "Restricted")
@@ -1003,7 +1035,7 @@ class PlaybackReportingDeviceTest {
                 eventually { player.isPlaying && player.currentPosition >= 8_000 }
                 automation.press(automation.queueNode("播放队列", "Queue"))
                 automation.queueNode("关闭队列", "Close Queue")
-                automation.waitForIdle(250, 5_000)
+                instrumentation.waitForIdleSync()
                 val firstHandle = automation.queueNode("编辑 First", "Edit First")
                 val secondHandle = automation.queueNode("编辑 Second", "Edit Second")
                 automation.drag(firstHandle, secondHandle, cancel = true)
@@ -1025,10 +1057,13 @@ class PlaybackReportingDeviceTest {
                 }
 
                 automation.press(automation.queueNode("关闭队列", "Close Queue"))
-                automation.press(automation.queueNode("First"))
+                // 播放进度持续发出无障碍事件，不等待全局空闲；队列退出后通过真实点击动作展开播放器。
+                eventually { automation.findQueueNode(setOf("关闭队列", "Close Queue")) == null }
+                val miniPlayer = generateSequence(automation.queueNode("First")) { it.parent }.first { it.isClickable && it.isEnabled }
+                assertTrue(miniPlayer.performAction(AccessibilityNodeInfo.ACTION_CLICK))
                 automation.press(automation.queueNode("横屏播放", "Landscape Player"))
                 automation.press(automation.queueNode("待播清单", "Up Next"))
-                automation.waitForIdle(250, 5_000)
+                instrumentation.waitForIdleSync()
                 automation.drag(automation.queueNode("编辑 First", "Edit First"), automation.queueNode("编辑 Second", "Edit Second"))
                 eventually { player.queueIds() == startingOrder && player.currentMediaItem?.mediaId == first.id && player.isPlaying }
 

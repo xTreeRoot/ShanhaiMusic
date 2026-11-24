@@ -3,10 +3,10 @@ package com.xtreeroot.mb.ui
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.AlertDialog
+import com.xtreeroot.mb.ui.components.MBAlertDialog as AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,7 +26,7 @@ internal fun PluginOAuthDialog(page: PluginOAuthPage, broker: PluginOAuthBroker,
     AlertDialog(onDismissRequest = cancel, title = { Text(page.title) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(page.host, style = MaterialTheme.typography.titleSmall)
-            Text(if (opened) mb("在浏览器完成授权后会返回 MB。", "Finish in the browser to return to MB.")
+            Text(if (opened) mb("在浏览器完成授权后会返回山海。", "Finish in the browser to return to Shanhai.")
                 else mb("使用系统浏览器授权。", "Authorize with your system browser."))
         }
     }, confirmButton = {

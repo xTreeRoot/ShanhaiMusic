@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,19 +33,19 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.AlertDialog
+import com.xtreeroot.mb.ui.components.MBAlertDialog as AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.xtreeroot.mb.ui.components.MBIconButton as IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import com.xtreeroot.mb.ui.components.MBBottomSheet as ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
+import com.xtreeroot.mb.ui.components.MBTopAppBar as TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -75,6 +76,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -106,7 +108,7 @@ internal fun ColumnScope.MiniPlayer(state: PlaybackState, open: () -> Unit, togg
     val failure = state.failureMessage()
     val colors = MaterialTheme.colorScheme
     Surface(Modifier.align(Alignment.CenterHorizontally).padding(horizontal = 12.dp, vertical = 6.dp)
-        .widthIn(max = 680.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = colors.surfaceContainer,
+        .widthIn(max = 680.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = skinSurface(colors.surfaceContainer),
         shadowElevation = 2.dp, border = BorderStroke(0.5.dp, colors.outlineVariant.copy(alpha = 0.65f))) {
         Column {
             Row(Modifier.fillMaxWidth().padding(end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -148,10 +150,23 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
     val activity by saved.activity.collectAsStateWithLifecycle()
     val inLibrary = track.sourceId == localSourceId || offline.downloads.any { it.track.id == track.id }
     val favorite = (activity[track.id]?.likedAt ?: 0) > 0
-    val app = LocalContext.current.applicationContext as MBApplication
+    val context = LocalContext.current
+    val app = context.applicationContext as MBApplication
+    val lyricsNotice = mb("已切换到歌词", "Showing lyrics")
+    val outputNotice = mb("音频输出", "Audio Output")
+    val queueNotice = mb("待播清单", "Queue")
     val source = app.playbackSource(track.sourceId)
+    var trackActions by remember(track.id) { mutableStateOf(false) }
+    var creatorSupported by remember(source) { mutableStateOf(source is LibrarySource) }
+    LaunchedEffect(source) {
+        creatorSupported = try {
+            if (source is com.xtreeroot.mb.plugin.PluginSource) source.catalog.supports("artist") else source is LibrarySource
+        } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { false }
+    }
+    val openCreator: (() -> Unit)? = track.artistId?.takeIf { it.isNotBlank() && creatorSupported }?.let { id -> { showArtist(id) } }
+    if (trackActions) MusicTrackActions(track, saved, preferences, openCreator) { trackActions = false }
     val supportsVideo = state.videoAvailable
-    var showingCaptions by rememberSaveable { mutableStateOf(preferences.lyricsStage) }
+    var showingCaptions by remember { mutableStateOf(false) }
     var widePage by rememberSaveable { mutableStateOf(WidePlayerPage.Lyrics) }
     var modeNotice by remember { mutableStateOf<PlayerModeNotice?>(null) }
     LaunchedEffect(modeNotice) {
@@ -173,7 +188,7 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
     LaunchedEffect(frame != null) { if (frame != null) entrance.animateTo(1f, tween(320)) }
     val captions by model.captions.collectAsStateWithLifecycle()
     val interaction = source as? InteractionSource
-    val lyricsVisible = if (wide) widePage == WidePlayerPage.Lyrics || widePage == WidePlayerPage.Rhythm else showingCaptions
+    val lyricsVisible = if (wide) widePage == WidePlayerPage.Lyrics || widePage == WidePlayerPage.Rhythm else true
     val showHotComments = preferences.hotComments && interaction != null && !wide && showingCaptions
     var hotComments by remember(track.id, interaction, signedIn, showHotComments) { mutableStateOf(emptyList<TrackComment>()) }
     var openComments by remember(track.id, interaction, signedIn) { mutableStateOf(false) }
@@ -193,10 +208,7 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
         quietCommentAt(state.positionMs, captions.value, state.durationMs, hotComments)
     } else null
     val colors = MaterialTheme.colorScheme
-    Scaffold(
-        containerColor = Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-        modifier = if (origin == null) Modifier else Modifier.onGloballyPositioned { frame = it.boundsInWindow() }.graphicsLayer {
+    Box((if (origin == null) Modifier else Modifier.onGloballyPositioned { frame = it.boundsInWindow() }.graphicsLayer {
             val destination = frame
             val progress = entrance.value
             if (destination == null) alpha = 0f else {
@@ -209,13 +221,20 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
                 alpha = progress.coerceAtLeast(0.02f)
                 clip = true
             }
-        },
+        }).fillMaxSize().then(if (LocalSkinEnabled.current) Modifier else Modifier.background(Brush.verticalGradient(listOf(colors.surfaceContainerLow, colors.background))))) {
+        if (preferences.fog) {
+            val bass by app.bassLevel.collectAsStateWithLifecycle()
+            PlaybackFog(track, if (state.playing) bass else 0f, animate, Modifier.matchParentSize())
+        }
+    Scaffold(
+        containerColor = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             TopAppBar(title = {
                 if (showToolbarTitle) Text(mb("正在播放", "Now Playing"), maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             },
-                expandedHeight = 48.dp, colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.surfaceContainerLow), navigationIcon = {
+                expandedHeight = 48.dp, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent), navigationIcon = {
                 IconButton(onClick = close) { Icon(Icons.Default.KeyboardArrowDown, mb("关闭播放器", "Close Player")) }
             }, actions = {
                 if (supportsVideo) IconButton(onClick = model::watchCurrentVideo) {
@@ -227,35 +246,37 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
                 }, chooseLyrics = { style ->
                     app.settings.update { it.copy(lyricStyle = style) }
                     showingCaptions = true
+                    android.widget.Toast.makeText(context, lyricsNotice, android.widget.Toast.LENGTH_SHORT).show()
                     if (wide) widePage = WidePlayerPage.Lyrics
                 })
                 if (rotate != null) IconButton(onClick = { rotate(if (landscape) PlaybackDirection.Portrait else PlaybackDirection.Landscape) }) {
                     Icon(painterResource(R.drawable.ic_screen_rotate), if (landscape) mb("竖屏播放", "Portrait Player") else mb("横屏播放", "Landscape Player"))
                 }
-                AudioOutputButton(state.connected)
-                IconButton(onClick = showQueue) { Icon(Icons.AutoMirrored.Filled.List, mb("播放队列", "Queue")) }
+                AudioOutputButton(state.connected) { android.widget.Toast.makeText(context, outputNotice, android.widget.Toast.LENGTH_SHORT).show() }
+                IconButton(onClick = {
+                    android.widget.Toast.makeText(context, queueNotice, android.widget.Toast.LENGTH_SHORT).show()
+                    showQueue()
+                }) { Icon(Icons.AutoMirrored.Filled.List, mb("播放队列", "Queue")) }
             })
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(colors.surfaceContainerLow, colors.background))),
-            contentAlignment = Alignment.Center) {
-            if (preferences.fog) {
-                val bass by app.bassLevel.collectAsStateWithLifecycle()
-                PlaybackFog(track, if (state.playing) bass else 0f, animate, Modifier.matchParentSize())
-            }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val seekCurrent: (Long) -> Unit = { model.seekCurrent(state, it) }
-            val showLyrics: @Composable (Boolean) -> Unit = { rhythm ->
+            val showLyrics: @Composable (Boolean, Boolean) -> Unit = { rhythm, compact ->
                 when {
                     captions.loading -> Loading()
                     captions.error != null -> Retry(checkNotNull(captions.error)) { model.loadCaptions(track) }
                     captions.value.isEmpty() -> EmptyMessage(mb("暂无歌词", "No Lyrics"))
                     rhythm -> RhythmCaptionStage(captions.value, state.positionMs, state.playing, animate, seekCurrent)
-                    else -> CaptionStage(captions.value, state.positionMs, preferences.lyricStyle,
-                        preferences.stageSparks, animate, seekCurrent)
+                    else -> androidx.compose.runtime.key(track.id) {
+                        CaptionStage(captions.value, state.positionMs, preferences.lyricStyle,
+                            preferences.stageSparks, animate, compact, seekCurrent)
+                    }
                 }
             }
             val stage: @Composable (Modifier) -> Unit = { modifier ->
-                Box(modifier.padding(horizontal = 24.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                TrackSwipePager(state.selectionRevision, model.neighboringTrack(false), model.neighboringTrack(true),
+                    model::previous, model::next, modifier.padding(horizontal = 24.dp, vertical = 6.dp)) {
                     when {
                         comment != null -> Column(Modifier.fillMaxWidth().clickable { openComments = true }.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -263,38 +284,19 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
                             Text(comment.text, style = MaterialTheme.typography.titleLarge)
                             Text("${comment.author} · ${comment.likes} ${mb("赞", "likes")}", style = MaterialTheme.typography.labelMedium)
                         }
-                        showingCaptions -> showLyrics(false)
+                        showingCaptions -> showLyrics(false, false)
                         else -> {
-                            val watch = mb("切换到实时视频", "Switch to Video")
+                            val lyrics = mb("查看歌词", "Show Lyrics")
                             PlayerArtwork(track, state, preferences.playerStyle, animate,
-                                if (supportsVideo) Modifier.clickable(onClickLabel = watch, role = Role.Button, onClick = model::watchCurrentVideo)
-                                    .semantics { contentDescription = watch } else Modifier)
+                                Modifier.clickable(onClickLabel = lyrics, role = Role.Button, onClick = { showingCaptions = true })
+                                    .semantics { contentDescription = lyrics })
                         }
                     }
                 }
             }
             val controls: @Composable (Modifier) -> Unit = { modifier ->
                 Column(modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(track.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        if (inLibrary) {
-                            IconButton(onClick = { saved.toggleFavorite(track) }) {
-                                Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                    if (favorite) mb("取消本地喜欢", "Unlike Locally") else mb("本地喜欢", "Like Locally"))
-                            }
-                        } else {
-                            IconButton(onClick = { saved.download(track) }, enabled = track.id !in transfers && !track.isUnavailable) {
-                                Icon(painterResource(R.drawable.ic_download), mb("下载音频", "Download Audio"))
-                            }
-                        }
-                        TrackActionsButton(track)
-                    }
-                    val artistId = track.artistId
-                    Text(track.artist, modifier = if (artistId == null || source !is LibrarySource) Modifier else Modifier.clickable(onClickLabel = mb("查看 UP 主投稿", "View Creator Uploads")) {
-                        showArtist(artistId)
-                    }, style = MaterialTheme.typography.bodyLarge, maxLines = 1,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (wide) MusicTrackMetadata(track, source as? InteractionSource, openCreator) { trackActions = true }
                     state.station?.let { station ->
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(station.title.ifBlank { mb("电台", "Radio") }, Modifier.weight(1f), maxLines = 1,
@@ -330,31 +332,46 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
                                 model.repeat()?.let { modeNotice = PlayerModeNotice.Repeat(it) }
                             }, Modifier.weight(1f))
                     }
-                    PlayerInteractionBar(track, signedIn, showCommentsButton = !wide)
                 }
             }
             BoxWithConstraints(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                val lyricsHeader: @Composable () -> Unit = {
+                    if (showingCaptions) Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val back = mb("返回封面播放页", "Back to Artwork")
+                        TrackRowArtwork(track, null, Modifier.size(60.dp).clickable(onClickLabel = back, role = Role.Button) { showingCaptions = false }
+                            .semantics { contentDescription = back })
+                        Box(Modifier.weight(1f)) { MusicTrackMetadata(track, source as? InteractionSource, openCreator, compact = true) { trackActions = true } }
+                    }
+                }
                 if (wide) {
                     Row(Modifier.widthIn(max = 1040.dp).fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                        WidePlayerStage(track, state, model, widePage, { widePage = it }, interaction, signedIn, showLyrics,
+                        WidePlayerStage(track, state, model, widePage, { widePage = it }, interaction, signedIn, { rhythm -> showLyrics(rhythm, false) },
                             Modifier.weight(1.24f).fillMaxHeight())
                         controls(Modifier.weight(1f).verticalScroll(rememberScrollState()))
                     }
-                } else if (maxWidth >= 720.dp) {
-                    val stageHeight = minOf(540.dp, maxHeight * 0.62f)
-                    Column(Modifier.widthIn(max = 580.dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                        stage(Modifier.fillMaxWidth().height(stageHeight))
-                        controls(Modifier.fillMaxWidth())
-                    }
-                } else if (enlargedText || maxHeight < 520.dp) {
-                    val stageHeight = minOf(maxWidth, 360.dp)
-                    Column(Modifier.widthIn(max = 480.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
-                        stage(Modifier.fillMaxWidth().height(stageHeight))
-                        controls(Modifier.fillMaxWidth())
-                    }
                 } else {
-                    Column(Modifier.widthIn(max = 480.dp).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                        stage(Modifier.weight(1f).fillMaxWidth())
+                    val scrollPage = enlargedText || maxHeight < 520.dp || maxWidth >= 720.dp
+                    val lyricsStageHeight = minOf(540.dp, maxHeight * 0.62f)
+                    val coverHeight = minOf(320.dp, maxOf(120.dp, (maxHeight - 280.dp) * 0.55f))
+                    val coverTopSpacing = if (maxHeight < 600.dp) 12.dp else 32.dp
+                    val pageModifier = Modifier.widthIn(max = if (maxWidth >= 720.dp) 580.dp else 480.dp).fillMaxSize()
+                    Column(if (scrollPage) pageModifier.verticalScroll(rememberScrollState()) else pageModifier,
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        lyricsHeader()
+                        if (!showingCaptions) Spacer(Modifier.height(coverTopSpacing))
+                        val stageModifier = if (showingCaptions) {
+                            if (scrollPage) Modifier.height(lyricsStageHeight) else Modifier.weight(1f)
+                        } else Modifier.height(coverHeight)
+                        stage(stageModifier.fillMaxWidth())
+                        if (!showingCaptions) {
+                            Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+                                MusicTrackMetadata(track, interaction, openCreator) { trackActions = true }
+                            }
+                            Box(Modifier.height(96.dp).fillMaxWidth().padding(horizontal = 24.dp)
+                                .semantics { testTag = "player-inline-lyrics" }) { showLyrics(false, true) }
+                            if (!scrollPage) Spacer(Modifier.weight(1f))
+                        }
                         controls(Modifier.fillMaxWidth())
                     }
                 }
@@ -363,6 +380,7 @@ internal fun NowPlaying(model: PlaybackModel, state: PlaybackState, preferences:
                 }
             }
         }
+    }
     }
     if (openComments && interaction != null) CommentsSheet(interaction, track, signedIn) { openComments = false }
 }
@@ -403,12 +421,10 @@ private fun PlayerModeControl(label: String, icon: Int, active: Boolean, enabled
         else -> colors.onSurfaceVariant
     }
     val status = if (active) mb("已开启", "On") else mb("已关闭", "Off")
-    Column(modifier.heightIn(min = 48.dp).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-        .semantics { stateDescription = status }.padding(vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)) {
+    Box(modifier.heightIn(min = 48.dp).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+        .semantics { stateDescription = status; contentDescription = label }.padding(vertical = 4.dp),
+        contentAlignment = Alignment.Center) {
         Icon(painterResource(icon), null, Modifier.size(19.dp), tint = tint)
-        Text(label, color = tint, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center,
-            maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 

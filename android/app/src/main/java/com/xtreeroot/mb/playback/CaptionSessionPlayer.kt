@@ -13,6 +13,7 @@ import com.google.common.util.concurrent.ListenableFuture
 
 @OptIn(UnstableApi::class)
 internal class CaptionSessionPlayer(private val audio: ExoPlayer, private val video: VideoPlayback, private val stations: StationPlayback? = null,
+                                    private val pages: PagedPlayback? = null, private val takePages: (String) -> PlaybackPages? = { null },
                                     private val retryPlayback: () -> Unit) :
     ForwardingSimpleBasePlayer(audio) {
     private data class SystemCaption(val trackId: String, val line: String?)
@@ -22,6 +23,7 @@ internal class CaptionSessionPlayer(private val audio: ExoPlayer, private val vi
     init { video.onGateChanged = { invalidateState() } }
 
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
+        if (!playWhenReady) pages?.cancelAdvance()
         if (stations?.updateIntent(playWhenReady) == true) return Futures.immediateVoidFuture()
         return if (video.changeIntent(playWhenReady)) Futures.immediateVoidFuture()
         else super.handleSetPlayWhenReady(playWhenReady)
@@ -30,13 +32,16 @@ internal class CaptionSessionPlayer(private val audio: ExoPlayer, private val vi
     override fun handleSetMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long): ListenableFuture<*> {
         if (mediaItems.singleOrNull()?.mediaId == resumeMediaId) return Futures.immediateVoidFuture()
         if (stations?.station != null) stations.set(null)
+        pages?.set(null)
         val selected = mediaItems.getOrNull(startIndex)?.station()
-        val clean = if (selected == null) mediaItems else mediaItems.mapIndexed { index, item ->
+        val token = mediaItems.getOrNull(startIndex)?.pagesToken()
+        val clean = if (selected == null && token == null) mediaItems else mediaItems.mapIndexed { index, item ->
             if (index == startIndex) item.buildUpon().setRequestMetadata(MediaItem.RequestMetadata.EMPTY).build() else item
         }
         val result = super.handleSetMediaItems(clean, startIndex, startPositionMs)
         if (audio.shuffleModeEnabled) shuffleFromSelection()
         if (selected != null) stations?.set(selected, prefetch = true)
+        else if (token != null) pages?.set(takePages(token))
         return result
     }
 
@@ -58,14 +63,15 @@ internal class CaptionSessionPlayer(private val audio: ExoPlayer, private val vi
             Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> true
             Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> false
             else -> {
-                if (seekCommand == Player.COMMAND_SEEK_TO_MEDIA_ITEM) stations?.cancelPendingAdvance()
+                if (seekCommand == Player.COMMAND_SEEK_TO_MEDIA_ITEM) { stations?.cancelPendingAdvance(); pages?.cancelAdvance() }
                 return super.handleSeek(mediaItemIndex, positionMs, seekCommand)
             }
         }
-        if (!audio.isPlayingAd && !(forward && stations?.next() == true)) {
+        if (!audio.isPlayingAd && !(forward && (stations?.next() == true || pages?.next() == true))) {
             val target = audio.manualNeighbor(forward)
             if (target != C.INDEX_UNSET) {
                 stations?.cancelPendingAdvance()
+                pages?.cancelAdvance()
                 audio.seekToDefaultPosition(target)
                 if (audio.playbackState == Player.STATE_IDLE) audio.prepare()
                 return handleSetPlayWhenReady(true)
@@ -98,7 +104,7 @@ internal class CaptionSessionPlayer(private val audio: ExoPlayer, private val vi
             Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
             Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
         ).apply {
-            if (queueSize > 1 || (queueSize == 1 && stations?.station != null)) {
+            if (queueSize > 1 || (queueSize == 1 && (stations?.station != null || pages?.pending == true))) {
                 addAll(Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
             }
             if (queueSize > 1) addAll(Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)

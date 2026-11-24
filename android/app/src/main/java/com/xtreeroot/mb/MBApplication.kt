@@ -6,10 +6,8 @@ import android.os.Build
 import androidx.core.content.edit
 import coil.ImageLoader
 import coil.ImageLoaderFactory
-import com.xtreeroot.mb.bilibili.BilibiliSessionStore
-import com.xtreeroot.mb.bilibili.BilibiliSource
-import com.xtreeroot.mb.bilibili.SessionCookie
-import com.xtreeroot.mb.bilibili.UrlConnectionTransport
+import coil.disk.DiskCache
+import com.xtreeroot.mb.cache.DiskResponseCache
 import com.xtreeroot.mb.edge.NodeClient
 import com.xtreeroot.mb.local.LocalAudioSource
 import com.xtreeroot.mb.local.LocalCatalog
@@ -24,6 +22,7 @@ import com.xtreeroot.mb.music.PlaybackSource
 import com.xtreeroot.mb.music.Track
 import com.xtreeroot.mb.playback.TrackPlaybackIssues
 import com.xtreeroot.mb.playback.StationStatus
+import com.xtreeroot.mb.playback.PendingPlaybackPages
 import com.xtreeroot.mb.playback.VideoPlayback
 import com.xtreeroot.mb.plugin.GitHubPluginPackages
 import com.xtreeroot.mb.plugin.CompatPluginBrowserActivity
@@ -33,7 +32,6 @@ import com.xtreeroot.mb.plugin.PluginInstaller
 import com.xtreeroot.mb.plugin.PluginOAuthBroker
 import com.xtreeroot.mb.plugin.PluginRuntime
 import com.xtreeroot.mb.plugin.PluginSource
-import com.xtreeroot.mb.plugin.PluginUpdateNotices
 import com.xtreeroot.mb.plugin.PluginWebSignInBroker
 import com.xtreeroot.mb.plugin.isPluginBrowserProcess
 import com.xtreeroot.mb.plugin.PluginWebLink
@@ -67,6 +65,7 @@ internal class MBApplication : Application(), ImageLoaderFactory {
     val audioFocusBlockedTrack = MutableStateFlow<String?>(null)
     val videoPlayback = MutableStateFlow<VideoPlayback?>(null)
     val stationStatus = MutableStateFlow(StationStatus())
+    val pendingPlaybackPages = PendingPlaybackPages()
     val settings by lazy { SettingsStore(this) }
     val appearanceBackground by lazy { AppearanceBackgroundStore(this) }
     val network by lazy { NetworkRouting { settings.values.value.proxy } }
@@ -85,27 +84,13 @@ internal class MBApplication : Application(), ImageLoaderFactory {
     val plugins by lazy { PluginInstaller(File(filesDir, "plugins")) }
     val nodeClient by lazy { NodeClient(http) }
     val pluginPackages by lazy { GitHubPluginPackages(PluginHttpTransport(network.proxySelector), Build.SUPPORTED_ABIS.toList()) }
-    val pluginUpdateNotices by lazy { PluginUpdateNotices(File(filesDir, "plugins/updates.json"), pluginPackages::latestReleaseVersion) }
     private data class ActivePlugin(val revision: UUID, val source: PluginSource, val values: Map<String, String>, val language: String)
     private val synchronizePlugins = Mutex()
     private val activePlugins = MutableStateFlow(emptyMap<String, ActivePlugin>())
     private val installed = MutableStateFlow(emptyList<InstalledPlugin>())
     val installedPlugins = installed.asStateFlow()
-    val bilibili by lazy {
-        val preferences = getSharedPreferences("host.storage.bilibili", MODE_PRIVATE)
-        BilibiliSource(transport = UrlConnectionTransport(network::open),
-            sessionStore = object : BilibiliSessionStore {
-            override fun load() = SessionCookie(preferences.getString("cookie", "").orEmpty(),
-                preferences.getBoolean("enabled", false))
-
-            override fun save(value: SessionCookie) = preferences.edit {
-                putString("cookie", value.value)
-                putBoolean("enabled", value.active)
-            }
-        })
-    }
-
     val local by lazy { LocalAudioSource(this, LocalCatalog(this)) }
+    val resourceBookmarks by lazy { com.xtreeroot.mb.local.ResourceBookmarks(File(filesDir, "resource-bookmarks.json")) }
     val playlists by lazy { LocalPlaylistStore(File(filesDir, "local-playlists.json")) }
     val offline by lazy {
         OfflineTransfers(OfflineMediaStore(File(filesDir, "offline-media")), network::open) { track ->
@@ -135,7 +120,10 @@ internal class MBApplication : Application(), ImageLoaderFactory {
         }
     }
 
-    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this).okHttpClient(http).build()
+    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this).okHttpClient(http)
+        .diskCache { DiskCache.Builder().directory(File(cacheDir, "artwork")).maxSizeBytes(256L * 1024 * 1024).build() }
+        .respectCacheHeaders(false)
+        .build()
 
     val pluginWebSignIn = PluginWebSignInBroker()
     val pluginOAuth = PluginOAuthBroker()
@@ -147,7 +135,6 @@ internal class MBApplication : Application(), ImageLoaderFactory {
     }
 
     fun playbackSource(id: String): PlaybackSource? = activePlugins.value[id]?.source ?: when (id) {
-        bilibili.id -> bilibili.takeIf { settings.values.value.builtInEnabled }
         localSourceId -> local
         else -> null
     }
@@ -160,6 +147,7 @@ internal class MBApplication : Application(), ImageLoaderFactory {
 
     suspend fun refreshPlugins() = synchronizePlugins.withLock {
         val records = plugins.installed()
+        records.forEach { com.xtreeroot.mb.plugin.LegacyPluginStorage.migrate(this, it) }
         val configurations = records.filter(InstalledPlugin::enabled).map { it to plugins.settings(it) }
         val language = when (settings.values.value.language) {
             AppLanguage.Chinese -> "zh-CN"
@@ -172,7 +160,8 @@ internal class MBApplication : Application(), ImageLoaderFactory {
             val source = if (current == null) {
                 PluginSource(plugin.manifest, PluginRuntime(assets, plugin.directory, plugin.dataDirectory,
                     plugin.manifest, values, language, PluginHttpTransport(network.proxySelector), pluginWebSignIn::show,
-                    openURL = { link -> webLink.value = link }, oauthSignIn = pluginOAuth::authorize))
+                    openURL = { link -> webLink.value = link }, oauthSignIn = pluginOAuth::authorize,
+                    audioCacheDirectory = File(cacheDir, "cenc-audio")))
             } else current.source.also {
                 if (current.language != language || current.values != values) it.configure(values, language)
             }
@@ -183,6 +172,6 @@ internal class MBApplication : Application(), ImageLoaderFactory {
         previous.forEach { (id, item) -> if (item.source !== next[id]?.source) item.source.close() }
     }
 
-    fun acceptsTrack(track: Track): Boolean = track.sourceId == bilibili.id || playbackSource(track.sourceId) != null ||
+    fun acceptsTrack(track: Track): Boolean = playbackSource(track.sourceId) != null ||
         offline.store.snapshot.value.downloads.any { it.track.id == track.id }
 }

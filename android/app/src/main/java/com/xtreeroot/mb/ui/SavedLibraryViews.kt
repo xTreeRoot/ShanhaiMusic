@@ -27,19 +27,18 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.xtreeroot.mb.ui.components.MBAlertDialog as AlertDialog
+import com.xtreeroot.mb.ui.components.MBCheckbox as Checkbox
+import com.xtreeroot.mb.ui.components.MBDropdownMenu as DropdownMenu
+import com.xtreeroot.mb.ui.components.MBMenuItem as DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.xtreeroot.mb.ui.components.MBIconButton as IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
+import com.xtreeroot.mb.ui.components.MBListItem as ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import com.xtreeroot.mb.ui.components.MBTextField as OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.xtreeroot.mb.ui.components.MBTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -99,16 +98,16 @@ internal fun DataLocationPage(library: PortableLibrary, back: () -> Unit) {
                         Text(mb("最近备份：$date", "Last backup: $date"), style = MaterialTheme.typography.labelLarge)
                     }
                     Text(if (status.linked) mb("卸载后备份仍在。重装后选回同一个文件夹。", "The backup survives uninstall. Select this same folder after reinstalling.")
-                        else mb("在‘文档’下选择文件夹。MB 会把备份放进其中的 MB Data。", "Choose a folder in Documents. MB keeps the backup in its MB Data subfolder."),
+                        else mb("在‘文档’下选择文件夹。山海会把备份放进其中的 MB Data。", "Choose a folder in Documents. Shanhai keeps the backup in its MB Data subfolder."),
                         style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (status.linked) {
-                        Button(enabled = !status.busy, onClick = library::saveNow) { Text(mb("立即备份", "Back Up Now")) }
+                        TextButton(enabled = !status.busy, onClick = library::saveNow) { Text(mb("立即备份", "Back Up Now")) }
                         TextButton(enabled = !status.busy, onClick = { choose.launch(null) }) {
                             Text(mb("更换或恢复目录", "Change or Restore Folder"))
                         }
-                    } else Button(enabled = !status.busy, onClick = { choose.launch(null) }) {
+                    } else TextButton(enabled = !status.busy, onClick = { choose.launch(null) }) {
                         Text(mb("选择目录或恢复", "Choose Folder or Restore"))
                     }
                 }
@@ -242,7 +241,7 @@ internal fun PlaylistsPage(saved: SavedLibraryModel, library: LocalMusicIndex,
         val matching = library.filter(tracks, trackQuery)
         val canSort = trackQuery.isBlank() && tracks.size > 1
         val editing = canSort && sorting
-        TrackReorderList(matching, editing, { from, to -> saved.reorder(current.id, from, to, matching.map(Track::id)) },
+        ReorderList(matching, Track::id, editing, { from, to -> saved.reorder(current.id, from, to, matching.map(Track::id)) },
             Modifier.fillMaxSize(), header = {
                 Column {
                     LibraryPageHeader(null, back = ::closePlaylist) {
@@ -367,7 +366,7 @@ private fun TrackPicker(tracks: List<Track>, close: () -> Unit, add: (List<Strin
 }
 
 @Composable
-private fun LibraryConfirmation(title: String, detail: String, button: String, close: () -> Unit, confirm: () -> Unit) {
+internal fun LibraryConfirmation(title: String, detail: String, button: String, close: () -> Unit, confirm: () -> Unit) {
     AlertDialog(onDismissRequest = close, title = { Text(title) }, text = { Text(detail) },
         confirmButton = { TextButton(onClick = confirm) { Text(button) } },
         dismissButton = { TextButton(onClick = close) { Text(mb("取消", "Cancel")) } })

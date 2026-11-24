@@ -14,7 +14,7 @@ import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import com.xtreeroot.mb.enableMBEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -81,10 +81,14 @@ internal class CompatPluginBrowserActivity : ComponentActivity() {
             Log.w(pluginBrowserLogTag, "compat data cleanup: ${failure.javaClass.simpleName}")
             return finishWithIssue(PluginBrowserIssue.Startup)
         }
-        enableEdgeToEdge()
+        enableMBEdgeToEdge()
+        val dark = intent.getBooleanExtra("dark", false)
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
         setContent {
             val english = intent.getBooleanExtra("english", false)
-            val dark = intent.getBooleanExtra("dark", false)
             CompositionLocalProvider(LocalMBEnglish provides english) {
                 MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
                     BackHandler(onBack = ::cancel)

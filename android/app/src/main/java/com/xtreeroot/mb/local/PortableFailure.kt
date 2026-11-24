@@ -6,7 +6,7 @@ internal enum class PortableProblem(val chinese: String, val english: String) {
     FolderMissing("找不到 MB Data，请重新选择数据位置。", "MB Data is missing. Select the backup folder again."),
     FolderConflict("所选位置已有名为 MB Data 的文件，请更换目录。", "A file named MB Data already exists. Choose another folder."),
     DuplicateFiles("备份目录包含重名文件。", "The backup folder contains duplicate file names."),
-    Permission("无法访问资料库目录，请重新选择并授权。", "MB cannot access the backup folder. Select it again to grant access."),
+    Permission("无法访问资料库目录，请重新选择并授权。", "Shanhai cannot access the backup folder. Select it again to grant access."),
     Read("无法读取资料库备份。", "Could not read the library backup."),
     RestoredPrevious("最新备份暂时读不到，已恢复上一份，未改动备份目录。恢复访问后可重新选择该目录。",
         "Restored the previous backup because the latest could not be read. Select the folder again once it is accessible."),

@@ -14,6 +14,11 @@ val copyVideoFixture by tasks.registering(Copy::class) {
     from(rootProject.file("../ios/Tests/MBFoundationTests/Fixtures/video.mp4"))
     into(videoFixtureDir)
 }
+val cencFixtureDir = layout.buildDirectory.dir("generated/cenc-fixture")
+val copyCencFixture by tasks.registering(Copy::class) {
+    from(rootProject.file("../ios/Tests/MBFoundationTests/Fixtures/cenc-aac.m4a"))
+    into(cencFixtureDir)
+}
 
 android {
     namespace = "com.xtreeroot.mb"
@@ -27,8 +32,8 @@ android {
         applicationId = "com.xtreeroot.mb"
         minSdk = 26
         targetSdk = 36
-        versionCode = 24
-        versionName = "0.1.23"
+        versionCode = 49
+        versionName = "0.1.48"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -43,6 +48,8 @@ android {
     sourceSets["main"].assets.srcDir(quickJsLicenseDir)
     sourceSets["androidTest"].assets.srcDir("../../ios/Tests/MBFoundationTests/Fixtures/BilibiliPlugin")
     sourceSets["androidTest"].assets.srcDir(videoFixtureDir)
+    sourceSets["androidTest"].assets.srcDir(cencFixtureDir)
+    sourceSets["test"].resources.srcDir(cencFixtureDir)
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -50,7 +57,7 @@ android {
     testOptions { unitTests.isReturnDefaultValues = false }
 }
 
-tasks.named("preBuild") { dependsOn(copyQuickJsLicense, copyVideoFixture) }
+tasks.named("preBuild") { dependsOn(copyQuickJsLicense, copyVideoFixture, copyCencFixture) }
 kotlin { jvmToolchain(17) }
 
 dependencies {

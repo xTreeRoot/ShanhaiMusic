@@ -73,7 +73,7 @@ class PlatformDataTest {
             server.enqueue(MockResponse().setResponseCode(410).setHeader("ETag", "\"deleted\"").setBody("""{"error":"deleted"}"""))
             expect(NodeFailure.Deleted) { client.syncProfile(binding, key.platform, local, publish = true) }
             server.enqueue(MockResponse().setResponseCode(404).setBody("""{"error":"unsupported"}"""))
-            expect(NodeFailure.Protocol) { client.syncProfile(binding, key.platform, local, publish = true) }
+            expect(NodeFailure.Unsupported) { client.syncProfile(binding, key.platform, local, publish = true) }
             repeat(3) { assertEquals("GET", server.takeRequest().method) }
             assertEquals(3, server.requestCount)
         }
@@ -144,7 +144,7 @@ class PlatformDataTest {
             expect(NodeFailure.Unauthorized) { client.read(binding, key) }
             server.takeRequest()
             server.enqueue(MockResponse().setResponseCode(404).setBody("not a platform endpoint"))
-            expect(NodeFailure.Protocol) { client.read(binding, key) }
+            expect(NodeFailure.Unsupported) { client.read(binding, key) }
             assertEquals(8, server.requestCount)
         }
     }

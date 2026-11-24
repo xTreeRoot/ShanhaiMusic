@@ -43,6 +43,7 @@ internal class SavedLibraryModel(application: Application, private val downloads
     val offline = store.snapshot
     val transfers = downloads.transfers
     val transferError = downloads.error
+    val resources = app.resourceBookmarks.tracks
     val playlists = playlistStore.playlists
     val portable = app.portableLibrary
     val activity = activityState.asStateFlow()
@@ -63,12 +64,15 @@ internal class SavedLibraryModel(application: Application, private val downloads
         if (refreshingState.value) return
         refreshingState.value = true
         viewModelScope.launch {
-            try { withContext(Dispatchers.IO) { store.refresh(); playlistStore.refresh() } }
+            try { withContext(Dispatchers.IO) { store.refresh(); playlistStore.refresh(); app.resourceBookmarks.refresh() } }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { report(failure) }
             finally { refreshingState.value = false }
         }
     }
+
+    fun saveResource(track: Track) = runIO { app.resourceBookmarks.save(track) }
+    fun removeResource(id: String) = runIO { app.resourceBookmarks.remove(id) }
 
     fun toggleFavorite(track: Track) {
         viewModelScope.launch {
@@ -105,7 +109,7 @@ internal class SavedLibraryModel(application: Application, private val downloads
             else MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "audio"
         } else file.extension
         val title = track.title.replace(Regex("[\\\\/\\p{Cntrl}]"), "_").trim().take(80)
-            .trimEnd(Char::isHighSurrogate).ifEmpty { "MB 音频" }
+            .trimEnd(Char::isHighSurrogate).ifEmpty { "山海音频" }
         return "$title.$extension"
     }
 
