@@ -60,8 +60,9 @@ enum PlatformDataCodec {
         let sealed = try AES.GCM.seal(plain, using: key(recovery, space: space), authenticating: aad(space, platform, name, 1))
         return PlatformDataEnvelope(format: 1, nonce: encode(Data(sealed.nonce)), ciphertext: encode(sealed.ciphertext + sealed.tag))
     }
-    static func open(_ envelope: PlatformDataEnvelope, recovery: String, space: String, platform: String, key name: String) throws -> Data {
-        guard envelope.ciphertext.utf8.count <= limit, let bytes = decode(envelope.ciphertext), bytes.count >= 16,
+    static func open(_ envelope: PlatformDataEnvelope, recovery: String, space: String, platform: String, key name: String,
+                     maximumBytes: Int = limit) throws -> Data {
+        guard envelope.ciphertext.utf8.count <= maximumBytes, let bytes = decode(envelope.ciphertext), bytes.count >= 16,
               let nonce = decode(envelope.nonce, size: 12) else { throw PlatformDataFailure.invalid }
         let box = try AES.GCM.SealedBox(nonce: AES.GCM.Nonce(data: nonce), ciphertext: bytes.dropLast(16), tag: bytes.suffix(16))
         return try AES.GCM.open(box, using: key(recovery, space: space), authenticating: aad(space, platform, name, envelope.format))
@@ -109,11 +110,11 @@ struct PlatformDataClient: Sendable {
     }
 
     func request(_ origin: URL, _ path: String, method: String, expected: Int, token: String? = nil,
-                         revision: String? = nil, body: Data? = nil, maximumBytes: Int = PlatformDataCodec.limit) async throws -> (Data, HTTPURLResponse) {
+                         revision: String? = nil, body: Data? = nil, maximumBytes: Int = PlatformDataCodec.limit, timeout: TimeInterval = 25) async throws -> (Data, HTTPURLResponse) {
         guard var parts = URLComponents(url: origin, resolvingAgainstBaseURL: false) else { throw PlatformDataFailure.address }
         parts.path = path
         guard let url = parts.url else { throw PlatformDataFailure.address }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 25)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         request.httpMethod = method
         if let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
         if let revision { request.setValue(revision, forHTTPHeaderField: revision == "*" ? "If-None-Match" : "If-Match") }

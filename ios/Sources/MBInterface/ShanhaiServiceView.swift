@@ -6,6 +6,9 @@ struct ShanhaiServiceView: View {
     @Bindable var model: PlatformDataModel
     let preferences: PreferencesModel
     let plugins: PluginModel
+    let downloads: DownloadModel
+    let library: LocalLibraryModel
+    let playback: PlaybackModel
     let accounts: [String: String]
     let names: [String: String]
     let providers: [String: any MusicSource]
@@ -26,7 +29,7 @@ struct ShanhaiServiceView: View {
                         Button("解除此设备绑定", role: .destructive) { Task { await model.unlink(); expanded = nil } }.disabled(model.busy || model.sessionBusy)
                     }
                     if model.authorized {
-                        NodeDeviceSettingsView(model: model, preferences: preferences, plugins: plugins, names: names, accounts: accounts, openAccount: openAccount).id(model.revision)
+                        NodeDeviceSettingsView(model: model, preferences: preferences, plugins: plugins, downloads: downloads, library: library, playback: playback, names: names, accounts: accounts, openAccount: openAccount).id(model.revision)
                         cloudOverview
                         sourceRows
                     }
@@ -74,6 +77,7 @@ struct ShanhaiServiceView: View {
                 if model.syncing { Section { ProgressView("正在同步…") } }
                 if let message = model.message { Section { Text(message).font(.callout).accessibilityIdentifier("node-result") } }
             }
+            .accessibilityIdentifier("node-service-form")
             .modifier(MusicGroupedList())
             .modifier(SkinSurface(defaultColor: MBTheme.grouped, list: true))
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }

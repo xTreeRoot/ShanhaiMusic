@@ -71,6 +71,8 @@ final class MBiOSUITests: XCTestCase {
         let service = app.buttons["open-shanhai-service"]
         if !service.isHittable { app.swipeUp() }
         service.tap()
+        let otherDevice = app.buttons["restore-other-device"]
+        XCTAssertTrue(otherDevice.waitForExistence(timeout: 5)); otherDevice.tap()
         let device = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "书房 Mac")).firstMatch
         XCTAssertTrue(device.waitForExistence(timeout: 8)); device.tap()
         let details = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "App 设置")).firstMatch
@@ -79,13 +81,69 @@ final class MBiOSUITests: XCTestCase {
         capture("设备备份明细", app: app)
         details.tap()
         let restore = app.buttons["恢复这些设置"]
-        if !restore.isHittable { app.swipeUp() }
+        let form = app.collectionViews["node-service-form"]
+        // iPad 表单以 sheet 呈现；按钮的 AX 可点击标志可能包含被 sheet 裁掉的区域。
+        // 在表单内滚动并要求整行位于可见范围，避免点击背景或 sheet 边缘。
+        for _ in 0..<4 {
+            if restore.isHittable && form.frame.insetBy(dx: 0, dy: 12).contains(restore.frame) { break }
+            form.swipeUp()
+        }
         restore.tap()
-        XCTAssertTrue(app.staticTexts["已恢复 2 项 · 跳过 1 项"].waitForExistence(timeout: 5))
+        let result = app.staticTexts["已恢复 2 项 · 跳过 1 项"]
+        if !result.exists { form.swipeUp() }
+        XCTAssertTrue(result.waitForExistence(timeout: 5))
         capture("设备设置恢复结果", app: app)
         app.buttons["完成"].tap()
-        app.navigationBars.buttons["open-settings"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["音质, 无损"].waitForExistence(timeout: 5) || app.staticTexts["无损"].exists)
+        selectTab("设置", app: app)
+        let quality = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "音质", "无损")).firstMatch
+        if !quality.exists { app.collectionViews["app-settings-form"].swipeUp() }
+        XCTAssertTrue(quality.waitForExistence(timeout: 5))
+    }
+
+    @MainActor func testTabletCenteredNavigationAndModeSwitch() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad)
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        let search = app.buttons["tablet-tab-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 15))
+        XCTAssertGreaterThanOrEqual(search.frame.height, 44)
+        search.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.1)).tap()
+        XCTAssertTrue(app.textFields["搜索视频、音乐、UP 主"].waitForExistence(timeout: 5))
+        XCTAssertTrue(search.isSelected)
+        let settings = app.buttons["tablet-tab-settings"]
+        settings.tap()
+        XCTAssertTrue(app.buttons["settings-app-updates"].waitForExistence(timeout: 5))
+        XCTAssertTrue(settings.isSelected)
+        let mode = app.buttons["tablet-playback-mode"]
+        let previous = mode.value as? String
+        mode.tap()
+        let changed = expectation(for: NSPredicate { _, _ in mode.value as? String != previous }, evaluatedWith: mode)
+        wait(for: [changed], timeout: 5)
+        XCTAssertTrue(settings.isSelected)
+        XCTAssertTrue(app.buttons["settings-app-updates"].exists)
+        XCTAssertGreaterThan(settings.frame.minX, app.buttons["tablet-tab-account"].frame.minX)
+        XCTAssertGreaterThan(mode.frame.minX, settings.frame.minX)
+        XCTAssertFalse(app.buttons["显示侧边栏"].exists)
+        capture("iPad-居中导航-设置与模式", app: app)
+        mode.tap()
+        let restored = expectation(for: NSPredicate { _, _ in mode.value as? String == previous }, evaluatedWith: mode)
+        wait(for: [restored], timeout: 5)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let discover = app.buttons["tablet-tab-discover"]
+        // 旋转通知早于 AX 布局更新；等导航确实居中到横屏后再点击，避免使用上一帧坐标。
+        let rotated = expectation(for: NSPredicate { _, _ in
+            let window = app.windows.firstMatch.frame
+            let center = (discover.frame.minX + mode.frame.maxX) / 2
+            return window.width > window.height && abs(center - window.midX) < 4 && discover.isHittable
+        }, evaluatedWith: discover)
+        wait(for: [rotated], timeout: 10)
+        discover.tap()
+        XCTAssertTrue(discover.isSelected)
+        XCTAssertTrue(app.buttons["查看更多为你推荐"].waitForExistence(timeout: 5))
+        capture("iPad-横屏发现-无侧栏", app: app)
     }
 
     @MainActor func testNodeFormClearsAddressAndRejectsHTTPWithoutChangingBinding() {
@@ -1529,6 +1587,11 @@ final class MBiOSUITests: XCTestCase {
 
     @MainActor private func selectTab(_ title: String, app: XCUIApplication) {
         if title == "设置" || title == "Settings" {
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                let settings = app.buttons["tablet-tab-settings"]
+                XCTAssertTrue(settings.waitForExistence(timeout: 10)); settings.tap()
+                return
+            }
             if app.buttons["dismiss-settings"].exists { return }
             selectTab(title == "设置" ? "我的" : "Account", app: app)
             let button = app.buttons["open-settings"]

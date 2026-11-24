@@ -114,6 +114,13 @@ public final class PlaybackModel {
         queue.replace(with: tracks, selecting: index)
         jump(to: index, intent: intent, autoplay: autoplay)
     }
+    func restoreDeviceBackup(_ session: PlaybackSession) async {
+        guard queue.current == nil, session.queue.indices.contains(session.index) else { return }
+        select(session.queue, index: session.index, autoplay: false)
+        queue.restorePreferences(shuffled: session.shuffled ?? false, repeatMode: session.repeatMode ?? .off, order: session.playOrder)
+        seek(to: session.positionMilliseconds)
+        try? await store?.saveSession(session)
+    }
 
     public func jump(to index: Int, intent: PlaybackSelectionIntent = .content, autoplay: Bool = true) {
         guard queue.tracks.indices.contains(index) else { return }

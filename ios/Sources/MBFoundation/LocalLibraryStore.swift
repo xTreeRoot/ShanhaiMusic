@@ -44,6 +44,22 @@ public actor LocalLibraryStore {
             if on { state.favorites.insert(trackID, at: 0) }
         }
     }
+    func restoreDeviceBackup(_ incoming: DeviceArchiveLibrary, tracks: [String: Track]) throws -> LocalLibrarySnapshot {
+        try change { state in
+            func mapped(_ key: String) -> String { tracks[key]?.id ?? key }
+            for id in incoming.favorites.map(mapped) where !state.favorites.contains(id) { state.favorites.append(id) }
+            for id in incoming.recent.map(mapped) where !state.recent.contains(id) { state.recent.append(id) }
+            for item in incoming.playlists {
+                let ids = item.tracks.map(mapped)
+                if let at = state.playlists.firstIndex(where: { $0.id == item.id }) {
+                    for id in ids where !state.playlists[at].trackIDs.contains(id) { state.playlists[at].trackIDs.append(id) }
+                } else { state.playlists.append(LocalPlaylist(id: item.id, name: item.name, trackIDs: ids)) }
+            }
+            var resources = state.resources ?? []
+            for track in tracks.values where track.localFileID == nil && !resources.contains(where: { $0.id == track.id }) { resources.append(track) }
+            state.resources = resources
+        }
+    }
     public func saveResource(_ track: Track) throws -> LocalLibrarySnapshot {
         try change { state in
             var resources = state.resources ?? []; resources.removeAll { $0.id == track.id }

@@ -6,7 +6,7 @@ public final class LocalLibraryModel {
     public private(set) var snapshot = LocalLibrarySnapshot()
     public private(set) var catalog = LocalCatalog(tracks: [])
     public private(set) var errorMessage: String?
-    @ObservationIgnored private let store: LocalLibraryStore
+    @ObservationIgnored let store: LocalLibraryStore
     @ObservationIgnored private var revision = 0
     public init(store: LocalLibraryStore = .shared) { self.store = store }
     public func restore() async { await perform { try await $0.snapshot() } }

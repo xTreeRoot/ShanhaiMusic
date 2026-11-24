@@ -28,6 +28,9 @@ public actor MediaLibrary {
         try load()
         return entries.filter { $0.kind != .cache }.sorted { $0.accessed > $1.accessed }
     }
+    func deviceBackupFiles() throws -> [(SavedMedia, URL)] {
+        try list().map { item in (item, root.appendingPathComponent(item.fileName)) }
+    }
     public func cacheBytes() throws -> Int64 { try load(); return entries.filter { $0.kind == .cache }.reduce(0) { $0 + $1.bytes } }
     public func cacheEnabled() -> Bool { cacheLimit > 0 }
     public func setCacheLimit(megabytes: Int) throws {

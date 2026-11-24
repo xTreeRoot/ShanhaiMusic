@@ -14,6 +14,12 @@ public struct NodeDeviceSettings: Codable, Sendable {
     public var app: [String: String] = [:]
     public var plugins: [String: [String: String]] = [:]
     public var accounts: [String: String] = [:]
+    public var backup: NodeDeviceBackupReference?
+    public var previousBackup: NodeDeviceBackupReference?
+    enum CodingKeys: String, CodingKey {
+        case version, app, plugins, accounts, backup
+        case previousBackup = "previous_backup"
+    }
     public init() {}
 }
 

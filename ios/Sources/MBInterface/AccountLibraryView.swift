@@ -14,6 +14,7 @@ struct AccountLibraryView: View {
     let openSettings: () -> Void
     let openPlugins: () -> Void
     let openService: () -> Void
+    var showsSettingsButton = true
     @State private var showingSignIn = false
     @State private var path: [LibraryRoute] = []
 
@@ -49,7 +50,7 @@ struct AccountLibraryView: View {
                         }
                     }
                     Section {
-                        Button("设置", systemImage: "gearshape") { openSettings() }
+                        if showsSettingsButton { Button("设置", systemImage: "gearshape") { openSettings() } }
                         Button("插件", systemImage: "puzzlepiece.extension") { openPlugins() }
                         Button("山海服务", systemImage: "externaldrive.connected.to.line.below") { openService() }
                             .accessibilityIdentifier("open-shanhai-service")
@@ -73,7 +74,7 @@ struct AccountLibraryView: View {
             .contentMargins(.bottom, playback.queue.current == nil ? 0 : 76, for: .scrollContent)
             .navigationTitle("")
             .modifier(CompactRootNavigation())
-            .toolbar { ToolbarItem(placement: .primaryAction) { Button("设置", systemImage: "gearshape") { openSettings() }.labelStyle(.iconOnly).accessibilityIdentifier("open-settings") } }
+            .toolbar { if showsSettingsButton { ToolbarItem(placement: .primaryAction) { Button("设置", systemImage: "gearshape") { openSettings() }.labelStyle(.iconOnly).accessibilityIdentifier("open-settings") } } }
             .navigationDestination(for: LibraryRoute.self) { route in
                 if let source {
                     LibraryPageView(source: source, route: route, select: select, menu: { track in

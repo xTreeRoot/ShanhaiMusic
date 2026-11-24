@@ -5,10 +5,10 @@ enum MBPage: Hashable {
     case discovery(DiscoveryCategory), video, library(LibraryRoute)
     case pluginPage(String, String), pluginCollection(String, String)
 }
-private enum MBTab: Hashable { case discover, search, library, account }
+private enum MBTab: String, Hashable { case discover, search, library, account, settings }
 
 
-/// 手机使用层级返回；平板保留发现侧栏。所有页面共用同一播放会话。
+/// 手机使用系统标签栏；平板使用居中的横向导航。所有页面共用同一播放会话。
 public struct MBRootView: View {
     @State private var selectedTab = MBTab.discover
     @State private var discoveryPagePosition: CGFloat?
@@ -129,10 +129,51 @@ public struct MBRootView: View {
             DownloadsView(model: downloads, library: localLibrary, playback: playback)
                 .safeAreaInset(edge: .bottom, spacing: 0) { legacyMiniPlayer(for: .library) }
                 .tabItem { Label("资料库", systemImage: "music.note.list") }.tag(MBTab.library)
-            AccountLibraryView(account: account, plugin: source as? PluginSource, source: source as? any LibrarySource, playback: playback, downloads: downloads, select: select, openSettings: { showingAppSettings = true }, openPlugins: { showingPlugins = true }, openService: { showingService = true })
+            AccountLibraryView(account: account, plugin: source as? PluginSource, source: source as? any LibrarySource, playback: playback, downloads: downloads, select: select, openSettings: { if isTablet { selectedTab = .settings } else { showingAppSettings = true } }, openPlugins: { showingPlugins = true }, openService: { showingService = true }, showsSettingsButton: !isTablet)
                 .safeAreaInset(edge: .bottom, spacing: 0) { legacyMiniPlayer(for: .account) }
                 .tabItem { Label("我的", systemImage: "person.crop.circle") }.tag(MBTab.account)
+            if isTablet {
+                SettingsView(preferences: preferences, network: networkSettings, plugins: plugins, skin: skin, embedded: true)
+                    .safeAreaInset(edge: .bottom, spacing: 0) { legacyMiniPlayer(for: .settings) }
+                    .tabItem { Label("设置", systemImage: "gearshape") }.tag(MBTab.settings)
+            }
         }
+    }
+
+    private var isTablet: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .pad
+        #else
+        false
+        #endif
+    }
+
+    private var tabletNavigation: some View {
+        HStack(spacing: 4) {
+            tabletTab("发现", tab: .discover)
+            tabletTab("搜索", tab: .search)
+            tabletTab("资料库", tab: .library)
+            tabletTab("我的", tab: .account)
+            tabletTab("设置", tab: .settings)
+            Button(action: togglePlaybackMode) {
+                Label(LocalizedStringKey(video.mode == .music ? "听歌模式" : "视频模式"), systemImage: video.mode == .music ? "music.note" : "play.rectangle")
+                    .font(.subheadline.weight(.medium)).padding(.horizontal, 12).frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityIdentifier("tablet-playback-mode")
+                .accessibilityLabel("切换播放模式").accessibilityValue(LocalizedStringKey(video.mode == .music ? "听歌模式" : "视频模式"))
+        }.padding(.horizontal, 12).padding(.vertical, 4)
+            .frame(maxWidth: .infinity)
+            .modifier(SkinSurface(defaultColor: MBTheme.background))
+    }
+
+    private func tabletTab(_ title: LocalizedStringKey, tab: MBTab) -> some View {
+        Button { selectedTab = tab } label: {
+            Text(title).font(.subheadline.weight(.semibold)).padding(.horizontal, 14).frame(minHeight: 44)
+                .background(selectedTab == tab ? skinAccent.opacity(0.12) : .clear, in: Capsule())
+                .foregroundStyle(selectedTab == tab ? skinAccent : .primary)
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityIdentifier("tablet-tab-" + tab.rawValue)
+            .accessibilityAddTraits(selectedTab == tab ? [.isSelected] : [])
     }
 
     @ViewBuilder private var tabsWithPlayer: some View {
@@ -170,8 +211,12 @@ public struct MBRootView: View {
     private var tabs: some View {
         tabsWithPlayer
             #if os(iOS)
+            .toolbar(isTablet ? .hidden : .automatic, for: .tabBar)
             .statusBarHidden(video.isVisible && video.aspectRatio < 1)
             #endif
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if isTablet && !video.isVisible { tabletNavigation }
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if skin.preview != nil { BackgroundPreviewControls(skin: skin) {
                     let style = skin.previewStyle
@@ -192,9 +237,9 @@ public struct MBRootView: View {
                 showingPlayer = false
             }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
             .sheet(isPresented: $showingQueue) { QueueView(playback: playback) }
-            .sheet(isPresented: $showingService) { ShanhaiServiceView(model: platformData, preferences: preferences, plugins: plugins, accounts: verifiedProfileAccount.map { [selectedSourceID: $0.name] } ?? [:], names: sourceDisplayNames, providers: discoveryProviders) { id in
+            .sheet(isPresented: $showingService) { ShanhaiServiceView(model: platformData, preferences: preferences, plugins: plugins, downloads: downloads, library: localLibrary, playback: playback, accounts: verifiedProfileAccount.map { [selectedSourceID: $0.name] } ?? [:], names: sourceDisplayNames, providers: discoveryProviders) { id in
                 showingService = false; switchSource(id); selectedTab = .account
-            }.id(plugins.revision) }
+            } }
             .sheet(isPresented: $showingAppSettings) { SettingsView(preferences: preferences, network: networkSettings, plugins: plugins, skin: skin) }
             .sheet(item: $resourceDetail) { track in
                 NavigationStack { ResourceDetailView(track: track, library: localLibrary)
@@ -503,7 +548,7 @@ public struct MBRootView: View {
 
     private var usesSidebar: Bool {
         #if os(iOS)
-        UIDevice.current.userInterfaceIdiom == .pad && sizeClass == .regular
+        false
         #else
         sizeClass == .regular
         #endif
@@ -639,17 +684,21 @@ public struct MBRootView: View {
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        if selectedTab != .search {
+        if selectedTab != .search && !isTablet {
         ToolbarItem(placement: .primaryAction) {
             Button {
-                let next: PlaybackMode = video.mode == .music ? .video : .music
-                chooseMode(next)
-                modeNotice = next == .music ? "听歌模式" : "视频模式"; modeNoticeID = UUID()
+                togglePlaybackMode()
             } label: {
                 Label(LocalizedStringKey(video.mode == .music ? "听歌模式" : "视频模式"), systemImage: video.mode == .music ? "music.note" : "play.rectangle")
             }.buttonStyle(.plain).accessibilityLabel("切换播放模式").accessibilityValue(LocalizedStringKey(video.mode == .music ? "听歌模式" : "视频模式"))
         }.discoveryBackground
         }
+    }
+
+    private func togglePlaybackMode() {
+        let next: PlaybackMode = video.mode == .music ? .video : .music
+        chooseMode(next)
+        modeNotice = next == .music ? "听歌模式" : "视频模式"; modeNoticeID = UUID()
     }
 
     @ViewBuilder private var searchResults: some View {

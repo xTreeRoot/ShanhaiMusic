@@ -5,9 +5,13 @@ struct NodeDeviceSettingsView: View {
     let model: PlatformDataModel
     let preferences: PreferencesModel
     let plugins: PluginModel
+    let downloads: DownloadModel
+    let library: LocalLibraryModel
+    let playback: PlaybackModel
     let names: [String: String]
     let accounts: [String: String]
     let openAccount: (String) -> Void
+    @State private var showingRestore = false
     @State private var devices: [SettingsDevice] = []
     @State private var selected: String?
     @State private var preview: NodeDeviceSettings?
@@ -62,12 +66,19 @@ struct NodeDeviceSettingsView: View {
     var body: some View {
         Section {
             Button("备份本机") { work = .backup }
-            ForEach(devices.filter { $0.updated_at > 0 }) { item in
+            Button("从其他机器恢复") { showingRestore.toggle(); if showingRestore { work = .refresh } }
+                .accessibilityIdentifier("restore-other-device")
+            if showingRestore && !devices.contains(where: { !$0.current && $0.updated_at > 0 }) {
+                Text("暂无其他机器的备份，请先在原机器点“备份本机”。").foregroundStyle(.secondary)
+            }
+            ForEach(devices.filter { showingRestore && !$0.current && $0.updated_at > 0 }) { item in
                 Button(item.name + " · " + item.key.suffix(6) + " · " + Date(timeIntervalSince1970: TimeInterval(item.updated_at)).formatted(date: .numeric, time: .shortened)) {
                     if selected == item.id { selected = nil; preview = nil }
                     else { work = .preview(item.id) }
                 }
                 if selected == item.id, let preview {
+                    if let backup = preview.backup { Text("完整备份 · \(backup.plugins) 个插件").foregroundStyle(.secondary) }
+                    else { Text("旧备份 · 仅设置").foregroundStyle(.secondary) }
                     settingGroup("App 设置", values: preview.app, plugin: nil)
                     ForEach(preview.plugins.keys.sorted(), id: \.self) { id in
                         settingGroup((names[id] ?? id) + " · 插件设置", values: preview.plugins[id] ?? [:], plugin: id)
@@ -78,7 +89,7 @@ struct NodeDeviceSettingsView: View {
                             if plugins.sources[id] != nil { Button("打开账号") { openAccount(id) }.buttonStyle(.borderless) }
                         }
                     }
-                    Button("恢复这些设置") { work = .apply }
+                    Button(preview.backup == nil ? "恢复这些设置" : "恢复到本机") { work = .apply }
                 }
             }
             if work != nil { ProgressView() }
@@ -93,11 +104,10 @@ struct NodeDeviceSettingsView: View {
             defer { work = nil }
             do {
                 message = nil
-                var operation = action
+                let operation = action
                 if action == .initial {
                     devices = try await model.settingsDevices()
-                    guard preferences.isRestored, devices.contains(where: { $0.current && $0.updated_at == 0 }) else { return }
-                    operation = .backup
+                    return
                 }
                 switch operation {
                 case .initial: return
@@ -107,25 +117,17 @@ struct NodeDeviceSettingsView: View {
                     try Task.checkCancellation()
                     selected = id; preview = doc
                 case .backup:
-                    var doc = NodeDeviceSettings()
-                    doc.app = preferences.values.deviceSettings; doc.accounts = accounts
-                    for plugin in plugins.installed {
-                        if let source = plugins.sources[plugin.id], let profile = try? await source.account() {
-                            doc.accounts[plugin.id] = profile.name
-                        }
-                        let local = try await plugins.settings(for: plugin)
-                        var settings: [String: String] = [:]
-                        for field in plugin.manifest.settings ?? [] {
-                            if let v = local[field.key], field.acceptsPortableValue(v) { settings[field.key] = v }
-                        }
-                        if !settings.isEmpty { doc.plugins[plugin.id] = settings }
-                    }
-                    try await model.saveDeviceSettings(doc)
-                    selected = nil; preview = nil; message = "已备份本机设置"
+                    try await model.backupCurrentDevice(preferences: preferences, plugins: plugins, downloads: downloads, library: library, accounts: accounts)
+                    selected = nil; preview = nil; message = "已备份本机，包含插件和插件信息"
                     do { devices = try await model.settingsDevices() }
-                    catch { message = "已备份本机设置 · 刷新失败" }
+                    catch { message = "本机已备份 · 刷新失败" }
                 case .apply:
                     guard let doc = preview else { return }
+                    if preview?.backup != nil, let selected {
+                        try await model.restoreCurrentDevice(key: selected, settings: doc, preferences: preferences, plugins: plugins, downloads: downloads, library: library, playback: playback)
+                        message = "已从其他机器恢复本机"
+                        return
+                    }
                     var applied = 0
                     for plugin in plugins.installed {
                         guard let incoming = doc.plugins[plugin.id] else { continue }

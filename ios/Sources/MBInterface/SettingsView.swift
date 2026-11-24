@@ -6,6 +6,7 @@ struct SettingsView: View {
     let network: NetworkSettingsModel
     let plugins: PluginModel
     let skin: BackgroundSkin
+    var embedded = false
     @Environment(\.dismiss) private var dismiss
     @State private var clearingHistory = false
     @Environment(\.colorScheme) private var scheme
@@ -83,9 +84,10 @@ struct SettingsView: View {
 
                 }.modifier(SkinRow())
             }
+            .accessibilityIdentifier("app-settings-form")
             .modifier(SkinSurface(defaultColor: MBTheme.grouped, list: true))
             .navigationTitle("")
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.accessibilityIdentifier("dismiss-settings") } }
+            .toolbar { if !embedded { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.accessibilityIdentifier("dismiss-settings") } } }
             .confirmationDialog("清空搜索记录？", isPresented: $clearingHistory, titleVisibility: .visible) {
                 Button("清空搜索记录", role: .destructive) { preferences.values.searchHistory = [] }
             }

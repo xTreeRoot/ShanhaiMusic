@@ -28,7 +28,7 @@ public enum PluginPreparation: Equatable {
     public private(set) var starsBusy = false
     public private(set) var starsStatus: String?
     public private(set) var starsFinished = false
-    @ObservationIgnored private let installer: PluginInstaller
+    @ObservationIgnored let installer: PluginInstaller
     @ObservationIgnored private let githubPreparation: (PluginInstaller, String) async throws -> PendingPlugin
     @ObservationIgnored private let starsRepositories: (String) async throws -> [String]
     private var installing = false
@@ -288,5 +288,13 @@ public enum PluginPreparation: Equatable {
         try LegacyPluginStorage.migrate(plugin)
         let settings = try await installer.settings(for: plugin)
         return PluginSource(manifest: plugin.manifest, runtime: try PluginRuntime(directory: plugin.directory, dataDirectory: plugin.dataDirectory, manifest: plugin.manifest, settings: settings, webSignIn: { [ui] request in try await ui.show(request) }, oauthSignIn: { [ui] request in try await ui.authorize(request) }, openURL: { [ui] url, title in await ui.open(url, title: title) }))
+    }
+}
+
+extension PluginModel {
+    func reloadRestoredDevicePlugins() async throws {
+        sources = [:]
+        await restore()
+        if let errorMessage { throw PluginFailure.invalid(errorMessage) }
     }
 }
