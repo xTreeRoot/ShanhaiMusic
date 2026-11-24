@@ -116,7 +116,7 @@ class PluginCatalogPagerTest {
         assertTrue(pager.state.value.appendRetry)
         assertEquals("offline", pager.state.value.error)
         pager.load(append = true) { offset -> assertEquals(3, offset); second }
-        assertEquals(first.sections + second.sections, pager.state.value.page?.sections)
+        assertEquals(first.sections, pager.state.value.page?.sections)
         assertNull(pager.state.value.error)
         assertFalse(pager.state.value.appendRetry)
     }
@@ -151,9 +151,38 @@ class PluginCatalogPagerTest {
         assertEquals(rest, pager.state.value.page?.nextPage)
         assertNull(pager.state.value.page?.sections?.single()?.more)
         pager.load(true) { offset -> assertEquals(0, offset); response(listOf(first, second), rest).continuing(rest) }
-        assertEquals(listOf(first, second), pager.state.value.page?.sections?.flatMap { it.tracks })
+        assertEquals(listOf(first, second), pager.state.value.page?.sections?.single()?.tracks)
         assertNull(pager.state.value.page?.nextPage)
         pager.load(true) { throw AssertionError("A self-route must not load again") }
+    }
+
+    @Test fun offsetPagesKeepOneHeadingAndContinueFromTwentyToTwentyOne() = runBlocking {
+        val pager = PluginCatalogPager()
+        val tracks = (1..23).map { Track("fixture", "$it", "作品 $it", "", durationMs = 1000) }
+        fun response(batch: List<Track>, next: Int?, title: String = "视频") = page(title, next).let { value ->
+            value.copy(sections = listOf(value.sections.single().copy(tracks = batch)))
+        }
+        pager.load { response(tracks.take(20), 20) }
+        pager.load(true) { offset -> assertEquals(20, offset); response(tracks.subList(19, 22), 23) }
+        assertEquals("21", pager.state.value.page?.sections?.single()?.tracks?.get(20)?.sourceTrackId)
+        pager.load(true) { offset -> assertEquals(23, offset); response(tracks.takeLast(2), 25, "第三页") }
+        pager.load(true) { offset -> assertEquals(25, offset); response(tracks.takeLast(2), 27) }
+        assertEquals("视频", pager.state.value.page?.sections?.single()?.title)
+        assertEquals(tracks, pager.state.value.page?.sections?.single()?.tracks)
+        assertNull(pager.state.value.page?.nextOffset)
+    }
+
+    @Test fun offsetPagesKeepDifferentGroupsEvenWhenTheirHeadingsOrTracksMatch() = runBlocking {
+        val pager = PluginCatalogPager()
+        val first = Track("fixture", "one", "First", "", durationMs = 1000)
+        val second = first.copy(sourceTrackId = "two", title = "Second")
+        val original = page("Videos", 1)
+        val section = original.sections.single().copy(tracks = listOf(first))
+        val artists = section.copy(title = "Artists", tracks = emptyList())
+        val grid = section.copy(videos = true)
+        pager.load { original.copy(sections = listOf(section, artists)) }
+        pager.load(true) { original.copy(sections = listOf(grid, section.copy(tracks = listOf(first, second))), nextOffset = null) }
+        assertEquals(listOf(section.copy(tracks = listOf(first, second)), artists, grid), pager.state.value.page?.sections)
     }
 
     private fun page(title: String, next: Int?) = PluginCatalogPage("Catalog", "", "", listOf(

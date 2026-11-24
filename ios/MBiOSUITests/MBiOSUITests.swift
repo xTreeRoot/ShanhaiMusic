@@ -2064,6 +2064,31 @@ extension MBiOSUITests {
 }
 
 extension MBiOSUITests {
+    @MainActor func testPluginCatalogPaginationKeepsOneListAndContinuousTrackNumbers() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--plugin-demo", "--catalog-pagination-fixture", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        selectTab("设置", app: app); app.buttons["settings-plugins"].tap()
+        XCTAssertTrue(app.buttons["安装"].waitForExistence(timeout: 8)); app.buttons["安装"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "示例插件")).firstMatch.waitForExistence(timeout: 8))
+        selectTab("发现", app: app); app.buttons["source-tab-fixture"].tap()
+        let more = app.buttons["查看更多示例曲目"]
+        XCTAssertTrue(more.waitForExistence(timeout: 8)); more.tap()
+        XCTAssertTrue(app.staticTexts["分页作品"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["catalog-track-0-1"].exists)
+        let numberTwentyOne = app.buttons["catalog-track-0-21"]
+        for _ in 0..<8 {
+            if numberTwentyOne.exists && numberTwentyOne.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(numberTwentyOne.isHittable)
+        XCTAssertEqual(numberTwentyOne.label, "播放 《无名的人》致所有顶天立地却平凡普通")
+        XCTAssertLessThanOrEqual(app.staticTexts.matching(identifier: "分页作品").count, 1)
+        capture("插件分页-第21条连续编号", app: app)
+    }
+
     @MainActor func testPluginFilterTabsChangeContentInPlaceAndRefreshSelectedFilter() {
         continueAfterFailure = false
         let app = XCUIApplication()

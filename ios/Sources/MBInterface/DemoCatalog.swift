@@ -124,13 +124,27 @@ enum DemoCatalog {
         let shelfFixture = ProcessInfo.processInfo.arguments.contains("--shelf-layout-fixture")
         if shelfFixture { manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","discovery":[{"id":"small","title":"少量资源","page":"shelf"},{"id":"people","title":"我的关注","page":"people"}]}"# }
         try manifest.write(to: folder.appendingPathComponent("plugin.json"), atomically: true, encoding: .utf8)
-        let refreshScript = "const filterFixture = \(filterFixture);" + (refreshFixture ? "const refreshFixture = true;" : "const refreshFixture = false;")
+        let paginationFixture = ProcessInfo.processInfo.arguments.contains("--catalog-pagination-fixture")
+        let refreshScript = "const filterFixture = \(filterFixture), refreshFixture = \(refreshFixture), paginationFixture = \(paginationFixture);"
         let script = refreshScript + (includeTrackProblems ? "const extraTracks = [{id:'vip',name:'会员示例曲目',unavailableReason:'vip'}, {id:'missing',name:'无音源示例曲目'}];\n" : "const extraTracks = [];\n") + #"""
         let listName='示例歌单', listTracks=[], homeCalls=0, extraCalls=0, savedHome, savedExtra;
         const track = {id:'sample',name:'插件示例歌曲',artists:[{id:'artist',name:'示例作者'}],album:{},duration:180000};
         const tabs=[{title:'全部',page:'all'},{title:'音乐',page:'music'},{title:'游戏',page:'games'}];
         export function home({refresh}={}){if(filterFixture)return {tabs,selectedTab:'all',sections:[{title:'推荐',tracks:[{...track,name:'全部内容'}]}]};if(refreshFixture){if(!savedHome||refresh)savedHome={sections:[{title:'刷新首页',tracks:[{...track,name:'首页第'+(++homeCalls)+'次'}]}]};return savedHome;} return {title:'示例插件首页',sections:[{title:'示例曲目',tracks:[track,...extraTracks],links:[{title:'更多示例',page:'more'}],albums:[{id:'al',name:'示例专辑'}],artists:[{id:'ar',name:'示例作者'}],playlists:[{id:'pl',name:listName,mine:true}],shows:[{id:'sh',name:'示例播客'}],stations:[{id:'st',name:'示例电台'}]}]};}
-        export function browse({page,offset=0,refresh}){if(['one','two','three'].includes(page))return {sections:[{tracks:Array.from({length:6},(_,i)=>({...track,id:page+i,name:page+'资源'+i}))}]};if(filterFixture)return {tabs,selectedTab:page,sections:[{title:page,tracks:[{...track,id:page+offset,name:page+'内容第'+(++extraCalls)+'次'}]}],more:offset===0};if(refreshFixture){if(!savedExtra||refresh)savedExtra={sections:[{tracks:[{...track,name:'栏目第'+(++extraCalls)+'次'}]}]};return savedExtra;} return {title:page==='duplicate'?'相同导航完整内容':'示例分页',sections:[{title:'分页曲目',tracks:[track]}]};}
+        export function browse({page,offset=0,refresh}) {
+          if (paginationFixture && (page === 'duplicate' || page === 'duplicate:2')) {
+            const first = page === 'duplicate';
+            const tracks = Array.from({length:first?20:7}, (_,i) => {
+              const number = i + (first ? 1 : 20);
+              return {...track,id:'work-'+number,name:number===21?'《无名的人》致所有顶天立地却平凡普通':'分页作品 '+number};
+            });
+            return {title:'示例分页',sections:[{title:'分页作品',tracks,morePage:first?'duplicate:2':undefined}]};
+          }
+          if(['one','two','three'].includes(page))return {sections:[{tracks:Array.from({length:6},(_,i)=>({...track,id:page+i,name:page+'资源'+i}))}]};
+          if(filterFixture)return {tabs,selectedTab:page,sections:[{title:page,tracks:[{...track,id:page+offset,name:page+'内容第'+(++extraCalls)+'次'}]}],more:offset===0};
+          if(refreshFixture){if(!savedExtra||refresh)savedExtra={sections:[{tracks:[{...track,name:'栏目第'+(++extraCalls)+'次'}]}]};return savedExtra;}
+          return {title:page==='duplicate'?'相同导航完整内容':'示例分页',sections:[{title:'分页曲目',tracks:[track]}]};
+        }
         export function search({query,kind}){return {tracks:kind==='tracks'?[{...track,name:query+' · 插件结果'}]:[],albums:kind==='albums'?[{id:'al',name:'示例专辑'}]:[],artists:kind==='artists'?[{id:'ar',name:'示例作者'}]:[],playlists:kind==='playlists'?[{id:'pl',name:listName,mine:true}]:[],shows:kind==='shows'?[{id:'sh',name:'示例播客'}]:[],more:false};}
         export function searchVideos({query,offset}){return offset===0?{tracks:[{...track,id:'sample-video',name:query+' · 视频结果'},{}],more:true}:offset===2?{tracks:[{...track,id:'sample-video-next',name:query+' · 更多视频'}],more:false}:{tracks:[],more:false};}
         export function album(){return {album:{id:'al',name:'示例专辑',description:'专辑详情 · 演示数据'},tracks:[track]};}

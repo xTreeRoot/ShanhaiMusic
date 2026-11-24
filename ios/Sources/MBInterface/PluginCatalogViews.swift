@@ -118,7 +118,9 @@ struct PluginCatalogPage: View {
                             } else {
                             ForEach(Array(section.tracks.enumerated()), id: \.offset) { index, track in
                                 HStack {
-                                    Button { play(section.tracks, index: index) } label: { TrackRow(track: track) }.buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
+                                    Button { play(section.tracks, index: index) } label: { TrackRow(track: track, position: index + 1) }
+                                        .buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
+                                        .accessibilityIdentifier("catalog-track-\(section.id)-\(index + 1)")
                                         .modifier(TrackProblemAccessibility(track: track))
                                     Menu { menu(track); playlistTrackActions(track, index: index) } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("曲目操作 \(track.title)")
                                 }.contextMenu { menu(track); playlistTrackActions(track, index: index) }

@@ -200,12 +200,12 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                 if (section.title.isNotBlank()) item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(section.title, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium)
                 }
-                section.tracks.forEach { track ->
+                section.tracks.forEachIndexed { position, track ->
                     val index = trackIndex++
                     val playSection = { select(if (entity != null) tracks else section.tracks, track) }
                     if (section.videos || videoMode && entity?.editable != true) item { VideoCoverCard(track, playSection) }
                     else item(span = { GridItemSpan(maxLineSpan) }) {
-                        TrackRow(track, actions = {
+                        TrackRow(track, rank = position + 1, actions = {
                             if (entity?.editable == true && ("removeFromPlaylist" in capabilities || "movePlaylistTrack" in capabilities && index > 0)) {
                                 PluginPlaylistTrackMenu(track, changing,
                                     remove = if ("removeFromPlaylist" in capabilities) ({
@@ -261,7 +261,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
             Text(error, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
         } }
         if (!status.busy && status.error == null && (page?.nextOffset != null || page?.nextPage != null)) item(span = { GridItemSpan(maxLineSpan) }) {
-            PaginationTrigger(checkNotNull(page).nextPage ?: checkNotNull(page.nextOffset), enabled = !changing) { scope.launch { load(append = true) } }
+            PaginationTrigger(checkNotNull(page).let { it.nextPage to it.nextOffset }, enabled = !changing) { scope.launch { load(append = true) } }
         }
         if (!status.busy && status.error == null && page != null && page.sections.none { it.hasContent } && links.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { EmptyMessage(mb("暂无内容", "No content")) }

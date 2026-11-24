@@ -281,7 +281,7 @@ public struct PluginBrowse: Sendable {
         public init(page: String, offset: Int) { self.page = page; self.offset = offset }
     }
     public struct Link: Identifiable, Sendable { public let title: String; public let subtitle: String; public let page: String; public var imageURL: URL? = nil; public var artworkHeaders: [String: String] = [:]; public var id: String { page } }
-    public struct Section: Identifiable, Sendable { public let id: String; public var entities: [PluginEntity] = []; public var empty = ""; public var trackLayout = ""; public let title: String; public let tracks: [Track]; public let links: [Link]; public var morePage: String?; public var moreCollection: String? = nil }
+    public struct Section: Identifiable, Sendable { public let id: String; public var entities: [PluginEntity] = []; public var empty = ""; public var trackLayout = ""; public let title: String; public internal(set) var tracks: [Track]; public internal(set) var links: [Link]; public var morePage: String?; public var moreCollection: String? = nil }
     public let title: String
     public var subtitle = ""
     public var description = ""
@@ -296,15 +296,29 @@ public extension PluginBrowse {
     /// 旧式续页可能重复首屏摘要，按资源身份追加，保持原顺序和图片上下文。
     func appending(_ page: Self, offset: Int) -> Self {
         var result = self
-        var tracks = Set(sections.flatMap(\.tracks).map(\.id))
-        var entities = Set(sections.flatMap(\.entities).map(\.id))
-        var links = Set(sections.flatMap(\.links).map(\.id))
-        result.sections += page.sections.enumerated().map { index, section in
-            Section(id: "\(offset)-\(index)", entities: section.entities.filter { entities.insert($0.id).inserted },
-                    empty: section.empty, trackLayout: section.trackLayout, title: section.title,
-                    tracks: section.tracks.filter { tracks.insert($0.id).inserted },
-                    links: section.links.filter { links.insert($0.id).inserted }, morePage: section.morePage,
-                    moreCollection: section.moreCollection)
+        for (index, incoming) in page.sections.enumerated() {
+            let matches: (Section) -> Bool = { $0.title == incoming.title && $0.trackLayout == incoming.trackLayout }
+            let match: Int?
+            if sections.count == 1 && page.sections.count == 1 { match = 0 }
+            else if sections.indices.contains(index), matches(sections[index]) { match = index }
+            else {
+                let candidates = sections.indices.filter { matches(sections[$0]) }
+                match = candidates.count == 1 && page.sections.filter(matches).count == 1 ? candidates.first : nil
+            }
+            if let match {
+                let existing = result.sections[match]
+                var tracks = Set(existing.tracks.map(\.id))
+                var entities = Set(existing.entities.map(\.id))
+                var links = Set(existing.links.map(\.id))
+                result.sections[match].tracks += incoming.tracks.filter { tracks.insert($0.id).inserted }
+                result.sections[match].entities += incoming.entities.filter { entities.insert($0.id).inserted }
+                result.sections[match].links += incoming.links.filter { links.insert($0.id).inserted }
+            } else {
+                result.sections.append(Section(id: "\(offset)-\(index)", entities: incoming.entities,
+                    empty: incoming.empty, trackLayout: incoming.trackLayout, title: incoming.title,
+                    tracks: incoming.tracks, links: incoming.links, morePage: incoming.morePage,
+                    moreCollection: incoming.moreCollection))
+            }
         }
         return result
     }

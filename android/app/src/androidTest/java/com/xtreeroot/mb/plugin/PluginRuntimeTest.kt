@@ -59,11 +59,14 @@ class PluginRuntimeTest {
             val page = source.catalog.discoveryHome(plugin, doc, refresh = true)
             assertEquals(listOf("Three", "One"), page.sections.map { it.title })
             assertEquals(listOf("three", "one"), page.sections.flatMap { it.tracks }.map { it.sourceTrackId })
-            assertEquals("next:three", (page.sections[0].more?.destination as PluginCatalogRequest.Browse).page)
+            val destination = page.sections[0].more?.destination as PluginCatalogRequest.Browse
+            assertEquals("three", destination.page)
             val disabled = draft.copy(enabled = draft.enabled.mapValues { false })
             val off = doc.edited(plugin.id, draft, disabled, PluginPreferences.newWriter())
             assertTrue(source.catalog.discoveryHome(plugin, off, refresh = true).sections.isEmpty())
             assertEquals("[\"three\",\"one\"]", runtime.invoke("probe").toString())
+            val opened = source.catalog.load(destination, refresh = true)
+            assertEquals("next:three", (opened.nextPage as PluginCatalogRequest.Browse).page)
         }
     }
 

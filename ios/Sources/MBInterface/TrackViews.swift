@@ -135,10 +135,15 @@ struct TrackRow: View {
     @Environment(\.stationPlayback) private var playback
     let track: Track
     var selected = false
+    var position: Int? = nil
 
     var body: some View {
         let problem = playback?.trackProblem(for: track) ?? track.declaredProblem
         HStack(spacing: 14) {
+            if let position {
+                Text(position.formatted()).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .frame(minWidth: 24, alignment: .trailing)
+            }
             ArtworkView(track: track)
             VStack(alignment: .leading, spacing: 5) {
                 Text(track.title).font(.body.weight(.medium)).lineLimit(2)

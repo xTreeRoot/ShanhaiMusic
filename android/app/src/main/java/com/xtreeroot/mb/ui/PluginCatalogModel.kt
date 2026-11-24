@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.xtreeroot.mb.plugin.PluginCatalogPage
 import com.xtreeroot.mb.plugin.PluginCatalogRequest
+import com.xtreeroot.mb.plugin.PluginCatalogSection
 import com.xtreeroot.mb.plugin.PluginSearchKind
 import com.xtreeroot.mb.plugin.PluginSource
 import com.xtreeroot.mb.plugin.discoveryHome
@@ -121,8 +122,8 @@ internal class PluginCatalogPager {
             if (next.nextPage?.page?.let { it to (next.nextOffset ?: 0) } in visitedPages) next = next.copy(nextPage = null, nextOffset = null)
             val page = previous.page?.takeIf { append }?.let { existing ->
                 val combined = appendCatalogSections(existing.sections, next.sections)
-                val duplicated = next.sections.any { it.tracks.isNotEmpty() || it.entities.isNotEmpty() || it.links.isNotEmpty() } &&
-                    combined.drop(existing.sections.size).none { it.tracks.isNotEmpty() || it.entities.isNotEmpty() || it.links.isNotEmpty() }
+                val duplicated = next.sections.sumOf { it.itemCount } > 0 &&
+                    combined.sumOf { it.itemCount } == existing.sections.sumOf { it.itemCount }
                 existing.copy(sections = combined, nextOffset = next.nextOffset.takeUnless { duplicated }, nextPage = next.nextPage.takeUnless { duplicated })
             } ?: next
             mutable.value = PluginCatalogStatus(page.copy(nextOffset = page.nextOffset?.takeIf { it > offset }), needsReload = false, revision = ticket)
@@ -136,11 +137,27 @@ internal class PluginCatalogPager {
     }
 }
 
-/** 旧 morePage 可能包含首屏摘要，按真实资源标识去重后原地追加。 */
-private fun appendCatalogSections(existing: List<com.xtreeroot.mb.plugin.PluginCatalogSection>, next: List<com.xtreeroot.mb.plugin.PluginCatalogSection>): List<com.xtreeroot.mb.plugin.PluginCatalogSection> {
-    val tracks = existing.flatMap { it.tracks }.mapTo(mutableSetOf()) { it.id }
-    val entities = existing.flatMap { it.entities }.mapTo(mutableSetOf()) { it.kind to it.id }
-    val links = existing.flatMap { it.links }.mapTo(mutableSetOf()) { it.destination }
-    return existing + next.map { section -> section.copy(tracks = section.tracks.filter { tracks.add(it.id) },
-        entities = section.entities.filter { entities.add(it.kind to it.id) }, links = section.links.filter { links.add(it.destination) }) }
+private val PluginCatalogSection.itemCount get() = tracks.size + entities.size + links.size
+
+private fun appendCatalogSections(existing: List<PluginCatalogSection>, next: List<PluginCatalogSection>): List<PluginCatalogSection> = buildList {
+    addAll(existing)
+    next.forEachIndexed { index, incoming ->
+        val matches: (PluginCatalogSection) -> Boolean = { it.title == incoming.title && it.videos == incoming.videos }
+        val match = when {
+            existing.size == 1 && next.size == 1 -> 0
+            existing.getOrNull(index)?.let(matches) == true -> index
+            next.count(matches) == 1 -> existing.indices.singleOrNull { matches(existing[it]) }
+            else -> null
+        }
+        if (match == null) add(incoming)
+        else {
+            val section = get(match)
+            val tracks = section.tracks.mapTo(mutableSetOf()) { it.id }
+            val entities = section.entities.mapTo(mutableSetOf()) { it.kind to it.id }
+            val links = section.links.mapTo(mutableSetOf()) { it.destination }
+            set(match, section.copy(tracks = section.tracks + incoming.tracks.filter { tracks.add(it.id) },
+                entities = section.entities + incoming.entities.filter { entities.add(it.kind to it.id) },
+                links = section.links + incoming.links.filter { links.add(it.destination) }))
+        }
+    }
 }

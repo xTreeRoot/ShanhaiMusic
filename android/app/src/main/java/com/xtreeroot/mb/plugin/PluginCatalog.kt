@@ -186,7 +186,7 @@ internal class PluginCatalog(
     private suspend fun page(value: JSONObject, fallbackTitle: String, offset: Int = 0): PluginCatalogPage = PluginCatalogPage(
         value.text("title") ?: fallbackTitle, value.text("subtitle").orEmpty(), value.text("description").orEmpty(),
         value.list("sections").objects().map { section(it) },
-        value.catalogNextOffset(offset, value.list("sections").objects().sumOf { row -> row.list("tracks").length() + PluginEntityKind.entries.sumOf { row.list(it.key).length() } }),
+        value.catalogNextOffset(offset, value.list("sections").objects().sumOf { row -> row.list("tracks").length() + row.list("links").length() + PluginEntityKind.entries.sumOf { row.list(it.key).length() } }),
         tabs = value.list("tabs").objects().take(32).mapNotNull { tab ->
             val title = tab.text("title") ?: return@mapNotNull null
             val page = tab.text("page") ?: return@mapNotNull null
@@ -235,6 +235,8 @@ internal fun PluginCatalogPage.continuing(request: PluginCatalogRequest.Browse):
     val result = copy(nextPage = request.takeIf { nextOffset != null })
     val section = sections.singleOrNull() ?: return result
     val destination = section.more?.destination as? PluginCatalogRequest.Browse
-    val next = if (nextOffset != null) request else destination?.takeUnless { it.page == request.page }
+    val next = result.nextPage ?: destination?.takeIf {
+        it.page != request.page && (section.tracks.isNotEmpty() || section.entities.isNotEmpty() || section.links.isNotEmpty())
+    }
     return result.copy(sections = listOf(section.copy(more = null)), nextPage = next)
 }
