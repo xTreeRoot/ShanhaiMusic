@@ -40,6 +40,13 @@ func (a *app) edgeDevicesView(c *ui.Context, p palette) {
 		if panel.devicesError != "" {
 			ui.Text(c, panel.devicesError).TextColor(p.muted)
 		}
+		ui.Row(c.Key("device-name")).AlignItems(ui.Center).Gap(6).Children(func() {
+			ui.TextInput(c.Key("name"), &panel.deviceName).Label(T("Device name")).Grow(1).Disabled(panel.busy)
+			ui.Button(c.Key("save-name"), T("Save name")).Disabled(panel.busy).OnClick(func() {
+				name, ctx := panel.deviceName, panel.profileContext
+				a.runEdge("Saving device name…", func(s *edge.Sync) error { return s.RenameDevice(ctx, name) }, func() { panel.message = T("Device name saved") })
+			})
+		})
 		available := 0
 		for _, dev := range panel.devices {
 			if !panel.restoreDevices || dev.Current || dev.Updated == 0 {
@@ -62,6 +69,7 @@ func (a *app) edgeDevicesView(c *ui.Context, p palette) {
 				}, func() {
 					panel.previewKey = dev.Key
 					panel.preview = &snapshot
+					panel.backupPlugins, panel.pluginsLoaded, panel.confirmPlugin = nil, false, ""
 					panel.settingsGroup = ""
 					panel.message = ""
 				})
@@ -69,6 +77,24 @@ func (a *app) edgeDevicesView(c *ui.Context, p palette) {
 			if doc := panel.preview; doc != nil && panel.previewKey == dev.Key {
 				if doc.Backup != nil {
 					ui.Text(c, Tf("Complete backup · %d plugins", doc.Backup.Plugins)).TextColor(p.muted)
+					ui.Button(c.Key("plugin-choices"), T("Choose plugin information to restore")).Disabled(panel.busy).OnClick(a.loadBackupPluginChoices)
+					if panel.pluginsLoaded && len(panel.backupPlugins) == 0 {
+						ui.Text(c, T("No plugins in this backup")).TextColor(p.muted)
+					}
+					for _, record := range panel.backupPlugins {
+						name := record.Name
+						if name == "" {
+							name = a.settingsSourceName(record.ID)
+						}
+						ui.Button(c.Key("choose-"+record.ID), name+" · "+T("Restore plugin information")).Disabled(panel.busy).OnClick(func() { panel.confirmPlugin = record.ID })
+						if panel.confirmPlugin == record.ID {
+							ui.Text(c, Tf("Replace %s settings and sign-in data from %s?", name, dev.Name)).TextColor(p.muted)
+							ui.Row(c.Key("confirm-" + record.ID)).Children(func() {
+								ui.Button(c.Key("confirm"), T("Replace this plugin's information")).Disabled(panel.busy).OnClick(func() { a.restoreBackupPlugin(record.ID) })
+								ui.Button(c.Key("cancel"), T("Cancel")).OnClick(func() { panel.confirmPlugin = "" })
+							})
+						}
+					}
 				} else {
 					ui.Text(c, T("Settings only · legacy backup")).TextColor(p.muted)
 				}

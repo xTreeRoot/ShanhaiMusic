@@ -756,3 +756,25 @@ func TestLoadKeepsToItsFolders(t *testing.T) {
 		}
 	}
 }
+
+func TestRetiredRuntimeCannotRestartOrWriteOverRestoredInformation(t *testing.T) {
+	p := load(t, plain, `export function search(){return {tracks:[]};}`)
+	if _, err := p.Search("", music.SearchTracks, 0); err != nil {
+		t.Fatal(err)
+	}
+	p.RetireForDataRestore()
+	path := filepath.Join(p.data, "settings.json")
+	if err := os.WriteFile(path, []byte(`{"mode":"restored"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetSetting("mode", "stale"); err == nil {
+		t.Fatal("retired runtime wrote stale settings")
+	}
+	if _, err := p.Search("", music.SearchTracks, 0); err == nil {
+		t.Fatal("retired runtime restarted")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != `{"mode":"restored"}` {
+		t.Fatal("restored settings changed")
+	}
+}

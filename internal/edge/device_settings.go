@@ -54,6 +54,22 @@ func (s *Sync) SettingsDevices(ctx context.Context) ([]SettingsDevice, error) {
 	return result.Devices, nil
 }
 
+// RenameDevice updates this grant's visible name without replacing its identity.
+func (s *Sync) RenameDevice(ctx context.Context, name string) error {
+	op, err := s.settingsOperation()
+	if err != nil {
+		return err
+	}
+	body, err := json.Marshal(struct {
+		Name string `json:"name"`
+	}{name})
+	if err != nil {
+		return err
+	}
+	_, _, err = s.client.request(ctx, http.MethodPatch, "/v1/sync/device", op.grant.Token, "", body, 0, 204)
+	return err
+}
+
 func (s *Sync) SaveDeviceSettings(ctx context.Context, doc DeviceSettings) error {
 	op, err := s.settingsOperation()
 	if err != nil {

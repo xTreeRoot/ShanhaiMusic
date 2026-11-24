@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"mygo-music/internal/devicebackup"
 	"mygo-music/internal/edge"
 	"mygo-music/internal/plugin"
 )
@@ -17,6 +18,10 @@ type edgePanel struct {
 	devicesError, previewKey, settingsGroup string
 	restoreDevices                          bool
 	preview                                 *edge.DeviceSettings
+	deviceName                              string
+	backupPlugins                           []devicebackup.Plugin
+	pluginsLoaded                           bool
+	confirmPlugin                           string
 	window                                  *mygo.Window
 	passwordVisible                         bool
 	nodes                                   *edge.Nodes
@@ -69,6 +74,8 @@ func (a *app) activateNode(node *edge.Node) {
 	panel.overview, panel.managedSource, panel.overviewError, panel.overviewStop = nil, "", "", nil
 	panel.devices, panel.devicesError, panel.previewKey, panel.preview = nil, "", "", nil
 	panel.settingsGroup = ""
+	panel.deviceName, panel.confirmPlugin = "", ""
+	panel.backupPlugins, panel.pluginsLoaded = nil, false
 	panel.node = node
 	panel.owner, panel.choices, panel.deleteFor = nil, nil, ""
 	panel.fresh = make(map[*library]edge.Ticket)
@@ -187,6 +194,13 @@ func (a *app) refreshEdgeOverview() {
 			stop()
 			panel.overviewStop = nil
 			panel.devices = devices
+			if panel.deviceName == "" {
+				for _, d := range devices {
+					if d.Current {
+						panel.deviceName = d.Name
+					}
+				}
+			}
 			panel.devicesError = ""
 			if devicesErr != nil {
 				panel.devicesError = edgeError(devicesErr)

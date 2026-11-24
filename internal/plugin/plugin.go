@@ -33,6 +33,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/MoeForge/moejs"
@@ -169,7 +170,9 @@ type Plugin struct {
 	// starting is held while the plugin starts, and by Close, so one start
 	// runs at a time and none outlives a Close. It isn't mu: the module's top
 	// level runs as it starts, and the host functions it calls take mu.
-	starting sync.Mutex
+	starting  sync.Mutex
+	retired   atomic.Bool
+	dataWrite sync.Mutex // serializes retirement with writes to the private directory
 
 	mu       sync.Mutex // guards what follows
 	settings map[string]string
@@ -314,6 +317,11 @@ func readJSON(path string, into any) {
 
 // writeJSON replaces the file whole, so that a crash leaves the last one.
 func (p *Plugin) writeJSON(name string, v any) error {
+	p.dataWrite.Lock()
+	defer p.dataWrite.Unlock()
+	if p.retired.Load() {
+		return errors.New("plugin runtime was replaced")
+	}
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -385,6 +393,14 @@ func (p *Plugin) Close() {
 	}
 }
 
+// RetireForDataRestore prevents late requests from rewriting replaced data.
+func (p *Plugin) RetireForDataRestore() {
+	p.dataWrite.Lock()
+	p.retired.Store(true)
+	p.dataWrite.Unlock()
+	p.Close()
+}
+
 // vm is a running plugin: only its loop's goroutine touches the runtime.
 type vm struct {
 	rt     *moejs.Runtime
@@ -432,11 +448,17 @@ var helperScript = func() *moejs.Script {
 
 // running is the plugin's runtime, started if it isn't.
 func (p *Plugin) running() (*vm, error) {
+	if p.retired.Load() {
+		return nil, errors.New("plugin runtime was replaced")
+	}
 	if v := p.current(); v != nil {
 		return v, nil
 	}
 	p.starting.Lock()
 	defer p.starting.Unlock()
+	if p.retired.Load() {
+		return nil, errors.New("plugin runtime was replaced")
+	}
 	if v := p.current(); v != nil {
 		return v, nil
 	}

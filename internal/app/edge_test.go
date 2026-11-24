@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"mygo-music/internal/devicebackup"
 	"mygo-music/internal/edge"
 	"mygo-music/internal/i18n"
 )
@@ -199,5 +200,47 @@ func TestEdgeRestoreDeviceSettingsKeepsUnsupportedPreferences(t *testing.T) {
 	raw, err := os.ReadFile(a.settings.path)
 	if err != nil || json.Unmarshal(raw, &persisted) != nil || persisted.Quality != "lossless" {
 		t.Fatal("restored quality was not persisted")
+	}
+}
+
+func TestDeviceNameInputAndSelectedPluginConfirmationCanBeCancelled(t *testing.T) {
+	a := newTestApp()
+	a.edge.deviceName = "本机"
+	a.edge.restoreDevices = true
+	a.edge.devices = []edge.SettingsDevice{{Key: "source", Name: "书房 Mac", Updated: 1}}
+	a.edge.previewKey = "source"
+	a.edge.preview = &edge.DeviceSettings{Version: 1, Backup: &edge.DeviceBackupReference{Plugins: 2}}
+	a.edge.backupPlugins = []devicebackup.Plugin{{ID: "chosen", Name: "示例插件 A"}, {ID: "other", Name: "示例插件 B"}}
+	a.edge.pluginsLoaded = true
+	tt := ui.NewTester(func(c *ui.Context) { a.edgeDevicesView(c, paletteFor(c.Theme())) }, 700, 700)
+	settled(tt)
+	if err := tt.Click(T("Device name")); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type(" 回归")
+	settled(tt)
+	if !strings.Contains(a.edge.deviceName, "回归") {
+		t.Fatal("device name edit was lost across frames")
+	}
+	button := "示例插件 A · " + T("Restore plugin information")
+	if err := tt.Click(button); err != nil {
+		t.Fatal(err)
+	}
+	settled(tt)
+	if a.edge.confirmPlugin != "chosen" {
+		t.Fatal("wrong plugin selected")
+	}
+	if dir := os.Getenv("MM_FRAMES"); dir != "" {
+		saveFrame(t, dir, "desktop-device-plugin-confirmation.png", tt.Image())
+	}
+	if err := tt.Click(T("Cancel")); err != nil {
+		t.Fatal(err)
+	}
+	settled(tt)
+	if a.edge.confirmPlugin != "" || a.edge.busy {
+		t.Fatal("cancel started a restore")
+	}
+	if _, ok := tt.AccessByRole(ui.RoleButton, "示例插件 B · "+T("Restore plugin information")); !ok {
+		t.Fatal("other plugin disappeared")
 	}
 }
