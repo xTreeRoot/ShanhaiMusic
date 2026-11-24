@@ -50,11 +50,15 @@ func sealData(recovery, space, platform, key string, format int, value any) (Env
 }
 
 func openData(recovery, space, platform, key string, envelope Envelope, value any) error {
+	return openDataLimit(recovery, space, platform, key, envelope, value, envelopeLimit)
+}
+
+func openDataLimit(recovery, space, platform, key string, envelope Envelope, value any, limit int) error {
 	gcm, aad, err := dataCipher(recovery, space, platform, key, envelope.Format)
 	if err != nil {
 		return err
 	}
-	if !validBase64(envelope.Nonce, gcm.NonceSize()) || len(envelope.Ciphertext) > envelopeLimit {
+	if !validBase64(envelope.Nonce, gcm.NonceSize()) || len(envelope.Ciphertext) > limit {
 		return errors.New("invalid MB platform data envelope")
 	}
 	nonce, _ := encoding.DecodeString(envelope.Nonce)

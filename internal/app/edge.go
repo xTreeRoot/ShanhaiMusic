@@ -15,7 +15,7 @@ import (
 type edgePanel struct {
 	devices                                 []edge.SettingsDevice
 	devicesError, previewKey, settingsGroup string
-	initialSettingsBackup                   bool
+	restoreDevices                          bool
 	preview                                 *edge.DeviceSettings
 	window                                  *mygo.Window
 	passwordVisible                         bool
@@ -68,7 +68,6 @@ func (a *app) activateNode(node *edge.Node) {
 	}
 	panel.overview, panel.managedSource, panel.overviewError, panel.overviewStop = nil, "", "", nil
 	panel.devices, panel.devicesError, panel.previewKey, panel.preview = nil, "", "", nil
-	panel.initialSettingsBackup = false
 	panel.settingsGroup = ""
 	panel.node = node
 	panel.owner, panel.choices, panel.deleteFor = nil, nil, ""
@@ -197,17 +196,6 @@ func (a *app) refreshEdgeOverview() {
 				return
 			}
 			panel.overview = &overview
-			if devicesErr == nil && !panel.initialSettingsBackup && !panel.busy {
-				for _, device := range devices {
-					if device.Current {
-						panel.initialSettingsBackup = true
-						if device.Updated == 0 {
-							a.backupDeviceSettings()
-						}
-						break
-					}
-				}
-			}
 		})
 	}()
 }

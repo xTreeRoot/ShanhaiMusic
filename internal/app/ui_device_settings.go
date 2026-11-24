@@ -35,14 +35,17 @@ func (a *app) edgeDevicesView(c *ui.Context, p palette) {
 		ui.Row(c).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, T("Device settings")).Grow(1)
 			ui.Button(c.Key("backup"), T("Back up this device")).Disabled(panel.busy).OnClick(a.backupDeviceSettings)
+			ui.Button(c.Key("restore-other"), T("Restore from another device")).Disabled(panel.busy).OnClick(func() { panel.restoreDevices = !panel.restoreDevices })
 		})
 		if panel.devicesError != "" {
 			ui.Text(c, panel.devicesError).TextColor(p.muted)
 		}
+		available := 0
 		for _, dev := range panel.devices {
-			if dev.Updated == 0 {
+			if !panel.restoreDevices || dev.Current || dev.Updated == 0 {
 				continue
 			}
+			available++
 			name := deviceLabel(dev)
 			ui.Button(c.Key(dev.Key), name).Disabled(panel.busy).OnClick(func() {
 				if panel.previewKey == dev.Key {
@@ -64,6 +67,11 @@ func (a *app) edgeDevicesView(c *ui.Context, p palette) {
 				})
 			})
 			if doc := panel.preview; doc != nil && panel.previewKey == dev.Key {
+				if doc.Backup != nil {
+					ui.Text(c, Tf("Complete backup · %d plugins", doc.Backup.Plugins)).TextColor(p.muted)
+				} else {
+					ui.Text(c, T("Settings only · legacy backup")).TextColor(p.muted)
+				}
 				a.deviceSettingRows(c, p, "", T("App preferences"), doc.App)
 				keys := make([]string, 0, len(doc.Plugins))
 				for id := range doc.Plugins {
@@ -84,8 +92,15 @@ func (a *app) edgeDevicesView(c *ui.Context, p palette) {
 						ui.Button(c.Key("login-"+id), Tf("Open %s account", lib.name())).OnClick(func() { a.promptSignIn(lib) })
 					}
 				}
-				ui.Button(c.Key("apply"), T("Restore these settings")).Disabled(panel.busy).OnClick(func() { a.restoreDeviceSettings(*doc) })
+				label := T("Restore these settings")
+				if doc.Backup != nil {
+					label = T("Restore this device")
+				}
+				ui.Button(c.Key("apply"), label).Disabled(panel.busy).OnClick(func() { a.restoreDeviceSettings(*doc) })
 			}
+		}
+		if panel.restoreDevices && available == 0 {
+			ui.Text(c, T("No other device backups. Back up the source device first.")).TextColor(p.muted)
 		}
 	})
 }
@@ -167,7 +182,8 @@ func (a *app) backupDeviceSettings() {
 		enabled[l] = true
 	}
 	ctx := a.edge.profileContext
-	a.runEdge("Backing up settings…", func(s *edge.Sync) error {
+	input := a.captureDeviceBackup()
+	a.runEdge("Backing up this device…", func(s *edge.Sync) error {
 		for _, l := range libs {
 			src := pluginOf(l)
 			if src == nil {
@@ -188,11 +204,15 @@ func (a *app) backupDeviceSettings() {
 				doc.Plugins[l.id] = values
 			}
 		}
-		return s.SaveDeviceSettings(ctx, doc)
-	}, func() { a.edge.preview = nil; a.edge.message = T("Device settings saved") })
+		return uploadDesktopBackup(ctx, s, input, &doc)
+	}, func() { a.edge.preview = nil; a.edge.message = T("Device backed up, including plugins and their data") })
 }
 
 func (a *app) restoreDeviceSettings(doc edge.DeviceSettings) {
+	if doc.Backup != nil {
+		a.restoreCompleteDeviceBackup(doc)
+		return
+	}
 	ctx := a.edge.profileContext
 	libs := append([]*library(nil), a.allLibs...)
 	applied := 0
@@ -227,37 +247,10 @@ func (a *app) restoreDeviceSettings(doc edge.DeviceSettings) {
 		return nil
 	}, func() {
 		s := a.settings
-		for k, v := range doc.App {
-			switch k {
-			case "appearance":
-				if v != "system" && v != "dark" && v != "light" {
-					skipped++
-					continue
-				}
-				s.Appearance = v
-			case "language":
-				if v != i18n.System && v != i18n.Chinese && v != i18n.English {
-					skipped++
-					continue
-				}
-				s.Language = v
-			case "quality":
-				if v != "standard" && v != "high" && v != "lossless" {
-					skipped++
-					continue
-				}
-				s.Quality = v
-			default:
-				fields := map[string]*bool{"smoke": &s.Smoke, "fog": &s.Fog, "growFromCover": &s.GrowFromCover, "lyricsStage": &s.LyricsStage, "hotComments": &s.HotComments, "stageSparks": &s.StageSparks}
-				f := fields[k]
-				if f == nil || v != "true" && v != "false" {
-					skipped++
-					continue
-				}
-				*f = v == "true"
-			}
-			applied++
-		}
+		var count, missing int
+		s, count, missing = restorePortableAppSettings(s, doc.App)
+		applied += count
+		skipped += missing
 		if err := s.save(); err != nil {
 			a.edge.message = err.Error()
 			return
@@ -299,4 +292,40 @@ var deviceValueNames = map[string]string{
 	"standard": "Standard",
 	"zh-CN":    "Simplified Chinese",
 	"en":       "English",
+}
+
+func restorePortableAppSettings(s settings, values map[string]string) (settings, int, int) {
+	applied, skipped := 0, 0
+	for k, v := range values {
+		switch k {
+		case "appearance":
+			if v != "system" && v != "dark" && v != "light" {
+				skipped++
+				continue
+			}
+			s.Appearance = v
+		case "language":
+			if v != i18n.System && v != i18n.Chinese && v != i18n.English {
+				skipped++
+				continue
+			}
+			s.Language = v
+		case "quality":
+			if v != "standard" && v != "high" && v != "lossless" {
+				skipped++
+				continue
+			}
+			s.Quality = v
+		default:
+			fields := map[string]*bool{"smoke": &s.Smoke, "fog": &s.Fog, "growFromCover": &s.GrowFromCover, "lyricsStage": &s.LyricsStage, "hotComments": &s.HotComments, "stageSparks": &s.StageSparks}
+			f := fields[k]
+			if f == nil || v != "true" && v != "false" {
+				skipped++
+				continue
+			}
+			*f = v == "true"
+		}
+		applied++
+	}
+	return s, applied, skipped
 }

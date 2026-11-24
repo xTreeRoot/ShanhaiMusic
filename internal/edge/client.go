@@ -117,7 +117,13 @@ func (client *Client) request(ctx context.Context, method, path, token, etag str
 	} else if etag != "" {
 		request.Header.Set("If-Match", etag)
 	}
-	response, err := client.http.Do(request)
+	httpClient := client.http
+	if strings.HasPrefix(path, "/v1/backups/") {
+		copy := *httpClient
+		copy.Timeout = 90 * time.Second
+		httpClient = &copy
+	}
+	response, err := httpClient.Do(request)
 	if err != nil {
 		return nil, nil, errors.Join(errNodeUnavailable, ctx.Err())
 	}

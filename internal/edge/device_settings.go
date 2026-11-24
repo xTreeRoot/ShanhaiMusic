@@ -18,12 +18,14 @@ type SettingsDevice struct {
 	Updated  int64  `json:"updated_at"`
 }
 
-// DeviceSettings contains portable preferences and display names only.
+// DeviceSettings contains portable preferences and an optional complete backup.
 type DeviceSettings struct {
-	Version  int                          `json:"version"`
-	App      map[string]string            `json:"app"`
-	Plugins  map[string]map[string]string `json:"plugins"`
-	Accounts map[string]string            `json:"accounts"`
+	Version        int                          `json:"version"`
+	App            map[string]string            `json:"app"`
+	Plugins        map[string]map[string]string `json:"plugins"`
+	Accounts       map[string]string            `json:"accounts"`
+	Backup         *DeviceBackupReference       `json:"backup,omitempty"`
+	PreviousBackup *DeviceBackupReference       `json:"previous_backup,omitempty"`
 }
 
 func (s *Sync) settingsOperation() (operation, error) {

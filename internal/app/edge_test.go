@@ -169,6 +169,10 @@ func TestEdgeRestoreDeviceSettingsKeepsUnsupportedPreferences(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { a.edgeDevicesView(c, paletteFor(c.Theme())) }, 620, 700)
 	settled(tt)
 	group := T("App preferences") + " · " + Tf("%d stored", 4)
+	if err := tt.Click(T("Restore from another device")); err != nil {
+		t.Fatal(err)
+	}
+	settled(tt)
 	if err := tt.Click(group); err != nil {
 		t.Fatal(err)
 	}
