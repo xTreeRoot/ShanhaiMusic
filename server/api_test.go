@@ -88,7 +88,8 @@ func TestSyncLifecycle(t *testing.T) {
 	assertStatus(inventory, 200)
 	var overview struct{ Records []overviewEntry }
 	if err := json.Unmarshal(inventory.Body.Bytes(), &overview); err != nil || len(overview.Records) != 2 ||
-		overview.Records[0] != (overviewEntry{Kind: "data", Platform: "netease", Key: "profile", Count: 1}) ||
+		overview.Records[0].Kind != "data" || overview.Records[0].Platform != "netease" || overview.Records[0].Key != "profile" ||
+		overview.Records[0].Count != 1 || overview.Records[0].Updated <= 0 ||
 		overview.Records[1].Kind != "sessions" || overview.Records[1].Count != 1 || overview.Records[1].Updated <= 0 ||
 		strings.Contains(inventory.Body.String(), "account_ref") || strings.Contains(inventory.Body.String(), "ciphertext") {
 		t.Fatalf("unexpected inventory: %s", inventory.Body.String())

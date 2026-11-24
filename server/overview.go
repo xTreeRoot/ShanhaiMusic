@@ -15,7 +15,7 @@ func (service *api) overview(writer http.ResponseWriter, request *http.Request, 
 		SELECT 'sessions' AS kind, plugin, '' AS info_key, COUNT(*), MAX(updated)
 		FROM sessions WHERE space=? AND envelope IS NOT NULL GROUP BY plugin
 		UNION ALL
-		SELECT 'data' AS kind, platform, info_key, 1, 0
+		SELECT 'data' AS kind, platform, key, 1, updated
 		FROM platform_data WHERE space=? AND envelope IS NOT NULL
 		ORDER BY kind, plugin, info_key`, space, space)
 	if err != nil {

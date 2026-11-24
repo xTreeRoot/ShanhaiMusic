@@ -35,12 +35,11 @@ CREATE TABLE sessions (
 PRAGMA user_version = 1;`
 
 const platformDataSchema = `
-CREATE TABLE IF NOT EXISTS platform_data (
- space TEXT NOT NULL REFERENCES spaces(id), platform TEXT NOT NULL, info_key TEXT NOT NULL,
- revision TEXT NOT NULL, envelope BLOB,
- PRIMARY KEY(space, platform, info_key)
-);
-PRAGMA user_version = 2;`
+CREATE TABLE platform_data (
+ space TEXT NOT NULL REFERENCES spaces(id), platform TEXT NOT NULL, key TEXT NOT NULL,
+ revision TEXT NOT NULL, format INTEGER NOT NULL, envelope BLOB, updated INTEGER NOT NULL,
+ PRIMARY KEY(space, platform, key)
+);`
 
 func openStore(path string) (*sql.DB, error) {
 	abs, err := filepath.Abs(path)
@@ -81,8 +80,31 @@ func initialize(db *sql.DB) error {
 			return err
 		}
 	case 2:
+		// Both schemas shipped with user_version 2.
+		var columns string
+		if err := tx.QueryRow(`SELECT coalesce(group_concat(name, ',' ORDER BY cid), '') FROM pragma_table_info('platform_data')`).Scan(&columns); err != nil {
+			return err
+		}
+		switch columns {
+		case "space,platform,key,revision,format,envelope,updated":
+			// The deployed node already has all metadata.
+		case "space,platform,info_key,revision,envelope":
+			if _, err := tx.Exec(`ALTER TABLE platform_data RENAME COLUMN info_key TO key;
+				ALTER TABLE platform_data ADD COLUMN format INTEGER NOT NULL DEFAULT 0;
+				ALTER TABLE platform_data ADD COLUMN updated INTEGER NOT NULL DEFAULT 0;
+				UPDATE platform_data SET format=json_extract(CAST(envelope AS TEXT),'$.format') WHERE envelope IS NOT NULL`); err != nil {
+				return err
+			}
+		default:
+			return errors.New("unrecognized v2 platform_data columns")
+		}
+	case 3:
+		return tx.Commit()
 	default:
 		return fmt.Errorf("unsupported database version %d", version)
+	}
+	if _, err := tx.Exec(`PRAGMA user_version = 3`); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -176,7 +198,7 @@ const (
 
 func (table recordTable) addressColumns() string {
 	if table == dataTable {
-		return `platform=? AND info_key=?`
+		return `platform=? AND key=?`
 	}
 	return `plugin=? AND account=?`
 }
@@ -187,12 +209,12 @@ func changeRecord(ctx context.Context, db *sql.DB, table recordTable, space, plu
 	var err error
 	switch {
 	case table == dataTable && match == "":
-		result, err = db.ExecContext(ctx, `INSERT INTO platform_data(space, platform, info_key, revision, envelope)
-			SELECT ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM platform_data WHERE space=?) < 256 ON CONFLICT DO NOTHING`,
-			space, plugin, account, revision, envelope, space)
+		result, err = db.ExecContext(ctx, `INSERT INTO platform_data(space, platform, key, revision, format, envelope, updated)
+			SELECT ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM platform_data WHERE space=?) < 256 ON CONFLICT DO NOTHING`,
+			space, plugin, account, revision, format, envelope, now.Unix(), space)
 	case table == dataTable:
-		result, err = db.ExecContext(ctx, `UPDATE platform_data SET revision=?, envelope=?
-			WHERE space=? AND platform=? AND info_key=? AND revision=?`, revision, envelope, space, plugin, account, match)
+		result, err = db.ExecContext(ctx, `UPDATE platform_data SET revision=?, format=?, envelope=?, updated=?
+			WHERE space=? AND platform=? AND key=? AND revision=?`, revision, format, envelope, now.Unix(), space, plugin, account, match)
 	case match == "":
 		result, err = db.ExecContext(ctx, `INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
 			space, plugin, account, revision, format, envelope, now.Unix())
