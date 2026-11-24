@@ -42,7 +42,9 @@ struct WidePlayerStage: View {
                                 TrackRow(track: track, selected: index == playback.queue.index)
                             }.buttonStyle(.plain).listRowBackground(Color.clear).accessibilityLabel("队列选择 \(track.title)")
                         }.onDelete { playback.removeQueue($0) }.onMove { playback.moveQueue($0, to: $1) }
-                    }.listStyle(.plain).scrollContentBackground(.hidden)
+                        QueuePageFooter(playback: playback).listRowBackground(Color.clear)
+                    }.listStyle(.plain).scrollContentBackground(.hidden).modifier(PaginationViewport())
+                        .accessibilityIdentifier("wide-player-queue-list")
                         #if os(iOS)
                         .environment(\.editMode, .constant(editingQueue ? .active : .inactive))
                         #endif

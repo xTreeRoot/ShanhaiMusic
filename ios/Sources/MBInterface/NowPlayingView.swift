@@ -395,6 +395,7 @@ struct QueueView: View {
                 .onMove { playback.moveQueue($0, to: $1) }
                 QueuePageFooter(playback: playback)
             }
+            .modifier(PaginationViewport())
             .overlay {
                 if playback.queue.tracks.isEmpty { ContentUnavailableView("播放队列为空", systemImage: "music.note.list") }
             }
@@ -419,12 +420,13 @@ struct QueuePageFooter: View {
     let playback: PlaybackModel
 
     var body: some View {
-        if playback.hasNextQueuePage {
+        if let page = playback.nextQueuePageID {
             if playback.queuePageFailed {
                 Button("重试") { playback.loadNextQueuePage() }
             } else {
-                ProgressView().frame(maxWidth: .infinity)
-                    .task(id: playback.queue.tracks.count) { playback.loadNextQueuePage() }
+                PaginationFooter(page: page, loading: playback.isLoadingQueuePage) {
+                    playback.loadNextQueuePage()
+                }
             }
         }
     }

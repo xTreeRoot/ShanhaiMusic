@@ -1,6 +1,7 @@
 import Foundation
 
 public struct PlaybackPageLoader: Sendable {
+    let id = UUID()
     let fetch: @Sendable () async throws -> (tracks: [Track], next: Self?)
 
     public init(_ fetch: @escaping @Sendable () async throws -> (tracks: [Track], next: Self?)) {

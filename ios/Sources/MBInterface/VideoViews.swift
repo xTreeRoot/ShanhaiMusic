@@ -125,7 +125,7 @@ private struct VideoDetailsView: View {
     }
     @ViewBuilder private func detail(_ tab: VideoDetailTab) -> some View {
         switch tab {
-        case .info: ScrollView { information.padding(16) }
+        case .info: ScrollView { information.padding(16) }.modifier(PaginationViewport())
         case .comments:
             if let interaction, interaction.capabilities.comments { TrackCommentsList(model: interaction) }
             else if interaction != nil && !loadedInteractions { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
@@ -138,7 +138,7 @@ private struct VideoDetailsView: View {
                 #if os(iOS)
                 SystemVolumeView().frame(maxWidth: 240).frame(height: 28).accessibilityLabel("系统音量").padding(.top, 12)
                 #endif
-            }.contentMargins(16)
+            }.contentMargins(16).modifier(PaginationViewport())
         }
     }
 

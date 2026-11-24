@@ -70,6 +70,7 @@ public final class PlaybackModel {
     @ObservationIgnored private var stationAdvance = false
     private var pageLoader: PlaybackPageLoader?
     private var pageTask: Task<Void, Never>?
+    public var nextQueuePageID: UUID? { pageLoader?.id }
     public var hasNextQueuePage: Bool { pageLoader != nil }
     public var isLoadingQueuePage: Bool { pageTask != nil }
     public private(set) var queuePageFailed = false

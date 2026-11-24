@@ -223,6 +223,36 @@ final class MBiOSUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
     }
 
+    @MainActor func testLandscapeQueuePaginatesAtTheBottomWithoutChangingCurrentTrack() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-pagination", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        app.launch()
+        selectTab("搜索", app: app)
+        let field = app.textFields["搜索视频、音乐、UP 主"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("分页\n")
+        let firstTrack = app.buttons["选择 分页示例 1"]
+        XCTAssertTrue(firstTrack.waitForExistence(timeout: 5)); firstTrack.tap()
+        XCTAssertTrue(app.buttons["下一首"].waitForExistence(timeout: 5))
+        if UIDevice.current.userInterfaceIdiom == .phone { app.buttons["横屏播放"].tap() }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let queue = app.buttons["wide-player-queue"]
+        XCTAssertTrue(queue.waitForExistence(timeout: 8)); queue.tap()
+        XCTAssertTrue(app.staticTexts["共 18 首"].waitForExistence(timeout: 5))
+        let list = app.descendants(matching: .any)["wide-player-queue-list"].firstMatch
+        let lastTrack = app.buttons["队列选择 分页示例 21"]
+        for _ in 0..<8 {
+            if lastTrack.exists && lastTrack.isHittable { break }
+            list.swipeUp()
+        }
+        XCTAssertTrue(lastTrack.isHittable)
+        XCTAssertTrue(app.staticTexts["共 21 首"].exists)
+        XCTAssertTrue(app.staticTexts["分页示例 1"].exists)
+        capture("横屏播放器-待播清单触底续页", app: app)
+    }
+
     @MainActor func testStartupUpdateOptOutStopsForegroundPromptsAndKeepsManualEntry() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -1613,8 +1643,10 @@ final class MBiOSUITests: XCTestCase {
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 晚风里的片刻")).firstMatch.waitForExistence(timeout: 5))
             capture(orientation == .portrait ? "iPad-竖屏-推荐页" : "iPad-横屏-推荐页", app: app)
             app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "播放 晚风里的片刻")).firstMatch.tap()
-            app.buttons["打开播放页，晚风里的片刻"].tap()
-            XCTAssertTrue(app.buttons["队列"].waitForExistence(timeout: 5))
+            let player = app.descendants(matching: .any)["music-player-root"].firstMatch
+            if !player.waitForExistence(timeout: 3) { app.buttons["打开播放页，晚风里的片刻"].tap() }
+            let queue = orientation == .portrait ? app.buttons["队列"] : app.buttons["wide-player-queue"]
+            XCTAssertTrue(queue.waitForExistence(timeout: 5))
             capture(orientation == .portrait ? "iPad-竖屏-播放器" : "iPad-横屏-播放器", app: app)
             app.buttons["收起"].tap()
             app.buttons["首页"].tap()
