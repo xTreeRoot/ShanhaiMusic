@@ -75,3 +75,13 @@ Android、iOS、桌面各自用 HTTPS 直连用户填写的自托管节点。公
 已授权设备用 `GET /v1/sync/devices` 查询本空间当前设备及有备份的设备。返回 `devices` 数组，字段为 `key`、`name`、`platform`、`current`、`updated_at`（Unix 秒）。撤销设备后其备份对其他设备隐藏。写入只接受当前授权设备自己的键。
 
 备份复用 `/v1/data/device-settings/{key}`、资料加密和 ETag 条件写入。键为设备 ID 的 UTF-8 字节的小写十六进制。格式 1 的明文 `value` 含 `version: 1`、字符串字典 `app`、按插件 ID 分组的设置字典 `plugins` 和按插件 ID 分组的显示名 `accounts`。宿主只采集支持的 App 偏好及清单中合法的布尔值和枚举选项；恢复时再次以本机清单验证。显示名只用于账号识别。实际登录通过插件的平台授权入口。
+
+## 完整设备备份（节点 0.1.3）
+
+设备设置格式仍为 1，可选 `backup` 和 `previous_backup` 引用。引用包含 `index`（32 位小写十六进制随机键）、`platform`（desktop/ios/android）、`created`（秒）、`bytes`、`sha256` 和 `plugins`。没有引用的旧记录仍只恢复原有设置。
+
+`GET/PUT/DELETE /v1/backups/{device}/{key}` 使用现有 Bearer 设备授权。`device` 为源设备 ID 的 UTF-8 小写十六进制；同空间且源设备未撤销的设备可读，仅源设备可写/删。对象不可变，同密文重复 PUT 返回 204，异文返回 409。单对象最多 4 MiB，每空间对象总量最多 32 GiB，超额返回 507。密文进入现有 SQLite 快照；数据库格式升级至 4，回滚应配套使用升级前快照。
+
+客户端归档采用 ZIP 格式 1，输入按 2 MiB 分块，归档上限 16 GiB。复用 platform-data AES-GCM 和恢复密钥，AAD 的 namespace 为 `backup-<device>`、key 为随机对象键。块明文为 `{"value":{"data":"base64url"}}`。索引也是一个加密块，解码内容为 `{"version":1,"parts":["key"],"bytes":123,"sha256":"..."}`。全部上传成功才通过现有 ETag 设置记录发布引用；保留上一份备份。发布响应丢失时不删除可能已生效的对象。
+
+归档 `manifest.json` 包含插件安装来源、名称、启用、排序偏好、完整设置和通用资料库；代码包位于 `plugins/<id>/package.zip`，私有文件位于 `plugins/<id>/data/`，媒体位于 `media/`。完整备份经用户主动触发，包含插件私有数据（可能包含登录信息），不会迁移节点令牌、节点身份或设备恢复密钥。下载通过认证分块、总长度、摘要、ZIP 路径和 CRC 验证后才导入；全部代码包先经现有安装器校验。恢复补装缺失插件，合并资料库，已有私有文件保留，队列仅在本机为空时暂停恢复。第三方平台可能拒绝跨设备登录，仍可从插件的原授权入口重新登录。

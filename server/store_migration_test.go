@@ -45,7 +45,7 @@ func TestBothV2LayoutsRetainPlatformData(t *testing.T) {
 			if body != envelope || revision != "original" || format != 7 || updated != fixture.updated {
 				t.Fatal("existing platform data changed")
 			}
-			if err := upgraded.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
+			if err := upgraded.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 4 {
 				t.Fatalf("version=%d err=%v", version, err)
 			}
 			for _, update := range []struct{ key, previous string }{{"profile", "original"}, {"removed", "gone"}, {"new", ""}} {

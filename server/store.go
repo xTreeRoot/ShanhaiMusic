@@ -99,11 +99,13 @@ func initialize(db *sql.DB) error {
 			return errors.New("unrecognized v2 platform_data columns")
 		}
 	case 3:
+		// Version 4 adds encrypted backup objects without changing sync records.
+	case 4:
 		return tx.Commit()
 	default:
 		return fmt.Errorf("unsupported database version %d", version)
 	}
-	if _, err := tx.Exec(`PRAGMA user_version = 3`); err != nil {
+	if _, err := tx.Exec(backupObjectSchema + `PRAGMA user_version = 4`); err != nil {
 		return err
 	}
 	return tx.Commit()
