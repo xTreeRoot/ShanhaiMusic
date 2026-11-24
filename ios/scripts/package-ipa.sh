@@ -5,28 +5,25 @@ task_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$task_root"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 task_artifacts="$task_root/.build/artifacts"
-task_payload="$task_root/.build/package/Payload"
 mkdir -p "$task_artifacts" "$task_root/.build/logs"
 xcrun xcodebuild -project MBiOS.xcodeproj -scheme MBiOS -configuration Release \
     -destination 'generic/platform=iOS' -derivedDataPath .build/DerivedData \
     CODE_SIGNING_ALLOWED=NO build > .build/logs/ios-release-build.log 2>&1
-mkdir -p "$task_payload"
-rm -rf "$task_payload/MB.app"
-/usr/bin/ditto "$task_root/.build/DerivedData/Build/Products/Release-iphoneos/MB.app" "$task_payload/MB.app"
-task_version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$task_payload/MB.app/Info.plist")"
-task_build="$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$task_payload/MB.app/Info.plist")"
+task_app="$task_root/.build/DerivedData/Build/Products/Release-iphoneos/MB.app"
+task_version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$task_app/Info.plist")"
+task_build="$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$task_app/Info.plist")"
 task_ipa="$task_artifacts/MB-iOS-$task_version-$task_build-unsigned.ipa"
-python3 - "$task_payload" "$task_ipa" <<'PY'
+python3 - "$task_app" "$task_ipa" <<'PY'
 import pathlib, plistlib, stat, sys, zipfile
-payload = pathlib.Path(sys.argv[1])
-app = payload/'MB.app'
+app = pathlib.Path(sys.argv[1])
 with zipfile.ZipFile(sys.argv[2], 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-    for path in sorted([payload, app, *app.rglob('*')]):
-        if any(part.startswith('.') or part == '__MACOSX' for part in path.relative_to(payload.parent).parts):
+    for path in sorted([app, *app.rglob('*')]):
+        relative = path.relative_to(app.parent)
+        if any(part.startswith('.') or part == '__MACOSX' for part in relative.parts):
             continue
         if path.is_symlink():
             raise SystemExit(f'不支持应用包内符号链接：{path}')
-        archive.write(path, path.relative_to(payload.parent).as_posix())
+        archive.write(path, 'Payload/'+relative.as_posix())
 with zipfile.ZipFile(sys.argv[2]) as archive:
     names = archive.namelist()
     # AltSign 按 .app 后缀选择 Payload 顶层条目，._MB.app 也会被当作候选；禁止打入这些元数据。
