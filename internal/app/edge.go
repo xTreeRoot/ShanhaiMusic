@@ -34,7 +34,7 @@ type edgePanel struct {
 	profileContext    context.Context
 	profileJobs       map[*library]context.CancelFunc
 	overview          *edge.Overview
-	overviewSource    *library
+	managedSource     string
 	overviewError     string
 	overviewStop      context.CancelFunc
 }
@@ -62,7 +62,7 @@ func (a *app) activateNode(node *edge.Node) {
 	if panel.overviewStop != nil {
 		panel.overviewStop()
 	}
-	panel.overview, panel.overviewSource, panel.overviewError, panel.overviewStop = nil, nil, "", nil
+	panel.overview, panel.managedSource, panel.overviewError, panel.overviewStop = nil, "", "", nil
 	panel.node = node
 	panel.owner, panel.choices, panel.deleteFor = nil, nil, ""
 	panel.fresh = make(map[*library]edge.Ticket)
@@ -117,7 +117,7 @@ func (a *app) invalidateEdge(lib *library) {
 
 func (a *app) syncEdgeProfile(lib *library, publish bool) {
 	panel := &a.edge
-	if panel.service == nil || lib.account == nil {
+	if panel.service == nil || lib.account == nil && !publish {
 		return
 	}
 	if cancel := panel.profileJobs[lib]; cancel != nil {
@@ -127,9 +127,15 @@ func (a *app) syncEdgeProfile(lib *library, publish bool) {
 	panel.profileJobs[lib] = cancel
 	service, platform := panel.service, lib.id
 	ticket := service.Ticket(platform)
-	profile := edge.Profile{AccountID: lib.account.ID, Name: lib.account.Name}
+	account := lib.account
 	go func() {
-		err := service.SyncProfile(ctx, platform, ticket, profile, publish)
+		var err error
+		if publish {
+			account, err = lib.src.Account()
+		}
+		if err == nil && account != nil && ctx.Err() == nil {
+			err = service.SyncProfile(ctx, platform, ticket, edge.Profile{AccountID: account.ID, Name: account.Name}, publish)
+		}
 		a.post(func() {
 			if ctx.Err() != nil || service != panel.service || service.Ticket(platform) != ticket {
 				return
@@ -139,12 +145,14 @@ func (a *app) syncEdgeProfile(lib *library, publish bool) {
 			if err != nil {
 				panel.message = edgeError(err)
 			} else if publish {
-				if service.Authorized() {
-					panel.message = T("Account profile synced. No sign-in session was sent.")
+				if account == nil {
+					panel.message = Tf("%s · Sign in on this device first", lib.name())
+				} else if service.Authorized() {
+					panel.message = Tf("%s · Profile synced", lib.name())
+					a.refreshEdgeOverview()
 				} else {
 					panel.message = edgeError(&edge.StatusError{Code: http.StatusUnauthorized})
 				}
-				a.refreshEdgeOverview()
 			}
 		})
 	}()
@@ -159,20 +167,12 @@ func (a *app) refreshEdgeOverview() {
 	if panel.overviewStop != nil {
 		panel.overviewStop()
 	}
-	lib := a.library
-	platform, account := "", ""
-	if lib != nil && lib.can("account") {
-		platform = lib.id
-		if lib.account != nil {
-			account = lib.account.ID
-		}
-	}
 	parent, stop := context.WithCancel(panel.profileContext)
-	panel.overview, panel.overviewSource, panel.overviewError, panel.overviewStop = nil, lib, "", stop
+	panel.overviewError, panel.overviewStop = "", stop
 	go func() {
 		ctx, cancel := context.WithTimeout(parent, 12*time.Second)
 		defer cancel()
-		overview, err := service.Inspect(ctx, platform, account)
+		overview, err := service.Inspect(ctx, "", "")
 		a.post(func() {
 			if parent.Err() != nil || service != panel.service {
 				return

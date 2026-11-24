@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -41,13 +42,26 @@ func TestEdgeSettingsRequiresAUserAddressAndRejectsHTTP(t *testing.T) {
 
 func TestEdgeCloudDeleteRequiresConfirmationAndCanBeCancelled(t *testing.T) {
 	a := newTestApp()
-	a.library.accountAsked = true
+	other := addFake(a, newFakeSource("second"))
+	posted := make(chan func(), 1)
+	a.postFn = func(fn func()) { posted <- fn }
+	flush := func() {
+		t.Helper()
+		select {
+		case fn := <-posted:
+			fn()
+		case <-time.After(3 * time.Second):
+			t.Fatal("node action timed out")
+		}
+	}
+	a.edge.profileContext = t.Context()
+	a.edge.profileJobs = make(map[*library]context.CancelFunc)
 	dir := t.TempDir()
 	key := strings.Repeat("A", 43)
 	data, err := json.Marshal(map[string]any{
 		"Grant":    edge.Grant{SpaceID: "fixture", Token: key, ExpiresAt: time.Now().Add(time.Hour).Unix()},
 		"Recovery": key,
-		"Refs":     map[string]string{a.library.id: key},
+		"Refs":     map[string]string{other.id: key},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -60,26 +74,48 @@ func TestEdgeCloudDeleteRequiresConfirmationAndCanBeCancelled(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.edge.node, a.edge.service = &edge.Node{Address: "https://example.test", Sync: service}, service
-	a.edge.overviewSource = a.library
 	a.edge.overview = &edge.Overview{Sessions: 1, Profile: edge.RecordMissing, PluginPreferences: edge.RecordStored, Discovery: edge.RecordStored}
 	tester := ui.NewTester(a.edgeView, 620, 900)
 	settled(tester)
 	if dir := os.Getenv("MM_FRAMES"); dir != "" {
 		saveFrame(t, dir, "desktop-node-cloud.png", tester.Image())
 	}
+	if _, ok := tester.AccessByRole(ui.RoleButton, T("Connect to Node")+" MB Server"); ok {
+		t.Fatal("connected device still shows the join form")
+	}
+	if err := tester.Click(other.name()); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if err := tester.Click(T("Sync profile")); err != nil {
+		t.Fatal(err)
+	}
+	flush()
+	tester.Frame()
+	if a.library == other || a.edge.message != Tf("%s · Sign in on this device first", other.name()) {
+		t.Fatal("sync did not target the expanded source")
+	}
 	if err := tester.Click(T("Delete This Source’s Cloud Session…")); err != nil {
 		t.Fatal(err)
 	}
 	tester.Frame()
-	if _, ok := tester.AccessByRole(ui.RoleButton, T("Confirm Cloud Deletion")); !ok || !service.HasRemote(a.library.id) {
+	if _, ok := tester.AccessByRole(ui.RoleButton, T("Confirm Cloud Deletion")); !ok || !service.HasRemote(other.id) {
 		t.Fatal("first click must present confirmation without deleting the session")
 	}
 	if err := tester.Click(T("Cancel")); err != nil {
 		t.Fatal(err)
 	}
 	tester.Frame()
-	if _, ok := tester.AccessByRole(ui.RoleButton, T("Confirm Cloud Deletion")); ok || a.edge.deleteFor != "" || !service.HasRemote(a.library.id) {
+	if _, ok := tester.AccessByRole(ui.RoleButton, T("Confirm Cloud Deletion")); ok || a.edge.deleteFor != "" || !service.HasRemote(other.id) {
 		t.Fatal("cancel did not dismiss confirmation and preserve the cloud reference")
+	}
+	if err := tester.Click(T("Unlink This Device")); err != nil {
+		t.Fatal(err)
+	}
+	flush()
+	tester.Frame()
+	if _, ok := tester.AccessByRole(ui.RoleButton, T("Connect to Node")+" MB Server"); !ok || service.Authorized() {
+		t.Fatal("unlink did not return to the disconnected form")
 	}
 }
 
