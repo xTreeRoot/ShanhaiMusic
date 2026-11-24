@@ -1,0 +1,101 @@
+[
+  {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "30E96ED1-4F2A-4496-ADED-0D2F7B1AE9C1",
+    "deviceName": "iPad Pro 13-inch (M5)",
+    "exportedFileName": "AEFC01E9-697A-4638-ACDA-51547EE4F158.png",
+    "isAssociatedWithFailure": false,
+    "repetitionNumber": 5,
+    "suggestedHumanReadableName": "iPad-重新展开侧栏_0_A714DB51-5FFF-4A56-82D8-040A42DEEDE1.png",
+    "timestamp": 1795526472.776,
+    "reviewFile": "iPad-重新展开侧栏.png"
+  },
+  {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "30E96ED1-4F2A-4496-ADED-0D2F7B1AE9C1",
+    "deviceName": "iPad Pro 13-inch (M5)",
+    "exportedFileName": "F2D125D7-ECD8-4455-911E-2E00282870FC.png",
+    "isAssociatedWithFailure": false,
+    "repetitionNumber": 5,
+    "suggestedHumanReadableName": "iPad-收起侧栏_0_8928141A-1489-4814-A75D-290DBD362B68.png",
+    "timestamp": 1795526468.04,
+    "reviewFile": "iPad-收起侧栏.png"
+  },
+  {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "30E96ED1-4F2A-4496-ADED-0D2F7B1AE9C1",
+    "deviceName": "iPad Pro 13-inch (M5)",
+    "exportedFileName": "4BDE72B9-C93B-4717-90BF-FDF95F5783B7.png",
+    "isAssociatedWithFailure": false,
+    "repetitionNumber": 5,
+    "suggestedHumanReadableName": "iPad-侧栏切回内容_0_8D422F83-AFAF-4EE3-BCB4-63191AB31D79.png",
+    "timestamp": 1795526463.494,
+    "reviewFile": "iPad-侧栏切回内容.png"
+  },
+  {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "30E96ED1-4F2A-4496-ADED-0D2F7B1AE9C1",
+    "deviceName": "iPad Pro 13-inch (M5)",
+    "exportedFileName": "E88437B5-2F7D-4436-983F-A12C7C992B83.png",
+    "isAssociatedWithFailure": false,
+    "repetitionNumber": 5,
+    "suggestedHumanReadableName": "iPad-侧栏失败与重试_0_3B13B9A4-5A55-4EE1-B2A9-2D3FB9FD727B.png",
+    "timestamp": 1795526458.621,
+    "reviewFile": "iPad-侧栏失败与重试.png"
+  },
+  {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "30E96ED1-4F2A-4496-ADED-0D2F7B1AE9C1",
+    "deviceName": "iPad Pro 13-inch (M5)",
+    "exportedFileName": "5A8FEE8C-04DD-43C2-8DCC-DBF5295AEDA5.png",
+    "isAssociatedWithFailure": false,
+    "repetitionNumber": 5,
+    "suggestedHumanReadableName": "iPad-侧栏空态-竖屏_0_C34C6408-9BE8-48D8-837B-C56B839C3F88.png",
+    "timestamp": 1795526454.172,
+    "reviewFile": "iPad-侧栏空态-竖屏.png"
+  },
+  {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "30E96ED1-4F2A-4496-ADED-0D2F7B1AE9C1",
+    "deviceName": "iPad Pro 13-inch (M5)",
+    "exportedFileName": "A7368C0A-CB13-4391-9C1B-C5A0042F50CE.png",
+    "isAssociatedWithFailure": false,
+    "repetitionNumber": 5,
+    "suggestedHumanReadableName": "iPad-侧栏空态-横屏_0_C36C7B56-AF32-4609-9002-AFEEBFD3D45B.png",
+    "timestamp": 1795526442.82,
+    "reviewFile": "iPad-侧栏空态-横屏.png"
+  },
+  {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "836F3771-1054-4933-B7B3-F88F3E4EC001",
+    "deviceName": "iPhone 17 Pro",
+    "exportedFileName": "9FF36351-25C0-437B-A8A4-F9F483B51ADB.png",
+    "isAssociatedWithFailure": false,
+    "repetitionNumber": 5,
+    "suggestedHumanReadableName": "听歌切视频-第3轮_0_3BAF0F99-5A95-4749-A866-C70F8DDD9C45.png",
+    "timestamp": 1795526963.929,
+    "reviewFile": "iPhone-听歌切视频-第3轮.png"
+  },
+  {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "836F3771-1054-4933-B7B3-F88F3E4EC001",
+    "deviceName": "iPhone 17 Pro",
+    "exportedFileName": "F1DB9CF6-9BD8-4A3D-BD4A-1AB3D7415B1A.png",
+    "isAssociatedWithFailure": false,
+    "repetitionNumber": 5,
+    "suggestedHumanReadableName": "听歌切视频-第2轮_0_ABD2E693-6707-4E02-92C4-E44FFECBA320.png",
+    "timestamp": 1795526957.608,
+    "reviewFile": "iPhone-听歌切视频-第2轮.png"
+  },
+  {
+    "configurationName": "Test Scheme Action",
+    "deviceId": "836F3771-1054-4933-B7B3-F88F3E4EC001",
+    "deviceName": "iPhone 17 Pro",
+    "exportedFileName": "9C355569-FB34-4DA3-8B01-14E5769B9D81.png",
+    "isAssociatedWithFailure": false,
+    "repetitionNumber": 5,
+    "suggestedHumanReadableName": "听歌切视频-第1轮_0_B9053A7D-01C8-418B-A730-50A854325B35.png",
+    "timestamp": 1795526947.554,
+    "reviewFile": "iPhone-听歌切视频-第1轮.png"
+  }
+]

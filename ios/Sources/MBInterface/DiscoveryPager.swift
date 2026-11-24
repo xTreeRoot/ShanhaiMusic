@@ -12,7 +12,15 @@ struct DiscoveryPager: View {
     let videoMode: Bool
     let select: ([Track], Int) -> Void
     let menu: (Track) -> AnyView
+    var openPlugins: () -> Void = {}
     var body: some View {
+        if sources.isEmpty {
+            ContentUnavailableView {
+                Label("暂无可用音源", systemImage: "puzzlepiece.extension")
+            } actions: {
+                Button("管理插件", action: openPlugins).buttonStyle(.borderedProminent)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
         #if os(iOS)
         GeometryReader { viewport in
             ScrollView(.horizontal) {
@@ -43,6 +51,7 @@ struct DiscoveryPager: View {
         #else
         if let source = providers[selected] { DiscoveryPlatformPage(source: source, videoMode: videoMode, select: select, menu: menu) }
         #endif
+        }
     }
 }
 

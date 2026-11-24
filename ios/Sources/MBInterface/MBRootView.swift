@@ -1,7 +1,10 @@
 import MBFoundation
 import SwiftUI
 
-enum MBPage: Hashable { case discovery(DiscoveryCategory), video, library(LibraryRoute) }
+enum MBPage: Hashable {
+    case discovery(DiscoveryCategory), video, library(LibraryRoute)
+    case pluginPage(String, String), pluginCollection(String, String)
+}
 private enum MBTab: Hashable { case discover, search, library, account }
 
 
@@ -26,6 +29,7 @@ public struct MBRootView: View {
     @State private var searchPath: [MBPage] = []
     @State private var showingAppSettings = false
     @State private var showingPlayer = false
+    @State private var pendingVideoFromPlayer = false
     @State private var showingQueue = false
     @State private var showingSettings = false
     @State private var showingService = false
@@ -175,7 +179,18 @@ public struct MBRootView: View {
                 } }
             }
             .preferredColorScheme(preferences.values.appearance == .system ? nil : preferences.values.appearance == .dark ? .dark : .light)
-            .playerPresentation(isPresented: $showingPlayer) { NowPlayingView(playback: playback, demo: demo, interactionSource: currentInteractions, librarySource: currentLibrarySource, pluginSource: currentPluginSource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: video.isAudioOnly ? nil : { video.watchCurrent() }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
+            .playerPresentation(isPresented: $showingPlayer, onDismiss: {
+                if pendingVideoFromPlayer {
+                    pendingVideoFromPlayer = false
+                    // 等全屏听歌页完成关闭，再改变视频可见性和导航，保留系统安全区与命中区域。
+                    video.watchCurrent()
+                } else if !video.isVisible {
+                    path.removeAll { $0 == .video }; searchPath.removeAll { $0 == .video }
+                }
+            }) { NowPlayingView(playback: playback, demo: demo, interactionSource: currentInteractions, librarySource: currentLibrarySource, pluginSource: currentPluginSource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: video.isAudioOnly ? nil : {
+                pendingVideoFromPlayer = true
+                showingPlayer = false
+            }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
             .sheet(isPresented: $showingQueue) { QueueView(playback: playback) }
             .sheet(isPresented: $showingService) { ShanhaiServiceView(model: platformData, preferences: preferences, plugins: plugins, accounts: verifiedProfileAccount.map { [selectedSourceID: $0.name] } ?? [:], names: sourceDisplayNames, providers: discoveryProviders) { id in
                 showingService = false; switchSource(id); selectedTab = .account
@@ -386,7 +401,8 @@ public struct MBRootView: View {
             .onChange(of: video.isVisible) { _, visible in
                 syncVideoClock()
                 if visible { showingPlayer = false; showVideo() }
-                else { path.removeAll { $0 == .video }; searchPath.removeAll { $0 == .video } }
+                // 视频切听歌时先保留下面的页面，避免导航返回与全屏弹层打开同时改变布局。
+                else if !showingPlayer { path.removeAll { $0 == .video }; searchPath.removeAll { $0 == .video } }
             }
             .onChange(of: path) { _, pages in
                 if selectedTab == .discover, !pages.contains(.video), video.isVisible { minimizeVideo() }
@@ -478,25 +494,9 @@ public struct MBRootView: View {
     @ViewBuilder private var adaptiveNavigation: some View {
         if usesSidebar {
             NavigationSplitView(columnVisibility: $columns) {
-                List {
-                    Group {
-                        Section("发现") {
-                            Button("首页", systemImage: "house") { video.browse(); path = []; input = "" }
-                            ForEach(DiscoveryCategory.allCases) { category in
-                                Button(LocalizedStringKey(category.title)) { video.browse(); path = [.discovery(category)] }
-                            }
-                        }
-                        Section("播放器") {
-                            Button("听歌模式", systemImage: "music.note") { chooseMode(.music) }
-                            Button("视频模式", systemImage: "play.rectangle") { chooseMode(.video) }
-                            Button("网络设置", systemImage: "gearshape") { showingSettings = true }
-                        }
-
-                    }.modifier(SkinRow())
-                }
-                .modifier(SkinSurface(defaultColor: MBTheme.grouped, list: true))
-                .navigationTitle("山海")
-                .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 260)
+                DiscoverySidebar(source: source, path: $path, columns: $columns, mode: video.mode, browse: {
+                    video.browse(); input = ""
+                }, chooseMode: chooseMode, openSettings: { showingSettings = true })
             } detail: { navigation }
         } else { navigation }
     }
@@ -513,7 +513,7 @@ public struct MBRootView: View {
         GeometryReader { geometry in
         NavigationStack(path: $path) {
             DiscoveryPager(sources: sourceTabs, providers: discoveryProviders, selected: selectedSourceID,
-                           switchSource: switchSource, pageProgress: { discoveryPagePosition = $0 }, videoMode: video.mode == .video, select: select, menu: trackMenu)
+                           switchSource: switchSource, pageProgress: { discoveryPagePosition = $0 }, videoMode: video.mode == .video, select: select, menu: trackMenu, openPlugins: { showingPlugins = true })
                 // 分页容器会隔开子页面的 toolbar preference，导航栏皮肤需设置在实际导航根内容上。
                 .modifier(SkinSurface(defaultColor: MBTheme.background))
                 .navigationTitle("")
@@ -623,7 +623,16 @@ public struct MBRootView: View {
             .navigationTitle("视频播放")
             #endif
         case .discovery(let category):
-            if let discovery = source as? any DiscoverySource { DiscoveryPageView(source: discovery, category: category, videoMode: video.mode == .video, select: select, menu: trackMenu).toolbar { toolbar } }
+            if let discovery = source as? any DiscoverySource { DiscoveryPageView(source: discovery, category: category, videoMode: video.mode == .video, select: select, menu: trackMenu).id(category).toolbar { toolbar } }
+            else { ContentUnavailableView("暂无内容", systemImage: "music.note") }
+        case .pluginPage(let route, _):
+            if let plugin = source as? PluginSource {
+                PluginCatalogPage(source: plugin, request: .browse(route), select: select, menu: trackMenu).id(page).toolbar { toolbar }
+            } else { ContentUnavailableView("暂无内容", systemImage: "music.note") }
+        case .pluginCollection(let method, let title):
+            if let plugin = source as? PluginSource {
+                PluginCatalogPage(source: plugin, request: .collection(method, title), select: select, menu: trackMenu).id(page).toolbar { toolbar }
+            } else { ContentUnavailableView("暂无内容", systemImage: "music.note") }
         case .library(let route):
             if let provider = source as? any LibrarySource { LibraryPageView(source: provider, route: route, select: select, menu: trackMenu) }
         }

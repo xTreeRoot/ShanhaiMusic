@@ -118,6 +118,10 @@ enum DemoCatalog {
         var manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","minAppVersion":"0.1.0","settings":[{"key":"server","label":"服务地址","type":"text"},{"key":"enabled","label":"启用示例","type":"boolean"}],"permissions":{"network":["media.example.test"]},"navigation":[{"title":"示例曲目","page":"duplicate"},{"title":"示例分页","page":"more"}]}"#
         if refreshFixture { manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","navigation":[{"title":"独立栏目","page":"extra"}]}"# }
         if filterFixture { manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","navigation":[{"title":"订阅","page":"subscriptions","placement":"personal"},{"title":"我的频道","page":"channel","placement":"personal"},{"title":"点赞","builtin":"liked","placement":"personal"},{"title":"音乐专区","page":"music","placement":"personal"}]}"# }
+        let sidebarFixture = ProcessInfo.processInfo.arguments.contains("--sidebar-fixture")
+        if sidebarFixture {
+            manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","discovery":[{"id":"content","title":"侧栏内容","page":"sidebar-content"},{"id":"empty","title":"侧栏空数据","page":"sidebar-empty","defaultEnabled":false},{"id":"failure","title":"侧栏失败","page":"sidebar-failure","defaultEnabled":false}]}"#
+        }
         if ProcessInfo.processInfo.arguments.contains("--discovery-sections-fixture") {
             manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","discovery":[{"id":"one","title":"第一栏目","page":"one"},{"id":"two","title":"第二栏目","page":"two"},{"id":"three","title":"第三栏目","page":"three"}]}"#
         }
@@ -125,13 +129,20 @@ enum DemoCatalog {
         if shelfFixture { manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","discovery":[{"id":"small","title":"少量资源","page":"shelf"},{"id":"people","title":"我的关注","page":"people"}]}"# }
         try manifest.write(to: folder.appendingPathComponent("plugin.json"), atomically: true, encoding: .utf8)
         let paginationFixture = ProcessInfo.processInfo.arguments.contains("--catalog-pagination-fixture")
-        let refreshScript = "const filterFixture = \(filterFixture), refreshFixture = \(refreshFixture), paginationFixture = \(paginationFixture);"
+        let refreshScript = "const filterFixture = \(filterFixture), refreshFixture = \(refreshFixture), paginationFixture = \(paginationFixture), sidebarFixture = \(sidebarFixture);"
         let script = refreshScript + (includeTrackProblems ? "const extraTracks = [{id:'vip',name:'会员示例曲目',unavailableReason:'vip'}, {id:'missing',name:'无音源示例曲目'}];\n" : "const extraTracks = [];\n") + #"""
         let listName='示例歌单', listTracks=[], homeCalls=0, extraCalls=0, savedHome, savedExtra;
         const track = {id:'sample',name:'插件示例歌曲',artists:[{id:'artist',name:'示例作者'}],album:{},duration:180000};
         const tabs=[{title:'全部',page:'all'},{title:'音乐',page:'music'},{title:'游戏',page:'games'}];
         export function home({refresh}={}){if(filterFixture)return {tabs,selectedTab:'all',sections:[{title:'推荐',tracks:[{...track,name:'全部内容'}]}]};if(refreshFixture){if(!savedHome||refresh)savedHome={sections:[{title:'刷新首页',tracks:[{...track,name:'首页第'+(++homeCalls)+'次'}]}]};return savedHome;} return {title:'示例插件首页',sections:[{title:'示例曲目',tracks:[track,...extraTracks],links:[{title:'更多示例',page:'more'}],albums:[{id:'al',name:'示例专辑'}],artists:[{id:'ar',name:'示例作者'}],playlists:[{id:'pl',name:listName,mine:true}],shows:[{id:'sh',name:'示例播客'}],stations:[{id:'st',name:'示例电台'}]}]};}
         export function browse({page,offset=0,refresh}) {
+          if(sidebarFixture) {
+            if(page==='sidebar-empty')return {title:'侧栏空数据',sections:[{title:'空栏目',tracks:[]}]};
+            if(page==='sidebar-failure' && !host.storage.get('sidebar-retried')) {
+              host.storage.set('sidebar-retried',true); throw new Error('侧栏加载失败');
+            }
+            return {title:'侧栏内容',sections:[{tracks:[{...track,name:page==='sidebar-failure'?'重试成功':'侧栏独立内容'}]}]};
+          }
           if (paginationFixture && (page === 'duplicate' || page === 'duplicate:2')) {
             const first = page === 'duplicate';
             const tracks = Array.from({length:first?20:7}, (_,i) => {

@@ -83,8 +83,12 @@ struct PluginDiscoveryHome: View {
                     ProgressView().task(id: nextOffset) { await loadMore() }
                 }
                 if loading && content == nil { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 80) }
-                if !loading && content?.sections.isEmpty != false && error == nil {
-                    ContentUnavailableView("暂无内容", systemImage: "music.note")
+                if !loading && error == nil && content?.sections.allSatisfy({ $0.tracks.isEmpty && $0.entities.isEmpty && $0.links.isEmpty && $0.empty.isEmpty }) != false {
+                    ContentUnavailableView {
+                        Label("暂无内容", systemImage: "music.note")
+                    } actions: {
+                        Button("重新加载", action: retry).buttonStyle(.bordered)
+                    }
                 }
             }.padding(.top, 12).padding(.bottom, 24)
                 .background(ScrollRefreshControl(action: refresh))

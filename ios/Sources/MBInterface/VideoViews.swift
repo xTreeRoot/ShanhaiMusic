@@ -44,7 +44,7 @@ struct VideoPageView: View {
 
     private var picture: some View {
         VideoScreen(video: video, pictureVisible: video.isVisible && !fullScreen)
-            .modifier(VideoTapControls(chrome: chrome, playback: playback))
+            .modifier(VideoTapControls(chrome: chrome, playback: playback, active: video.isVisible && !fullScreen))
             .aspectRatio(video.aspectRatio, contentMode: .fit)
             .overlay(alignment: .top) {
                 if chrome.visible { HStack {

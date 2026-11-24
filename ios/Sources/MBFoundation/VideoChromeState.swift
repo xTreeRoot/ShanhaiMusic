@@ -6,6 +6,7 @@ import Observation
     public private(set) var scrubbing = false
     public private(set) var revision = 0
     public init() {}
+    public func reveal() { visible = true; revision += 1 }
     public func singleTap() { visible.toggle(); revision += 1 }
     public func interacted() { revision += 1 }
     public func editing(_ active: Bool) { scrubbing = active; revision += 1 }

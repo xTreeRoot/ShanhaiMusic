@@ -52,7 +52,7 @@ struct PluginCatalogPage: View {
     @State private var filterTabs: [PluginBrowse.Link] = []
     @State private var navigationPreviews: [String: PluginNavigationPreview] = [:]
     @State private var error: String?
-    @State private var loading = false
+    @State private var loading = true
     @State private var loadRevision = 0
     @State private var initialLoad: Task<Void, Never>?
     @State private var artworkPrefetch: Task<Void, Never>?
@@ -155,9 +155,15 @@ struct PluginCatalogPage: View {
                     if capabilities.contains("deletePlaylist") { Button("删除平台歌单", role: .destructive) { delete = true } }
                 }
                 if more { PaginationFooter(page: "\(loadRevision):\(offset)", loading: loading, blocked: error != nil || changing) { await load(append: true) } }
-                if loading { ProgressView() }
+                if loading { ProgressView("正在加载内容").frame(maxWidth: .infinity).accessibilityIdentifier("catalog-loading") }
                 if let error { Text(error).foregroundStyle(.red); Button("重试") { Task { await load(append: appendFailed) } } }
-                if !loading && content?.sections.isEmpty != false && error == nil { ContentUnavailableView("暂无内容", systemImage: "music.note") }
+                if !loading && error == nil && content?.sections.allSatisfy({ $0.tracks.isEmpty && $0.entities.isEmpty && $0.links.isEmpty && $0.empty.isEmpty }) != false {
+                    ContentUnavailableView {
+                        Label("暂无内容", systemImage: "music.note")
+                    } actions: {
+                        Button("重新加载") { Task { await load(refresh: true) } }.buttonStyle(.bordered)
+                    }.accessibilityIdentifier("catalog-empty")
+                }
 
             }.modifier(SkinRow())
         }

@@ -172,6 +172,11 @@
 "重命名" = "Rename";
 "重命名歌单" = "Rename Playlist";
 "重新加载" = "Reload";
+"暂无可用音源" = "No sources available";
+"管理插件" = "Manage plugins";
+"正在加载内容" = "Loading content";
+"已选中" = "Selected";
+"未选中" = "Not selected";
 "重新登录" = "Sign In Again";
 "重试" = "Retry";
 "重试加载评论" = "Retry Comments";

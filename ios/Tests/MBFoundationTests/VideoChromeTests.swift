@@ -14,3 +14,16 @@ import Testing
     chrome.autoHide(revision: chrome.revision); #expect(!chrome.visible)
     chrome.singleTap(); #expect(chrome.visible)
 }
+
+@Test @MainActor func reopeningVideoRevealsControlsAndRejectsThePreviousHideTimer() {
+    let chrome = VideoChromeState()
+    let previous = chrome.revision
+    chrome.autoHide(revision: previous)
+    #expect(!chrome.visible)
+    chrome.reveal()
+    #expect(chrome.visible)
+    chrome.autoHide(revision: previous)
+    #expect(chrome.visible)
+    chrome.autoHide(revision: chrome.revision)
+    #expect(!chrome.visible)
+}
