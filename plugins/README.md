@@ -63,6 +63,8 @@ go tool mygo vet .
 
 插件可导出 `interactionSummary({ trackId }) -> { likes?: number, comments?: number }`，返回平台公开的总点赞数、总评论数。计数为非负安全整数，字段缺失或 `null` 表示未知；不能把收藏人数、评论赞数或当前页条数当成总点赞数。移动端播放器独立加载这些计数，失败不阻塞播放；未导出时兼容读取 `comments({trackId, offset:0}).total`，不伪造未知数量。`like({id,on})` 成功后只更新已知点赞数，切歌会取消旧曲目请求。作者入口继续使用曲目 `artists[].id` 和 `artist({id})` 的现有契约。
 
+桌面视频简介使用 `artist({id, offset})` 分页展示作者作品，`offset` 从 `0` 开始。返回 `tracks` 和 `more`，可选 `nextOffset`；未返回 `more` 的插件按单页处理。分页包含过滤项时应明确返回严格递增的 `nextOffset`；请求失败应抛出错误，不应误报为没有作品。
+
 ### 目录内分类 Tab（移动端可选）
 
 `home()` / `browse({page, offset})` 可返回顶层 `tabs: [{title, page}]` 与 `selectedTab`。宿主沿用平台 Tab 的单行横滚样式，点击分类在当前目录调用 `browse` 替换内容；点击首页 `selectedTab` 对应的分类则重新调用 `home`，恢复完整首页而不降级为普通目录。切换时保留分类栏，不压入新的导航页面。`page` 是插件自己的不透明路由，宿主不解释平台参数。刷新当前分类先失效目录缓存，再请求该分类；切换期间丢弃旧请求的迟到响应。未返回该字段的旧插件行为保持兼容，桌面宿主目前忽略这个可选展示字段。

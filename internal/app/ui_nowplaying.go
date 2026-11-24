@@ -424,7 +424,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *music.Track, art *artwork, accen
 				case paneCaptions:
 					a.captionsPane(c, tr, h)
 				default:
-					a.queuePane(c)
+					a.queuePane(c, &a.queueList, &a.queueAt)
 				}
 			})
 		})
@@ -834,52 +834,55 @@ func (g *lyricGlide) step(c *ui.Context, s *ui.ScrollState) float32 {
 
 // queuePane lists the whole queue in play order, the track playing marked
 // among the others: a click plays one there, and the list stays as it is.
-func (a *app) queuePane(c *ui.Context) {
+func (a *app) queuePane(c *ui.Context, list *ui.ListState, lastPlaying *int) {
 	pl := a.pl
 	order, at := pl.PlayOrder()
 	// Opened, it shows the track playing at its top; after, it follows it
 	// as little as keeps it in view.
-	if at >= 0 && at != a.queueAt {
-		if a.queueAt < 0 {
-			a.queueList.ScrollTo(at, ui.Start)
+	if at >= 0 && at != *lastPlaying {
+		if *lastPlaying < 0 {
+			list.ScrollTo(at, ui.Start)
 		} else {
-			a.queueList.ScrollIntoView(at)
+			list.ScrollIntoView(at)
 		}
-		a.queueAt = at
+		*lastPlaying = at
 	}
-	a.queueList.Key = func(row int) any { return order[row] }
-	ui.List(c.Key("queue"), &a.queueList, len(order), func(r int) {
+	list.Key = func(row int) any { return order[row] }
+	ui.List(c.Key("queue"), list, len(order), func(r int) {
 		i := order[r]
 		tr := &pl.Queue()[i]
-		playing := r == at
-		row := ui.ButtonBase(c.Key(i)).Height(58).PaddingX(10).Gap(14).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
-			ContextMenu(a.songItems(tr, ""))
-		switch {
-		case playing:
-			row.Background(white.Alpha(0.12))
-		case row.Hovered():
-			row.Background(white.Alpha(0.08))
-		}
-		if tr.Unavailable {
-			row.Opacity(0.4)
-		}
-		row.Children(func() {
-			a.cover(c, tr.Album.ImageURL, 96, 42, 7)
-			ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
-				ui.Text(c, tr.Name).FontSize(14).FontWeight(600).SingleLine()
-				a.artistLinks(c, tr, white.Alpha(0.55), white).FontSize(12.5).SingleLine()
-			})
-			ui.Text(c, clock(tr.Length())).FontSize(12).FontFeatures("tnum").TextColor(white.Alpha(0.4))
-		})
-		if row.Clicked() && !tr.Unavailable && !playing {
-			pl.Jump(i)
-		}
+		a.playbackListRow(c.Key(i), tr, r == at, func() { pl.Jump(i) })
 	}).Grow(1).Padding(8, 0, 40, 0).Gap(2)
 	if more, loading, failed := pl.QueuePages(); more {
 		if failed {
 			ui.Button(c.Key("queue-page-retry"), T("Retry")).OnClick(pl.LoadNextQueuePage)
-		} else if _, last := a.queueList.Visible(); !loading && last == len(order)-1 && a.queueList.AtEnd() {
+		} else if _, last := list.Visible(); !loading && last == len(order)-1 && list.AtEnd() {
 			pl.LoadNextQueuePage()
 		}
+	}
+}
+
+func (a *app) playbackListRow(c *ui.Context, tr *music.Track, playing bool, play func()) {
+	row := ui.ButtonBase(c).Height(58).PaddingX(10).Gap(14).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
+		ContextMenu(a.songItems(tr, ""))
+	switch {
+	case playing:
+		row.Background(white.Alpha(0.12))
+	case row.Hovered():
+		row.Background(white.Alpha(0.08))
+	}
+	if tr.Unavailable {
+		row.Opacity(0.4)
+	}
+	row.Children(func() {
+		a.cover(c, tr.Album.ImageURL, 96, 42, 7)
+		ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
+			ui.Text(c, tr.Name).FontSize(14).FontWeight(600).SingleLine()
+			a.artistLinks(c, tr, white.Alpha(0.55), white).FontSize(12.5).SingleLine()
+		})
+		ui.Text(c, clock(tr.Length())).FontSize(12).FontFeatures("tnum").TextColor(white.Alpha(0.4))
+	})
+	if !tr.Unavailable && !playing {
+		row.OnClick(play)
 	}
 }

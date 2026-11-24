@@ -261,7 +261,7 @@ func TestVideoWindowNativePlayback(t *testing.T) {
 	if !p.Muted() || !p.Playing() {
 		t.Fatal("picture did not follow audio")
 	}
-	if err = tt.Click("Pause"); err != nil {
+	if err = tt.Click("Play/Pause"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -312,6 +312,11 @@ func TestVideoWindowNativePlayback(t *testing.T) {
 	old := i18n.Language()
 	i18n.SetLanguage(i18n.Chinese)
 	defer i18n.SetLanguage(old)
+	if dir := os.Getenv("MM_FRAMES"); dir != "" {
+		tt.SetSize(520, 320)
+		settled(tt)
+		saveFrame(t, dir, "video-window-520.png", tt.Image())
+	}
 	for _, width := range []int{880, 1180, 1500} {
 		tt.SetSize(width, 740)
 		settled(tt)

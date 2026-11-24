@@ -159,8 +159,12 @@ func (p *Plugin) Album(id string) (*music.AlbumPage, error) {
 }
 
 func (p *Plugin) Artist(id string) (*music.ArtistPage, error) {
+	return p.ArtistPage(id, 0)
+}
+
+func (p *Plugin) ArtistPage(id string, offset int) (*music.ArtistPage, error) {
 	var a music.ArtistPage
-	if err := p.call("artist", map[string]string{"id": id}, &a); err != nil {
+	if err := p.call("artist", map[string]any{"id": id, "offset": offset}, &a); err != nil {
 		return nil, err
 	}
 	p.stamp(a.Tracks)

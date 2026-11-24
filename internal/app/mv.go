@@ -24,7 +24,11 @@ type mvState struct {
 	openGen        int
 	openPending    bool
 	detailTab      int
-	detailScroll   ui.ScrollState
+	hideSidebar    bool
+	queueList      ui.ListState
+	queueAt        int
+	aboutList      ui.ListState
+	author         *videoAuthorState
 	commentsScroll ui.ScrollState
 	pinned         bool
 	lastSeek       time.Time
@@ -81,9 +85,11 @@ func (a *app) openMVWindow(large bool) {
 		Content: ui.View(a.mvView),
 	}
 	if large {
+		m.hideSidebar, m.detailTab, m.queueAt = false, videoTabQueue, -1
+		m.queueList, m.aboutList = ui.ListState{}, ui.ListState{}
 		opts = mygo.WindowOptions{
 			Title: T("Video Playback"), Width: 1180, Height: 740,
-			MinWidth: 880, MinHeight: 540, StateKey: "video-player",
+			MinWidth: 520, MinHeight: 320, StateKey: "video-player",
 			TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 52,
 			TrafficLightPosition: &mygo.Point{X: 18, Y: 18},
 			BackgroundColor:      "#141416", AutoHideMenuBar: true,
@@ -108,6 +114,7 @@ func (a *app) closedMV(win *mygo.Window) {
 	m.win = nil
 	m.openGen++
 	m.openPending = false
+	m.author = nil
 	m.release()
 	m.key = ""
 	m.large = false
@@ -121,7 +128,7 @@ func (a *app) closedMV(win *mygo.Window) {
 func (a *app) loadMV(key string) {
 	m := &a.mv
 	if m.key != key {
-		m.detailScroll, m.commentsScroll = ui.ScrollState{}, ui.ScrollState{}
+		m.aboutList, m.commentsScroll = ui.ListState{}, ui.ScrollState{}
 		m.refreshUsed = false
 	}
 	m.release()
@@ -253,6 +260,11 @@ func (a *app) mvView(c *ui.Context) {
 	m := &a.mv
 	white := ui.RGB(255, 255, 255)
 	black := ui.RGBA(0, 0, 0, 115)
+	accent := ui.RGB(255, 75, 105)
+	volumeWidth := float32(105)
+	if width, _ := c.Size(); m.large && width < 600 {
+		volumeWidth = 72
+	}
 	root := ui.Box(c).Fill().Background(ui.RGB(0, 0, 0))
 	controlsVisible := root.Hovered() || !a.pl.Playing() || m.video == nil || !m.video.Ready()
 	visibility := float32(0)
@@ -331,14 +343,17 @@ func (a *app) mvView(c *ui.Context) {
 			if line := currentLyric(lines, a.pl.Position()); line != "" {
 				ui.Text(c, line).TextColor(white).FontSize(13).TextAlign(ui.Center).SingleLine().AlignSelf(ui.Stretch)
 			}
-			a.scrubber(c.Key("mv-progress"), &m.scrub, white.Alpha(0.25), ui.RGB(255, 75, 105), 14, ui.Color{}).AlignSelf(ui.Stretch)
+			a.scrubber(c.Key("mv-progress"), &m.scrub, white.Alpha(0.25), accent, 14, ui.Color{}).AlignSelf(ui.Stretch)
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, clock(a.pl.Position())+" / "+clock(a.pl.Duration())).FontSize(11).FontFeatures("tnum").TextColor(white)
 				ui.Box(c).Grow(1)
 				if track := a.pl.Current(); track != nil {
+					if m.large {
+						a.transport(c.Key("mv-footer-transport"), white, white.Alpha(0.65), accent, 18)
+					}
 					a.likeButton(c.Key("mv-like"), track, 17, white)
 				}
-				a.volumeSlider(c.Key("mv-volume"), white, white.Alpha(0.25), 105)
+				a.volumeSlider(c.Key("mv-volume"), white, white.Alpha(0.25), volumeWidth)
 				if m.large {
 					iconButton(c.Key("mv-full"), iconExpand, 17, white, T("Full Screen MV")).OnClick(func() {
 						if m.win != nil {

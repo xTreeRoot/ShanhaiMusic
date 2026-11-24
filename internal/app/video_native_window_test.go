@@ -174,9 +174,10 @@ func exerciseNativeVideoWindows(a *app, gate chan struct{}, requested <-chan str
 		return err
 	}
 	var videoWindow *mygo.Window
+	var decoder *ui.VideoPlayer
 	if err := check(func() error {
 		videoWindow = a.mv.win
-		a.mv.video.SetLoop(true)
+		decoder = a.mv.video.SetLoop(true)
 		a.nowPlaying = true
 		a.syncInlineMV()
 		a.redraw()
@@ -187,14 +188,31 @@ func exerciseNativeVideoWindows(a *app, gate chan struct{}, requested <-chan str
 	}); err != nil {
 		return err
 	}
-	// Capture the actual native window, with the real decoded picture.
-	if dir := os.Getenv("MM_FRAMES"); dir != "" {
-		png, err := videoWindow.CapturePage()
-		if err != nil {
+	for _, size := range []struct {
+		width, height int
+		name          string
+	}{{520, 320, "compact"}, {1180, 740, "expanded"}} {
+		if err := check(func() error {
+			if !videoWindow.IsResizable() {
+				return fmt.Errorf("video window is not resizable")
+			}
+			videoWindow.SetContentSize(size.width, size.height)
+			bounds := videoWindow.ContentBounds()
+			if bounds.Width != size.width || bounds.Height != size.height || a.mv.video != decoder {
+				return fmt.Errorf("resize to %s: bounds %+v or decoder changed", size.name, bounds)
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
-		if err = os.WriteFile(filepath.Join(dir, "native-video-window.png"), png, 0o644); err != nil {
-			return err
+		if dir := os.Getenv("MM_FRAMES"); dir != "" {
+			png, err := videoWindow.CapturePage()
+			if err != nil {
+				return err
+			}
+			if err = os.WriteFile(filepath.Join(dir, "native-video-"+size.name+".png"), png, 0o644); err != nil {
+				return err
+			}
 		}
 	}
 	if err := check(func() error {

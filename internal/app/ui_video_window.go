@@ -2,6 +2,17 @@ package app
 
 import "github.com/egoist/mygo/ui"
 
+const (
+	videoSidebarMinWidth  = 1040
+	videoSidebarMinHeight = 560
+)
+
+const (
+	videoTabQueue = iota
+	videoTabAbout
+	videoTabComments
+)
+
 // videoWindowView keeps browsing in the main window and the picture, transport,
 // description and comments in one independent desktop playback window.
 func (a *app) videoWindowView(c *ui.Context) {
@@ -9,20 +20,23 @@ func (a *app) videoWindowView(c *ui.Context) {
 	theme := ui.DarkTheme()
 	c.SetTheme(theme)
 	full := m.win != nil && m.win.IsFullScreen()
+	width, height := c.Size()
+	room := width >= videoSidebarMinWidth && height >= videoSidebarMinHeight
+	sidebar := room && !m.hideSidebar && a.pl.Current() != nil
 	ui.Column(c).Fill().Background(ui.RGB(20, 20, 22)).Children(func() {
 		if !full {
-			a.videoWindowHeader(c)
+			a.videoWindowHeader(c, room, sidebar)
 		}
 		ui.Row(c.Key("video-body")).Grow(1).MinHeight(0).AlignSelf(ui.Stretch).AlignItems(ui.Stretch).Children(func() {
 			ui.Box(c.Key("picture")).Grow(1).Shrink(1).MinWidth(0).Children(func() { a.mvView(c) })
-			if !full && a.pl.Current() != nil {
+			if !full && sidebar {
 				a.videoDetails(c)
 			}
 		})
 	})
 }
 
-func (a *app) videoWindowHeader(c *ui.Context) {
+func (a *app) videoWindowHeader(c *ui.Context, room, sidebar bool) {
 	m := &a.mv
 	ui.Row(c.Key("video-header")).Height(52).AlignSelf(ui.Stretch).
 		Padding(0, max(16, c.TitleBar().Right+12), 0, max(16, c.TitleBar().Left+12)).
@@ -33,6 +47,15 @@ func (a *app) videoWindowHeader(c *ui.Context) {
 			title = track.Name
 		}
 		ui.Text(c, title).Grow(1).Shrink(1).MinWidth(0).SingleLine().FontSize(13).TextColor(white.Alpha(0.7))
+		if a.pl.Current() != nil && room {
+			label, color := T("Show Sidebar"), white.Alpha(0.65)
+			if sidebar {
+				label, color = T("Hide Sidebar"), white
+			}
+			iconButton(c.Key("sidebar"), iconSidebar, 17, color, label).OnClick(func() {
+				m.hideSidebar = sidebar
+			})
+		}
 		pin := white.Alpha(0.65)
 		if m.pinned {
 			pin = ui.RGB(255, 100, 115)
@@ -54,28 +77,23 @@ func (a *app) videoWindowHeader(c *ui.Context) {
 func (a *app) videoDetails(c *ui.Context) {
 	m, track := &a.mv, a.pl.Current()
 	lib := a.trackLib(track)
-	ui.Column(c.Key("video-details")).Width(300).Padding(18, 16).Gap(16).
+	ui.Column(c.Key("video-details")).Width(300).Shrink(0).Padding(16, 12, 0, 12).Gap(8).
 		Background(ui.RGB(27, 27, 30)).Children(func() {
-		labels := []string{T("About")}
+		labels := []string{T("Play Queue"), T("About")}
 		if lib.can("comments") {
 			labels = append(labels, T("Comments"))
-		} else {
-			m.detailTab = 0
+		} else if m.detailTab == videoTabComments {
+			m.detailTab = videoTabAbout
 		}
 		segmented(c.Key("detail-tabs"), &m.detailTab, labels...)
-		if m.detailTab == 1 {
+		switch m.detailTab {
+		case videoTabQueue:
+			a.queuePane(c, &m.queueList, &m.queueAt)
+		case videoTabAbout:
+			a.videoAbout(c, track)
+		case videoTabComments:
 			a.commentsPaneScroll(c, track, &m.commentsScroll)
-			return
 		}
-		ui.Scroll(c.Key("description")).Grow(1).TrackScroll(&m.detailScroll).Children(func() {
-			ui.Column(c).Gap(14).Children(func() {
-				ui.Text(c, track.Name).FontSize(18).FontWeight(650).TextColor(white.Alpha(0.95))
-				ui.Text(c, artistNames(track.Artists)).FontSize(13).TextColor(white.Alpha(0.6))
-				if track.Description != "" {
-					ui.Text(c, track.Description).FontSize(13).LineHeight(1.6).TextColor(white.Alpha(0.7))
-				}
-			})
-		})
 	})
 }
 

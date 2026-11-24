@@ -340,6 +340,7 @@ func (a *app) transport(c *ui.Context, color, dim, on ui.Color, size float32) {
 		}
 		if iconButton(c.Key("shuffle"), iconShuffle, size*0.62, shuffle, T("Shuffle")).Clicked() {
 			pl.ToggleShuffle()
+			a.redraw()
 		}
 		if iconButton(c.Key("prev"), iconPrev, size*0.85, color, T("Previous")).Clicked() {
 			pl.Prev()
@@ -359,6 +360,7 @@ func (a *app) transport(c *ui.Context, color, dim, on ui.Color, size float32) {
 		}
 		if iconButton(c.Key("repeat"), ricon, size*0.62, repeat, T("Repeat")).Clicked() {
 			pl.CycleRepeat()
+			a.redraw()
 		}
 	})
 }

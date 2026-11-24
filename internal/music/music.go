@@ -94,9 +94,16 @@ type PlaylistPager interface {
 
 // ArtistPage is what an artist's page shows.
 type ArtistPage struct {
-	Artist Artist  `json:"artist"`
-	Tracks []Track `json:"tracks,omitempty"`
-	Albums []Album `json:"albums,omitempty"`
+	Artist     Artist  `json:"artist"`
+	Tracks     []Track `json:"tracks,omitempty"`
+	Albums     []Album `json:"albums,omitempty"`
+	More       bool    `json:"more,omitempty"`
+	NextOffset int     `json:"nextOffset,omitempty"`
+	Empty      string  `json:"empty,omitempty"`
+}
+
+type ArtistPager interface {
+	ArtistPage(id string, offset int) (*ArtistPage, error)
 }
 
 // AlbumPage is what an album's page shows.
