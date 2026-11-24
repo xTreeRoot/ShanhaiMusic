@@ -2,6 +2,7 @@ import MBFoundation
 import SwiftUI
 
 struct MiniPlayerView: View {
+    @Environment(\.skinAccent) private var skinAccent
     let playback: PlaybackModel
     var systemContainer = false
     var transitionEnabled = false
@@ -19,7 +20,7 @@ struct MiniPlayerView: View {
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(0.06)))
                 .overlay(alignment: .bottomLeading) {
                     GeometryReader { area in
-                        Capsule().fill(MBTheme.accent.opacity(0.5)).frame(width: area.size.width * min(1, max(0, Double(playback.positionMilliseconds) / Double(max(1, playback.durationMilliseconds)))), height: 2).offset(y: area.size.height - 2)
+                        Capsule().fill(skinAccent.opacity(0.5)).frame(width: area.size.width * min(1, max(0, Double(playback.positionMilliseconds) / Double(max(1, playback.durationMilliseconds)))), height: 2).offset(y: area.size.height - 2)
                     }.clipped().allowsHitTesting(false).accessibilityHidden(true)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -58,4 +59,3 @@ struct MiniPlayerView: View {
         .accessibilityIdentifier("mini-player")
     }
 }
-

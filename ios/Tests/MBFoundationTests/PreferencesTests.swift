@@ -8,6 +8,7 @@ import Testing
     let store = AppPersistence(directory: directory)
     let media = MediaLibrary(directory: directory.appendingPathComponent("media"))
     let model = PreferencesModel(store: store, media: media)
+    await model.restore()
     for index in 0..<30 { model.recordSearch("\(index)") }
     model.recordSearch("  20 \n")
     model.recordSearch(" \n ")
@@ -43,6 +44,25 @@ import Testing
     #expect(!restored.values.nowPlayingLyrics)
 }
 
+@Test @MainActor func preferencesDoNotOverwriteSavedValuesWhileStartupIsStillRestoring() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = AppPersistence(directory: directory)
+    var saved = AppPreferences()
+    saved.selectedSourceID = "source-fixture"; saved.searchHistory = ["saved term"]
+    saved.quality = .lossless; saved.fog = true
+    try await store.savePreferences(saved)
+    let model = PreferencesModel(store: store, media: MediaLibrary(directory: directory.appendingPathComponent("media")))
+    model.values.selectedSourceID = "temporary-startup-source"
+    await model.flush()
+    #expect(try await store.loadPreferences() == saved)
+    await model.restore()
+    #expect(model.isRestored)
+    #expect(model.values == saved)
+    model.values.volume = 0.42; await model.flush()
+    #expect(try await store.loadPreferences()?.volume == 0.42)
+}
+
 @Test func olderPreferencesEnableNowPlayingLyricsAndPreserveExplicitOptOut() throws {
     let older = try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"volume":0.4}"#.utf8))
     #expect(older.nowPlayingLyrics)
@@ -51,6 +71,14 @@ import Testing
     disabled.nowPlayingLyrics = false
     let restored = try JSONDecoder().decode(AppPreferences.self, from: JSONEncoder().encode(disabled))
     #expect(!restored.nowPlayingLyrics)
+}
+
+@Test func sourceSwitchPausePreferenceMigratesAndPersistsWithoutLosingSavedSettings() throws {
+    let old = try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"volume":0.27,"selectedSourceID":"saved"}"#.utf8))
+    #expect(!old.pauseOtherSourcesOnSwitch)
+    var changed = old; changed.pauseOtherSourcesOnSwitch = true
+    let restored = try JSONDecoder().decode(AppPreferences.self, from: JSONEncoder().encode(changed))
+    #expect(restored == changed)
 }
 
 @MainActor private final class EventAudio: AudioEngine, AudioEngineEvents, AudioEngineVolume {
@@ -113,7 +141,7 @@ private actor StreamingSource: PlaybackSource {
     var local: URL?
     func load(resource: MediaResource, at milliseconds: Int64) throws {
         remote = resource
-        if rejectRange { throw URLError(.badServerResponse) }
+        if rejectRange { throw MediaStreamingFailure.rangeStatus(200) }
     }
     func load(url: URL, at milliseconds: Int64) { local = url }
     func play() {}
@@ -143,4 +171,22 @@ private actor StreamingSource: PlaybackSource {
     #expect(model.state == .playing)
     #expect(engine.local != nil)
     #expect(await source.downloads == 1)
+}
+
+@Test @MainActor func automaticUpdateOptOutSurvivesRestartWithoutLosingExistingPreferences() async throws {
+    let old = try JSONDecoder().decode(AppPreferences.self, from: Data("{\"volume\":0.27,\"searchHistory\":[\"saved\"]}".utf8))
+    #expect(old.automaticUpdateChecks)
+    var disabled = old; disabled.automaticUpdateChecks = false
+    let restored = try JSONDecoder().decode(AppPreferences.self, from: JSONEncoder().encode(disabled))
+    #expect(!restored.automaticUpdateChecks && restored.volume == 0.27 && restored.searchHistory == ["saved"])
+}
+
+@Test func backgroundOpacityMigratesClampsAndPersistsAlongsideExistingSettings() throws {
+    let old = try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"volume":0.27}"#.utf8))
+    #expect(old.backgroundOpacity == nil)
+    var changed = old; changed.backgroundOpacity = 0.65
+    let restored = try JSONDecoder().decode(AppPreferences.self, from: JSONEncoder().encode(changed))
+    #expect(restored.backgroundOpacity == 0.65 && restored.volume == 0.27)
+    #expect(try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"backgroundOpacity":2}"#.utf8)).backgroundOpacity == 1)
+    #expect(try JSONDecoder().decode(AppPreferences.self, from: Data(#"{"backgroundOpacity":-1}"#.utf8)).backgroundOpacity == 0)
 }

@@ -6,6 +6,7 @@ public struct InstalledPlugin: Identifiable, Sendable {
     public let directory: URL
     public let dataDirectory: URL
     public var repository: String? = nil
+    var revision: String? = nil
     public var id: String { manifest.id }
 }
 public struct PendingPlugin: Identifiable, Sendable {
@@ -13,13 +14,87 @@ public struct PendingPlugin: Identifiable, Sendable {
     public let manifest: PluginManifest
     let directory: URL
     var repository: String? = nil
+    var revision: String? = nil
+    public var releaseNotes: String? = nil
 }
 
 /// 安装先在临时目录检查，确认后原子替换代码，账号与设置留在独立数据目录。
 public actor PluginInstaller {
+    private struct Origin: Codable { let repository: String?; let revision: String? }
+    private struct Release: Sendable {
+        let revision: String
+        let address: URL
+        let notes: String?
+    }
+    private lazy var preferenceCache = PluginPreferenceCache(root: root)
+    private lazy var discoveryCache = DiscoveryPreferenceCache(root: root.appendingPathComponent("discovery"))
     private let root: URL
+    private let fetch: @Sendable (URLRequest, Int) async throws -> (Data, URLResponse)
     public init(directory: URL? = nil) {
         root = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MBMobile/plugins")
+        fetch = { try await NetworkClient.shared.data(for: $0, maximumBytes: $1) }
+    }
+    init(directory: URL, fetch: @escaping @Sendable (URLRequest, Int) async throws -> (Data, URLResponse)) {
+        root = directory; self.fetch = fetch
+    }
+    private func migratePreferences(_ writer: String) throws -> PluginPreferences {
+        var document = PluginPreferences()
+        let presentationFile = root.appendingPathComponent("presentation.json")
+        if FileManager.default.fileExists(atPath: presentationFile.path) {
+            let old = try JSONDecoder().decode(PluginPresentation.self, from: Data(contentsOf: presentationFile))
+            for id in old.names.keys.sorted() { document = try document.withName(id: id, name: old.names[id]!, writer: writer) }
+            if !old.order.isEmpty { document = try document.withOrder(old.order, writer: writer) }
+        }
+        let disabledFile = root.appendingPathComponent("disabled.json")
+        let disabled = FileManager.default.fileExists(atPath: disabledFile.path) ? try JSONDecoder().decode(Set<String>.self, from: Data(contentsOf: disabledFile)) : []
+        for id in disabled.sorted() {
+            document = try document.withEnabled(id: id, enabled: false, writer: writer)
+        }
+        return document
+    }
+    public func pluginPreferences() throws -> PluginPreferences { try preferenceCache.load(migrate: migratePreferences) }
+    public func mergePluginPreferences(_ remote: PluginPreferences) throws -> PluginPreferences {
+        try Task.checkCancellation()
+        return try preferenceCache.update(migrate: migratePreferences) { current, _ in try current.merged(with: remote) }
+    }
+    public func discoveryPreferences() throws -> DiscoveryPreferences { try discoveryCache.load { _ in DiscoveryPreferences() } }
+    public func mergeDiscoveryPreferences(_ remote: DiscoveryPreferences) throws -> DiscoveryPreferences {
+        try Task.checkCancellation()
+        return try discoveryCache.update(migrate: { _ in DiscoveryPreferences() }) { current, _ in try current.merged(with: remote) }
+    }
+    public func saveDiscovery(_ plugin: String, before: DiscoveryPreferences.Selection, draft: DiscoveryPreferences.Selection) throws -> DiscoveryPreferences {
+        try discoveryCache.update(migrate: { _ in DiscoveryPreferences() }) { current, writer in try current.edited(plugin: plugin, before: before, draft: draft, writer: writer) }
+    }
+    public func presentation() throws -> PluginPresentation {
+        let preferences = try pluginPreferences()
+        var result = PluginPresentation()
+        result.names = preferences.names.compactMapValues { $0.value.isEmpty ? nil : $0.value }
+        result.order = preferences.order?.value ?? []
+        return result
+    }
+    public func rename(_ id: String, to rawName: String) throws {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try preferenceCache.update(migrate: migratePreferences) { current, writer in
+            if current.names[id]?.value == name { return current }
+            return try current.withName(id: id, name: name, writer: writer)
+        }
+    }
+    public func saveOrder(_ ids: [String]) throws {
+        _ = try preferenceCache.update(migrate: migratePreferences) { current, writer in
+            let order = preservingMissingPluginOrder(current.order?.value ?? [], visible: ids)
+            return current.order?.value == order ? current : try current.withOrder(order, writer: writer)
+        }
+    }
+    public func savePresentation(_ value: PluginPresentation) throws {
+        _ = try preferenceCache.update(migrate: migratePreferences) { current, writer in
+            var next = current
+            for id in Set(current.names.keys).union(value.names.keys).sorted() {
+                let name = value.names[id] ?? ""
+                if (current.names[id]?.value ?? "") != name { next = try next.withName(id: id, name: name, writer: writer) }
+            }
+            if (current.order?.value ?? []) != value.order { next = try next.withOrder(value.order, writer: writer) }
+            return next
+        }
     }
     public func installed() throws -> [InstalledPlugin] {
         let folder = root.appendingPathComponent("installed")
@@ -28,12 +103,17 @@ public actor PluginInstaller {
             let manifest = try readManifest(directory)
             guard directory.lastPathComponent == manifest.id else { throw PluginFailure.invalid("Plugin folder ID mismatch") }
             let data = root.appendingPathComponent("data/" + manifest.id)
-            let repo = try? String(contentsOf: data.appendingPathComponent("repository.txt"), encoding: .utf8)
-            return InstalledPlugin(manifest: manifest, directory: directory, dataDirectory: data, repository: repo)
+            let originFile = directory.appendingPathComponent(".mb-origin.json")
+            let origin: Origin
+            if let bytes = try? Data(contentsOf: originFile) { origin = try JSONDecoder().decode(Origin.self, from: bytes) }
+            else { origin = Origin(repository: try? String(contentsOf: data.appendingPathComponent("repository.txt"), encoding: .utf8), revision: nil) }
+            return InstalledPlugin(manifest: manifest, directory: directory, dataDirectory: data,
+                                   repository: origin.repository.flatMap(Self.normalizedRepository), revision: origin.revision)
         }.sorted { $0.manifest.displayName.localizedStandardCompare($1.manifest.displayName) == .orderedAscending }
     }
     public func prepare(_ input: URL) throws -> PendingPlugin {
-        let id = UUID(), staging = root.appendingPathComponent("pending/" + UUID().uuidString)
+        let id = UUID()
+        let staging = root.appendingPathComponent("pending/" + id.uuidString)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         do {
             let values = try input.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
@@ -58,46 +138,74 @@ public actor PluginInstaller {
         return repo
     }
     public func prepareGitHub(_ input: String) async throws -> PendingPlugin {
-        let repo: String
+        guard let repo = Self.normalizedRepository(input) else { throw PluginFailure.invalid("Use owner/repository or a GitHub repository URL") }
+        return try await prepareGitHub(repo, release: latest(repo))
+    }
+
+    static func normalizedRepository(_ input: String) -> String? {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.hasPrefix("https://github.com/"), let url = URL(string: text) { repo = url.path.split(separator: "/").prefix(2).joined(separator: "/") }
-        else { repo = text }
-        guard repo.range(of: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", options: .regularExpression) != nil, !repo.contains("..") else { throw PluginFailure.invalid("Use owner/repository or a GitHub repository URL") }
-        func github(_ address: String) async throws -> (Data, HTTPURLResponse) {
-            var request = URLRequest(url: URL(string: address)!)
-            request.setValue("MB-iOS", forHTTPHeaderField: "User-Agent")
-            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-            let (data, response) = try await NetworkClient.shared.data(for: request, maximumBytes: 64 * 1_024 * 1_024)
-            guard let response = response as? HTTPURLResponse else { throw NetworkFailure.response }
-            return (data, response)
+        var repo = text
+        if text.contains("://") {
+            guard let url = URL(string: text), url.scheme == "https", url.host == "github.com",
+                  url.user == nil, url.password == nil, url.port == nil, url.query == nil, url.fragment == nil else { return nil }
+            let parts = url.path.split(separator: "/")
+            guard parts.count == 2 else { return nil }
+            repo = parts.joined(separator: "/")
         }
-        let (data, response) = try await github("https://api.github.com/repos/" + repo + "/releases/latest")
-        let address: String
-        if response.statusCode == 404 {
-            let (data, response) = try await github("https://api.github.com/repos/" + repo)
-            guard response.statusCode == 200 else { throw NetworkFailure.http(response.statusCode) }
-            let value = try JSONDecoder().decode(PluginJSON.self, from: data)
-            guard let branch = value["default_branch"].string, let escaped = branch.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { throw NetworkFailure.response }
-            address = "https://api.github.com/repos/" + repo + "/zipball/" + escaped
-        } else {
-            guard response.statusCode == 200 else { throw NetworkFailure.http(response.statusCode) }
-            let value = try JSONDecoder().decode(PluginJSON.self, from: data)
-            guard let zip = value["zipball_url"].string, zip.hasPrefix("https://api.github.com/") else { throw NetworkFailure.response }
-            let assets = value["assets"].array
-            if let index = Self.assetIndex(assets.map { $0["name"].string ?? "" }), let asset = assets[index]["browser_download_url"].string, let url = URL(string: asset), url.scheme == "https", url.host == "github.com" {
-                address = asset
-            } else { address = zip }
-        }
-        var request = URLRequest(url: URL(string: address)!)
+        if repo.hasSuffix(".git") { repo = String(repo.dropLast(4)) }
+        guard repo.range(of: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", options: .regularExpression) != nil, !repo.contains("..") else { return nil }
+        return repo
+    }
+
+    private func githubMetadata(_ address: URL, allowMissing: Bool = false) async throws -> PluginJSON? {
+        var request = URLRequest(url: address)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("MB-iOS", forHTTPHeaderField: "User-Agent")
-        let (bytes, result) = try await NetworkClient.shared.data(for: request, maximumBytes: 64 * 1_024 * 1_024)
-        guard let response = result as? HTTPURLResponse, response.statusCode == 200 else { throw NetworkFailure.response }
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await fetch(request, 2 * 1_024 * 1_024)
+        guard let response = response as? HTTPURLResponse else { throw NetworkFailure.response }
+        if allowMissing, response.statusCode == 404 { return nil }
+        guard response.statusCode == 200 else { throw NetworkFailure.http(response.statusCode) }
+        return try JSONDecoder().decode(PluginJSON.self, from: data)
+    }
+
+    private func latest(_ repo: String) async throws -> Release {
+        let base = "https://api.github.com/repos/" + repo
+        let universalName = "plugin-universal.zip"
+        if let release = try await githubMetadata(URL(string: base + "/releases/latest")!, allowMissing: true),
+           let asset = release["assets"].array.first(where: { $0["name"].string == universalName }) {
+            guard case .number(let identifier) = asset["id"], let assetID = Int64(exactly: identifier), assetID > 0,
+                  let tag = release["tag_name"].string, tag.range(of: #"\A[A-Za-z0-9][A-Za-z0-9._-]*\z"#, options: .regularExpression) != nil,
+                  let url = URL(string: "https://github.com/\(repo)/releases/download/\(tag)/\(universalName)") else { throw NetworkFailure.response }
+            return Release(revision: "asset-\(assetID)", address: url, notes: release["body"].string)
+        }
+        guard let value = try await githubMetadata(URL(string: base + "/commits/HEAD")!) else { throw NetworkFailure.response }
+        guard let sha = value["sha"].string, sha.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil,
+              let url = URL(string: base + "/zipball/" + sha) else { throw NetworkFailure.response }
+        return Release(revision: sha, address: url, notes: value["commit"]["message"].string)
+    }
+
+    private func prepareGitHub(_ repo: String, release: Release) async throws -> PendingPlugin {
+        var request = URLRequest(url: release.address)
+        request.setValue("MB-iOS", forHTTPHeaderField: "User-Agent")
+        let (bytes, result) = try await fetch(request, 64 * 1_024 * 1_024)
+        guard let response = result as? HTTPURLResponse else { throw NetworkFailure.response }
+        guard response.statusCode == 200 else { throw NetworkFailure.http(response.statusCode) }
         guard bytes.count <= 64 * 1_024 * 1_024 else { throw PluginFailure.invalid("Plugin archive exceeds 64 MB") }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
         defer { try? FileManager.default.removeItem(at: file) }
         try bytes.write(to: file)
-        var pending = try prepare(file); pending.repository = repo; return pending
+        var pending = try prepare(file); pending.repository = repo; pending.revision = release.revision
+        pending.releaseNotes = release.notes
+        return pending
     }
+
+    /// 来源和 ID 都相同才覆盖；版本号相同但提交不同也属于更新。
+    static func isSameRevision(_ pending: PendingPlugin, as plugin: InstalledPlugin) -> Bool {
+        guard let current = plugin.revision, let next = pending.revision else { return false }
+        return current == next && plugin.repository.flatMap(normalizedRepository)?.lowercased() == pending.repository.flatMap(normalizedRepository)?.lowercased()
+    }
+
     static func assetIndex(_ names: [String]) -> Int? {
         var general: Int?
         for (index, name) in names.enumerated() {
@@ -109,54 +217,48 @@ public actor PluginInstaller {
         return general
     }
     public func install(_ pending: PendingPlugin) throws -> InstalledPlugin {
+        try install(pending, requireSameRepository: false)
+    }
+
+    func install(_ pending: PendingPlugin, requireSameRepository: Bool) throws -> InstalledPlugin {
         let manifest = try readManifest(pending.directory)
         guard manifest.id == pending.manifest.id else { throw PluginFailure.invalid("Plugin changed during installation") }
         let folder = root.appendingPathComponent("installed"), destination = folder.appendingPathComponent(manifest.id)
+        let data = root.appendingPathComponent("data/" + manifest.id)
+        if requireSameRepository, let previous = try installed().first(where: { $0.id.caseInsensitiveCompare(manifest.id) == .orderedSame }) {
+            guard previous.id == manifest.id, let repository = pending.repository,
+                  previous.repository?.caseInsensitiveCompare(repository) == .orderedSame else {
+                throw PluginFailure.invalid(AppLocalization.text("该插件 ID 已被其他来源占用"))
+            }
+        }
+        let existing = try installed()
+        if let previous = existing.first(where: { $0.id == manifest.id }), previous.manifest.displayName != manifest.displayName {
+            var display = try presentation()
+            display.order = display.sorted(existing).map(\.id)
+            try savePresentation(display)
+        }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        let origin = Origin(repository: pending.repository, revision: pending.revision)
+        try JSONEncoder().encode(origin).write(to: pending.directory.appendingPathComponent(".mb-origin.json"), options: .atomic)
         if FileManager.default.fileExists(atPath: destination.path) { _ = try FileManager.default.replaceItemAt(destination, withItemAt: pending.directory) }
         else { try FileManager.default.moveItem(at: pending.directory, to: destination) }
-        let data = root.appendingPathComponent("data/" + manifest.id)
-        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
-        if let repo = pending.repository { try repo.write(to: data.appendingPathComponent("repository.txt"), atomically: true, encoding: .utf8) }
-        let repo = try? String(contentsOf: data.appendingPathComponent("repository.txt"), encoding: .utf8)
-        return InstalledPlugin(manifest: manifest, directory: destination, dataDirectory: data, repository: repo)
+        discard(pending)
+        return InstalledPlugin(manifest: manifest, directory: destination, dataDirectory: data, repository: origin.repository, revision: origin.revision)
     }
-    public func discard(_ pending: PendingPlugin) { try? FileManager.default.removeItem(at: pending.directory) }
+    public func discard(_ pending: PendingPlugin) { try? FileManager.default.removeItem(at: root.appendingPathComponent("pending/" + pending.id.uuidString)) }
     public func remove(_ plugin: InstalledPlugin) throws { try FileManager.default.removeItem(at: plugin.directory) }
-    public func checkUpdates(now: Date = Date()) async throws -> [String: String] {
-        struct State: Codable { var checked: Date; var versions: [String: String] }
-        let file = root.appendingPathComponent("updates.json")
-        if let data = try? Data(contentsOf: file), let state = try? JSONDecoder().decode(State.self, from: data), now.timeIntervalSince(state.checked) < 86_400 { return state.versions }
-        var found: [String: String] = [:]
-        for plugin in try installed() {
-            guard let repo = plugin.repository else { continue }
-            do {
-                var request = URLRequest(url: URL(string: "https://api.github.com/repos/" + repo + "/releases/latest")!)
-                request.setValue("MB-iOS", forHTTPHeaderField: "User-Agent")
-                let (data, response) = try await NetworkClient.shared.data(for: request)
-                guard (response as? HTTPURLResponse)?.statusCode == 200 else { continue }
-                let value = try JSONDecoder().decode(PluginJSON.self, from: data)
-                if let tag = value["tag_name"].string, Self.isNewer(tag, than: plugin.manifest.version ?? "0.0.0") { found[plugin.id] = tag }
-            } catch { if Task.isCancelled { throw CancellationError() } }
-        }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try JSONEncoder().encode(State(checked: now, versions: found)).write(to: file, options: .atomic)
-        return found
-    }
     static func isNewer(_ version: String, than current: String) -> Bool {
         let version = version.hasPrefix("v") ? String(version.dropFirst()) : version
         let current = current.hasPrefix("v") ? String(current.dropFirst()) : current
         return version.compare(current, options: .numeric) == .orderedDescending
     }
-    public func disabled() throws -> Set<String> {
-        let file = root.appendingPathComponent("disabled.json")
-        return FileManager.default.fileExists(atPath: file.path) ? try JSONDecoder().decode(Set<String>.self, from: Data(contentsOf: file)) : []
-    }
+    public func disabled() throws -> Set<String> { Set(try pluginPreferences().enabled.filter { !$0.value.value }.keys) }
     public func setEnabled(_ id: String, enabled: Bool) throws {
-        var values = try disabled()
-        if enabled { values.remove(id) } else { values.insert(id) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try JSONEncoder().encode(values).write(to: root.appendingPathComponent("disabled.json"), options: .atomic)
+        _ = try preferenceCache.update(migrate: migratePreferences) { current, writer in
+            if current.enabled[id]?.value == enabled { return current }
+            return try current.withEnabled(id: id, enabled: enabled, writer: writer)
+        }
     }
     public func settings(for plugin: InstalledPlugin) throws -> [String: String] {
         let file = plugin.dataDirectory.appendingPathComponent("settings.json")

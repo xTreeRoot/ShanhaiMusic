@@ -1,0 +1,13 @@
+{
+  "ios/MBiOS.xcodeproj/project.pbxproj": "c50715aaa98d692df14b4263aa72eb154b4a20f1863a22369bb63de62275b8ed",
+  "ios/MBiOSUITests/MBiOSUITests.swift": "29f2b69687b22f33e03ff37b484b2b58cb7567e866af728d095d7fa8de253c5c",
+  "ios/Sources/MBFoundation/AccountModel.swift": "8a2750f8364aecf705151e269688f19f9eff66c76f01fa1d5b2eb88579285a5e",
+  "ios/Sources/MBFoundation/AccountSource.swift": "a1ec7e10b0ee93d4c6e131e243836faf97a4e1695d9d3b7445355cd0dd3421d8",
+  "ios/Sources/MBFoundation/PluginRuntime.swift": "06519cd0acb15b70e8dfc918a189fc57b044ae16bd5d75ac990c84e330b82999",
+  "ios/Sources/MBFoundation/PluginSource.swift": "b510e1e5e38bc71b900656fa8d29470066111224cc7959b4d20b1e659c254181",
+  "ios/Sources/MBInterface/AccountLibraryView.swift": "b8bdf5869d86da5f2078c628c422616680c0eec1d7af227bd02c070c1992cb0a",
+  "ios/Sources/MBInterface/DemoCatalog.swift": "9badb3d1907608a1d9afbe4d176fbba9b1633b7d95f6c02dbad253853e2957c6",
+  "ios/Tests/MBFoundationTests/AccountModelTests.swift": "918266465b20ee2278e7222a31a4a1b95a0fcd5c071739bd0d6390be7ce68798",
+  "ios/Tests/MBFoundationTests/PluginRuntimeTests.swift": "0ab21e8508804f8278c8680393bf383a2f282570e46b72d925b8a3aa6ad6b22f",
+  "plugins/README.md": "f9bab35a8feca1d49bc05f72b8d350230fde61bc888512902b914c969bd1053e"
+}

@@ -39,3 +39,21 @@ func pluginSignInStillRejectsInvalidQRCodeAddresses(_ address: String) throws {
         try host.call("prompt", [.object(["qr": .string(address), "text": .string("请扫码")])])
     }
 }
+
+@Test func declaredSignInMethodReachesPluginAndInvalidChoiceDoesNotExecute() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try """
+    let calls = 0;
+    export function signIn({method}) { calls++; return {id:method,name:method}; }
+    export function count() { return calls; }
+    """.write(to: root.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
+    let manifest = try JSONDecoder().decode(PluginManifest.self, from: Data(#"{"id":"choice","signInMethods":[{"id":"first","label":"First"},{"id":"second","label":"Second"}]}"#.utf8))
+    try manifest.validate()
+    let runtime = try PluginRuntime(directory: root, dataDirectory: root.appendingPathComponent("data"), manifest: manifest)
+    let source = PluginSource(manifest: manifest, runtime: runtime)
+    #expect(try await source.signIn(method: "second") { _ in }.id == "second")
+    await #expect(throws: PluginFailure.self) { try await source.signIn(method: "invalid") { _ in } }
+    #expect(try await runtime.invoke("count") == .number(1))
+}

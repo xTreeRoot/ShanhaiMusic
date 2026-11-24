@@ -1,0 +1,262 @@
+[
+  {
+    "number": 1,
+    "file": "images/001.png",
+    "sha256": "3675452af69e7b6386baa971eba1dc91c7855aaeebb0f6cffac0b16d13cbd63b",
+    "name": "插件-分页-演示数据",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795092076.548,
+    "origin": "tablet-fixed-shots-passed"
+  },
+  {
+    "number": 2,
+    "file": "images/002.png",
+    "sha256": "efbf27a75e0352f0b1e464eb9018ffbd3734c1eb6a9eda2623e8e81cc4bc24c1",
+    "name": "插件-列表-演示数据",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795092037.832,
+    "origin": "tablet-fixed-shots-passed"
+  },
+  {
+    "number": 3,
+    "file": "images/003.png",
+    "sha256": "23808ef1156e2db10eeee941dd79ce73b8d1f3851d17082283188a053a79daad",
+    "name": "插件-安装权限-演示数据",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795092035.069,
+    "origin": "tablet-fixed-shots-passed"
+  },
+  {
+    "number": 4,
+    "file": "images/004.png",
+    "sha256": "56ca950e1c1f6ab44405296a3fc3742b0f1fad5d2098c043bb10cfbd1542746a",
+    "name": "插件-设置-演示数据",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795092051.078,
+    "origin": "tablet-fixed-shots-passed"
+  },
+  {
+    "number": 5,
+    "file": "images/005.png",
+    "sha256": "9b17b5549b9e53ea54ef59ff90754135ae972d34b56e83bc80b0932ed0810028",
+    "name": "插件-音源独占整行-演示数据",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795092070.546,
+    "origin": "tablet-fixed-shots-passed"
+  },
+  {
+    "number": 6,
+    "file": "images/006.png",
+    "sha256": "b87b97cd17bfa13e15dcfcbe63d0c9a140e799c98be16cb3a423e00bc46835cd",
+    "name": "插件-首页-演示数据",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795092073.906,
+    "origin": "tablet-fixed-shots-passed"
+  },
+  {
+    "number": 7,
+    "file": "images/007.png",
+    "sha256": "cb66c8cff383826ee820c94e1f4a09920b866a41295f85dc55b8774853c45a3a",
+    "name": "紧凑首页-发现",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testCompactRootPagesKeepContentAndActionsVisible()",
+    "captured": 1795091500.709,
+    "origin": "tablet-shots-passed"
+  },
+  {
+    "number": 8,
+    "file": "images/008.png",
+    "sha256": "2c3eb5d21f9129a5531f9410c6405efcb502e10d7700b388448973530272a50d",
+    "name": "紧凑首页-我的",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testCompactRootPagesKeepContentAndActionsVisible()",
+    "captured": 1795091516.138,
+    "origin": "tablet-shots-passed"
+  },
+  {
+    "number": 9,
+    "file": "images/009.png",
+    "sha256": "76908c3ca76c1c860a1031927979815556a3bc1f4cea05eae35c0e064169567e",
+    "name": "紧凑首页-搜索",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testCompactRootPagesKeepContentAndActionsVisible()",
+    "captured": 1795091505.275,
+    "origin": "tablet-shots-passed"
+  },
+  {
+    "number": 10,
+    "file": "images/010.png",
+    "sha256": "d9568da9c4b93311f0baae3e60f0c4a8d6a5d7be52176ac317cd4487f4eb1cdb",
+    "name": "紧凑首页-资料库",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testCompactRootPagesKeepContentAndActionsVisible()",
+    "captured": 1795091510.51,
+    "origin": "tablet-shots-passed"
+  },
+  {
+    "number": 11,
+    "file": "images/011.png",
+    "sha256": "fff092fcba75acc0aafeddfded7ddfda24854d097e6b1c66ee2a138de3f48f57",
+    "name": "设置-首屏插件入口-演示数据",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795092031.792,
+    "origin": "tablet-fixed-shots-passed"
+  },
+  {
+    "number": 12,
+    "file": "images/012.png",
+    "sha256": "713063e4e5e1d12a08e1314556ea2ac057baeeb6063d0bb0b8cbaf4530e98246",
+    "name": "CarPlay-逐句歌词关闭-演示设置",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testNowPlayingLyricsSwitchCapture()",
+    "captured": 1795091435.674,
+    "origin": "phone-fixed-shots-passed"
+  },
+  {
+    "number": 13,
+    "file": "images/013.png",
+    "sha256": "83992048f2a3066f4d3e69ebae6b7064e1d1b3c03e11563226d98d2101ef6fab",
+    "name": "CarPlay-逐句歌词开启-演示设置",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testNowPlayingLyricsSwitchCapture()",
+    "captured": 1795091432.982,
+    "origin": "phone-fixed-shots-passed"
+  },
+  {
+    "number": 14,
+    "file": "images/014.png",
+    "sha256": "3d802f4c1c1bbd04d477f42f36b89b1a67ece2ee9aa9c8af405829f6b28d977e",
+    "name": "插件-分页-演示数据",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795091514.39,
+    "origin": "phone-fixed-shots-passed"
+  },
+  {
+    "number": 15,
+    "file": "images/015.png",
+    "sha256": "995bacfea5e66bb6350a9b89347e17e887f898d7b4274090d84f2b28c139b508",
+    "name": "插件-列表-演示数据",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795091470.16,
+    "origin": "phone-fixed-shots-passed"
+  },
+  {
+    "number": 16,
+    "file": "images/016.png",
+    "sha256": "79a17be7e6a8335abb65a106b41c3afd28e7468c25e6af0af8397d02f4bc4323",
+    "name": "插件-安装权限-演示数据",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795091467.165,
+    "origin": "phone-fixed-shots-passed"
+  },
+  {
+    "number": 17,
+    "file": "images/017.png",
+    "sha256": "1d8c6016bf27c27c87f0e59a0b7e70b2ace2dd8e5e32188a32cbf406d236c079",
+    "name": "插件-设置-演示数据",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795091483.065,
+    "origin": "phone-fixed-shots-passed"
+  },
+  {
+    "number": 18,
+    "file": "images/018.png",
+    "sha256": "4241b5a20c277bd2a7ee56a38e6376d02cab01d91a56cb854e1e5e19308f99db",
+    "name": "插件-音源独占整行-演示数据",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795091507.753,
+    "origin": "phone-fixed-shots-passed"
+  },
+  {
+    "number": 19,
+    "file": "images/019.png",
+    "sha256": "eb297fc3bbb5a32ffb5e6f0497d46d66ea96e09765d3179de1e8ea0deb7ccaa2",
+    "name": "插件-首页-演示数据",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795091511.632,
+    "origin": "phone-fixed-shots-passed"
+  },
+  {
+    "number": 20,
+    "file": "images/020.png",
+    "sha256": "75fb82762730f50e9d00c6c8231cf73a53021025313ab906b4c0e0fc9458bffb",
+    "name": "搜索-手动输入与收起键盘-演示数据",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testSearchKeyboardRequiresTapAndCanBeDismissed()",
+    "captured": 1795090859.054,
+    "origin": "phone-shots-passed"
+  },
+  {
+    "number": 21,
+    "file": "images/021.png",
+    "sha256": "d9c0fa41bb4da4dc27b3b61d5b67520813026ec63c7e75c08cf56fcdf23ac122",
+    "name": "搜索-滚动收起键盘前-演示数据",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testSearchKeyboardRequiresTapAndCanBeDismissed()",
+    "captured": 1795090837.871,
+    "origin": "phone-shots-passed"
+  },
+  {
+    "number": 22,
+    "file": "images/022.png",
+    "sha256": "1fc92d399540c63e44df1d0c2dba0ee4f4dfd405c8f891d96853fe07ae115435",
+    "name": "紧凑首页-发现",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testCompactRootPagesKeepContentAndActionsVisible()",
+    "captured": 1795090742.657,
+    "origin": "phone-shots-passed"
+  },
+  {
+    "number": 23,
+    "file": "images/023.png",
+    "sha256": "14c75fa67ef661de3ed6859ca66739cab9610aa7ba7ac85c44e090634cf53553",
+    "name": "紧凑首页-我的",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testCompactRootPagesKeepContentAndActionsVisible()",
+    "captured": 1795090757.082,
+    "origin": "phone-shots-passed"
+  },
+  {
+    "number": 24,
+    "file": "images/024.png",
+    "sha256": "a30189664f75f39835eb6b6221ee9697e9dc4433c46f5ddc9e2bbfbe0ef32f6c",
+    "name": "紧凑首页-搜索",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testCompactRootPagesKeepContentAndActionsVisible()",
+    "captured": 1795090746.84,
+    "origin": "phone-shots-passed"
+  },
+  {
+    "number": 25,
+    "file": "images/025.png",
+    "sha256": "df9a4738ec8056fc3af25d05344415225aafabcfffe78df42a12ba34ef85ffae",
+    "name": "紧凑首页-资料库",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testCompactRootPagesKeepContentAndActionsVisible()",
+    "captured": 1795090752.383,
+    "origin": "phone-shots-passed"
+  },
+  {
+    "number": 26,
+    "file": "images/026.png",
+    "sha256": "a4e59f09ba40b3f75ac1d5a402d5684cb99c9eacd15cf1f38d234252470cbd0d",
+    "name": "设置-首屏插件入口-演示数据",
+    "device": "iPhone 17 Pro",
+    "test": "MBiOSUITests/testPluginInstallSettingsSourceSwitchAndBrowse()",
+    "captured": 1795091463.637,
+    "origin": "phone-fixed-shots-passed"
+  }
+]

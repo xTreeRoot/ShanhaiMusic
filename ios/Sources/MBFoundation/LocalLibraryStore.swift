@@ -13,6 +13,7 @@ public struct LocalLibrarySnapshot: Codable, Equatable, Sendable {
     public var favorites: [String] = []
     public var recent: [String] = []
     public var playlists: [LocalPlaylist] = []
+    public var resources: [Track]?
     public init() {}
 }
 
@@ -42,6 +43,15 @@ public actor LocalLibraryStore {
             state.favorites.removeAll { $0 == trackID }
             if on { state.favorites.insert(trackID, at: 0) }
         }
+    }
+    public func saveResource(_ track: Track) throws -> LocalLibrarySnapshot {
+        try change { state in
+            var resources = state.resources ?? []; resources.removeAll { $0.id == track.id }
+            resources.insert(track, at: 0); state.resources = resources
+        }
+    }
+    public func removeResource(_ id: String) throws -> LocalLibrarySnapshot {
+        try change { $0.resources?.removeAll { $0.id == id } }
     }
     public func toggleFavorite(_ trackID: String) throws -> LocalLibrarySnapshot {
         let on = try !snapshot().favorites.contains(trackID)

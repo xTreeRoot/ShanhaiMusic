@@ -1,0 +1,50 @@
+[
+  {
+    "plugin": "bilibili",
+    "version": "1.1.4",
+    "repository": "xTreeRoot/mygo-music-bilibili",
+    "revision": "ac3653856e639be41651081b0b6561f474a6980f",
+    "sha256": "d54b2ca96c54bfb6abd501f5b22923f1979605a449b079fc6a6a8e855085b1bc",
+    "release": "https://github.com/xTreeRoot/mygo-music-bilibili/releases/tag/v1.1.4"
+  },
+  {
+    "plugin": "netease",
+    "version": "0.1.20",
+    "repository": "xTreeRoot/mygo-music-netease",
+    "revision": "ee23f3c3cbd0316b0cb7c5c485354cd9cc4fe621",
+    "sha256": "88d55a0c07f8e18d891ada52089c806fe90722700084552ef7d2db4f6f469358",
+    "release": "https://github.com/xTreeRoot/mygo-music-netease/releases/tag/v0.1.20"
+  },
+  {
+    "plugin": "qqmusic",
+    "version": "0.3.11",
+    "repository": "xTreeRoot/mygo-music-qqmusic",
+    "revision": "ff94a71c49d545c4cb67f8a468216b1599c1100a",
+    "sha256": "1ccce3888e56cf1cd42e8bbf6a4246fd41d19a7cadbce170447bbcbcbc23c464",
+    "release": "https://github.com/xTreeRoot/mygo-music-qqmusic/releases/tag/v0.3.11"
+  },
+  {
+    "plugin": "youtube-music",
+    "version": "0.2.9",
+    "repository": "xTreeRoot/mygo-music-youtube-music",
+    "revision": "39fac2824a064f7fb0aa1dca8e09c67e70248e64",
+    "sha256": "08f733c21958b1199f839d2d49b5145c10c2fc616f189a71ad3db365c24e81a7",
+    "release": "https://github.com/xTreeRoot/mygo-music-youtube-music/releases/tag/v0.2.9"
+  },
+  {
+    "plugin": "soda",
+    "version": "0.4.3",
+    "repository": "xTreeRoot/mygo-music-soda",
+    "revision": "40b210d0acd960af2ed24590ae3c8a64c24534c3",
+    "sha256": "01f91d0f16946da227a58c822a5da59e23d62f1908c15a00a977ba810f990307",
+    "release": "https://github.com/xTreeRoot/mygo-music-soda/releases/tag/v0.4.3"
+  },
+  {
+    "plugin": "ximalaya",
+    "version": "0.1.9",
+    "repository": "xTreeRoot/mygo-ximalaya",
+    "revision": "6bfbb6a9e97825c68c4847f0168d8979bd3c7bb5",
+    "sha256": "a4c5d674ff06ad7ff15cc21475378966fb324fea5a8be71ee601f920dfbb86ad",
+    "release": "https://github.com/xTreeRoot/mygo-ximalaya/releases/tag/v0.1.9"
+  }
+]

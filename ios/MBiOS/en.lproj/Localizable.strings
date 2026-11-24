@@ -46,6 +46,10 @@
 "复制标题" = "Copy Title";
 "复制标题和作者" = "Copy Title and Artist";
 "外观" = "Appearance";
+"背景皮肤" = "Background Skin";
+"选择背景图片" = "Choose Background Image";
+"恢复默认背景" = "Restore Default Background";
+"无法更新背景图片" = "Could not update the background image";
 "字幕" = "Lyrics";
 "字幕时间轴预览" = "Preview Lyric Timeline";
 "完成" = "Done";
@@ -139,6 +143,8 @@
 "简介" = "Info";
 "系统代理域名白名单" = "System Proxy Domains";
 "系统音量" = "System Volume";
+"系统亮度" = "System Brightness";
+"当前设备暂不支持调节" = "Adjustment is unavailable on this device";
 "缓存" = "Cache";
 "缓存上限" = "Cache Limit";
 "网络与系统代理" = "Network and Proxy";
@@ -177,7 +183,7 @@
 "首页" = "Home";
 "黑胶" = "Vinyl";
 "黑胶播放器" = "Vinyl Player";
-"MB · 界面演示" = "MB · Demo";
+"山海 · 界面演示" = "Shanhai · Demo";
 "简体中文" = "简体中文";
 "English" = "English";
 "查看更多%@" = "See All %@";
@@ -233,8 +239,8 @@
 
 "默认打开歌词" = "Show lyrics by default";
 "CarPlay 与锁屏" = "CarPlay & Lock Screen";
-"在歌手栏显示当前歌词" = "Show current lyrics as artist";
-"保留歌名，按播放时间逐句更新歌词；无歌词时显示歌手。" = "Keep the song title and update lyrics with playback. Show the artist when no lyric is active.";
+"在主标题显示当前歌词" = "Show current lyrics as title";
+"主标题按播放时间逐句更新歌词，副标题显示歌名；无歌词时主标题显示歌名。" = "Update the title with timed lyrics and show the song name below. Without lyrics, the title shows the song name.";
 "歌词火花" = "Lyric sparks";
 "间奏显示热评" = "Top comments in quiet parts";
 "进度条烟雾" = "Progress smoke";
@@ -243,6 +249,11 @@
 "热评" = "Top comment";
 
 "此曲目暂不可播放" = "This track is currently unavailable";
+"需要 VIP" = "VIP required";
+"音源不可用" = "Audio source unavailable";
+"登录后可播放" = "Sign in to play this track";
+"网络错误，可重试" = "Network error — retry";
+"播放失败，原因未知" = "Playback failed — unknown reason";
 "插件无效：%@" = "Invalid plugin: %@";
 "插件执行失败：%@" = "Plugin execution failed: %@";
 "此插件需要 iOS 不提供的桌面宿主能力" = "This plugin requires a desktop host capability unavailable on iOS";
@@ -292,6 +303,18 @@
 "启用内置音源" = "Enable Built-in Source";
 "请在设置启用音源" = "Enable a source in Settings";
 "可更新至 %@" = "Update available: %@";
+"插件更新" = "Plugin Updates";
+"检测更新" = "Check for Updates";
+"全部更新" = "Update All";
+"正在更新插件" = "Updating plugins";
+"正在检测插件更新" = "Checking for plugin updates";
+"检测更新失败" = "Could not check for updates";
+"可更新 %lld 个 · 检测失败 %lld 个" = "%lld updates available · %lld checks failed";
+"新增权限，请单独打开此更新确认" = "New permissions require separate review";
+"已更新 %lld 个 · 需确认权限 %lld 个 · 失败 %lld 个" = "%lld updated · %lld require permission review · %lld failed";
+"删除插件？" = "Remove Plugin?";
+"删除插件" = "Remove Plugin";
+"只移除插件，设置和登录数据会保留。" = "Plugin settings and sign-in data are kept.";
 "播放队列为空" = "Your queue is empty";
 "评论" = "Comments";
 "更多操作" = "More Actions";
@@ -315,3 +338,75 @@
 "切换到实时视频" = "Switch to live video";
 "视频画面已显示" = "Video frame displayed";
 "等待视频画面" = "Waiting for video frame";
+"一键导入/覆盖" = "Import / Replace Plugins";
+"GitHub 星标列表地址" = "GitHub Stars list URL";
+"插件仓库或列表网页地址" = "Plugin repository or catalog web address";
+"请输入插件仓库或列表网页地址" = "Enter a plugin repository or catalog web address";
+"没有找到插件仓库链接" = "No plugin repository links found";
+"解析列表" = "Read List";
+"导入/覆盖" = "Import / Replace";
+"正在解析 GitHub 星标列表" = "Reading GitHub Stars list";
+"正在导入插件" = "Importing plugins";
+"不需要网络权限" = "No network access requested";
+"请输入公开的 GitHub 星标列表地址" = "Enter a public GitHub Stars list URL";
+"没有找到 GitHub 星标仓库列表" = "GitHub Stars repository list not found";
+"列表里没有找到插件仓库" = "No plugin repositories found in this list";
+"该插件 ID 已被其他来源占用" = "A plugin from another source already uses this ID";
+"该插件 ID 已被内置插件或其他来源占用" = "A built-in plugin or plugin from another source already uses this ID";
+"已导入或覆盖 %lld 个 · 失败或跳过 %lld 个" = "Imported or replaced %lld plugins · %lld failed or skipped";
+
+"检查版本" = "App Updates";
+
+"当前版本" = "Current Version";
+
+"最新版本" = "Latest Version";
+
+"正在检查远程版本…" = "Checking releases…";
+
+"查看发布页面" = "View Release";
+
+"下载更新" = "Download Update";
+
+"交给签名工具安装" = "Open in Signing Tool";
+
+"下载的 IPA 需要交给签名工具签署后覆盖安装，iOS 不允许应用自行安装更新。请使用现有签名与包名，保留原应用和数据。" = "The downloaded IPA needs to be signed and installed by a signing tool. iOS does not let apps install their own updates. Keep the existing signing identity and bundle ID to retain your app and data.";
+
+"远程尚无可用的 iOS 更新包" = "No compatible iOS release is available.";
+
+"更新包校验失败，请重新下载" = "The update package could not be verified. Download it again.";
+
+"本地名称" = "Local Name";
+
+"留空恢复默认名称" = "Leave empty to restore the default name";
+
+"全平台搜索" = "All Platforms";
+
+
+"已保存资源" = "Saved Resources";
+
+"保存到资料库" = "Save to Library";
+
+"已保存到资料库" = "Saved to Library";
+
+"资源类型" = "Resource Type";
+
+"平台" = "Platform";
+
+
+"图书" = "Books";
+
+"软件" = "Software";
+
+"其他" = "Other";
+
+"用下载工具打开" = "Open in Download App";
+
+"分享资源链接" = "Share Resource Link";
+
+"查看来源" = "View Source";
+
+"切换平台时暂停其他平台播放" = "Pause Other Sources When Switching";
+
+"音频地址必须使用 HTTPS，且不能包含账号密码" = "Audio URLs must use HTTPS and cannot contain credentials";
+"音频重定向域名不在插件网络权限内：%@" = "Audio redirect host is outside plugin network permissions: %@";
+"音频域名不在插件网络权限内：%@" = "Audio host is outside plugin network permissions: %@";

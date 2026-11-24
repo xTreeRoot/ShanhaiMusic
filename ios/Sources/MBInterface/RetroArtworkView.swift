@@ -3,6 +3,7 @@ import SwiftUI
 
 /// 旋转依播放位置插值，暂停和 seek 都停在相应角度；降低动态效果时静止。
 struct RetroArtworkView: View {
+    @Environment(\.skinAccent) private var skinAccent
     let track: Track
     let style: PlayerVisualStyle
     let positionMilliseconds: Int64
@@ -11,8 +12,9 @@ struct RetroArtworkView: View {
     var size: CGFloat = 280
     @State private var sampled = Date()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !playing || reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !playing || reduceMotion || scenePhase != .active)) { context in
             let seconds = Double(positionMilliseconds) / 1_000 + (playing ? max(0, context.date.timeIntervalSince(sampled)) : 0)
             let turn = reduceMotion ? 0 : seconds.truncatingRemainder(dividingBy: 360) * (style == .vinyl ? 200 : 150)
             Group {
@@ -50,7 +52,7 @@ struct RetroArtworkView: View {
                     Circle().fill(playing ? Color.orange : Color.gray).frame(width: 10, height: 10)
                     Text("33 ⅓").font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(.white.opacity(0.7))
                     Spacer()
-                    Text("MB").font(.system(size: 12, weight: .black)).foregroundStyle(.white.opacity(0.55))
+                    Text("山海").font(.system(size: 12, weight: .black)).foregroundStyle(.white.opacity(0.55))
                 }.padding(18)
             }
         }.shadow(color: .black.opacity(0.2), radius: 20, y: 12)
@@ -87,7 +89,7 @@ struct RetroArtworkView: View {
                         reel(turn: turn, fill: progress)
                     }.padding(.horizontal, 12).frame(height: 52).background(Color(white: 0.08), in: Capsule())
                 }
-                Rectangle().fill(MBTheme.accent).frame(height: 8).overlay(alignment: .bottom) { Rectangle().fill(MBTheme.accent.opacity(0.4)).frame(height: 2) }
+                Rectangle().fill(skinAccent).frame(height: 8).overlay(alignment: .bottom) { Rectangle().fill(skinAccent.opacity(0.4)).frame(height: 2) }
             }.padding(16).background(Color(red: 0.89, green: 0.87, blue: 0.8), in: RoundedRectangle(cornerRadius: 8)).padding(14).padding(.bottom, 22)
             VStack {
                 Spacer()

@@ -26,7 +26,7 @@ bash scripts/install-device.sh TEAM_ID DEVICE_UDID
 
 ## 未签名包与到期
 
-`bash scripts/package-ipa.sh` 生成 build 7 的 `*-unsigned.ipa`。它供 AltStore 等工具用自己的账号重签，不是直接可安装的成品。AirDrop、聊天发送或在“文件”里点 IPA 都不等于安装。
+`bash scripts/package-ipa.sh` 生成当前工程版本的 `*-unsigned.ipa`。它供 AltStore 等工具用自己的账号重签，不是直接可安装的成品。AirDrop、聊天发送或在“文件”里点 IPA 都不等于安装。
 
 免费签名到期后重新连接手机，在 Xcode 运行或重跑安装脚本。尽量不要先卸载，卸载会删除 App 数据。签名仅对描述文件授权的设备有效。
 
@@ -36,7 +36,7 @@ bash scripts/install-device.sh TEAM_ID DEVICE_UDID
 
 ## CarPlay 使用
 
-在手机打开 MB 并开始播放，再连接 CarPlay、进入车机自带的「正在播放」。这条路径不需要独立 CarPlay App 的专属权限。默认用歌手栏显示当前句歌词，歌名保持不变；可在「设置 → CarPlay 与锁屏」关闭，也会同步影响手机锁屏和控制中心。车机决定文字刷新、截断和滚动，暂无真实车辆验收。
+在手机打开 MB 并开始播放，再连接 CarPlay、进入车机自带的「正在播放」。这条路径不需要独立 CarPlay App 的专属权限。默认主标题按音频时钟逐句显示歌词，副标题显示歌名；无歌词时主标题回退到歌名。可在「设置 → CarPlay 与锁屏」关闭，也会同步影响手机锁屏和控制中心。车机决定文字刷新、截断和滚动，暂无真实车辆验收。
 
 
 ## 设备工具更新插件

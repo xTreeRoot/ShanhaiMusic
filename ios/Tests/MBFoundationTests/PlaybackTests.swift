@@ -23,7 +23,7 @@ private actor AudioSourceFixture: PlaybackSource {
     nonisolated let displayName = "test"
     private var audioCalls = 0
     private var lyricCalls = 0
-    private var failed = false
+    private var failures = 0
     private var hold = false
     private var continuation: CheckedContinuation<Void, Never>?
     private var waiter: CheckedContinuation<Void, Never>?
@@ -33,14 +33,14 @@ private actor AudioSourceFixture: PlaybackSource {
         if hold, trackID == "one" {
             await withCheckedContinuation { continuation = $0; waiter?.resume(); waiter = nil }
         }
-        if failed { failed = false; throw URLError(.networkConnectionLost) }
+        if failures > 0 { failures -= 1; throw URLError(.networkConnectionLost) }
         return MediaResource(url: URL(string: "https://media.example/\(trackID)")!, headers: [:], fileExtension: "m4a")
     }
     func captions(trackID: String) async throws -> CaptionTimeline {
         lyricCalls += 1
         return CaptionTimeline(lines: [CaptionLine(startMilliseconds: 0, endMilliseconds: 1_000, text: trackID)])
     }
-    func failNext() { failed = true }
+    func failNext(_ attempts: Int = 1) { failures = attempts }
     func calls() -> (Int, Int) { (audioCalls, lyricCalls) }
     func block() { hold = true }
     func waitBlocked() async {
@@ -75,6 +75,35 @@ private actor DelayedRestoreFixture: PlaybackSessionStore {
 private let audioTracks = ["one", "two"].map { Track(sourceID: "test", sourceTrackID: $0, title: $0, artist: "UP", durationMilliseconds: 90_000) }
 private let fakeDownload: @Sendable (MediaResource) async throws -> URL = { _ in
     FileManager.default.temporaryDirectory.appendingPathComponent("mb-fake-\(UUID()).m4a")
+}
+
+@Test @MainActor func previewUsesRealQueueOrderWithoutSelectingOrResolvingAnotherTrack() async {
+    let source = AudioSourceFixture()
+    let model = PlaybackModel(source: source, engine: TestAudio(), download: fakeDownload)
+    model.select(audioTracks, index: 0)
+    await model.waitUntilLoaded()
+    let calls = await source.calls()
+    for _ in 0..<3 { #expect(model.neighboringTrack(forward: true)?.id == audioTracks[1].id) }
+    #expect(model.queue.index == 0)
+    #expect(await source.calls().0 == calls.0)
+    model.toggleShuffle()
+    let expected = model.queue.nextIndex(automatic: false).map { model.queue.tracks[$0].id }
+    #expect(model.neighboringTrack(forward: true)?.id == expected)
+}
+
+@Test @MainActor func switchingSourceOnlyPausesWhenEnabledAndRetainsQueueAndPosition() async {
+    let model = PlaybackModel(source: AudioSourceFixture(), engine: TestAudio(), download: fakeDownload)
+    model.select(audioTracks, index: 0)
+    await model.waitUntilLoaded()
+    model.seek(to: 8_000)
+    model.didSwitchSource(to: "other", pauseOtherSources: false)
+    #expect(model.state == .playing)
+    model.didSwitchSource(to: "test", pauseOtherSources: true)
+    #expect(model.state == .playing)
+    model.didSwitchSource(to: "other", pauseOtherSources: true)
+    #expect(model.state == .paused)
+    #expect(model.queue.tracks == audioTracks && model.queue.index == 0)
+    #expect(model.positionMilliseconds == 8_000)
 }
 
 @Test @MainActor func restoredPlaybackIsPausedAndResolvesFreshAudioOnlyOnPlay() async {
@@ -119,6 +148,26 @@ private let fakeDownload: @Sendable (MediaResource) async throws -> URL = { _ in
     #expect(model.state == .playing)
 }
 
+@Test @MainActor func trackProblemStaysWithFailedSourceUntilSuccessfulRetry() async {
+    let source = AudioSourceFixture()
+    let model = PlaybackModel(source: source, engine: TestAudio(), download: fakeDownload)
+    let track = audioTracks[0]
+    let otherSource = Track(sourceID: "other", sourceTrackID: track.sourceTrackID, title: track.title, artist: track.artist)
+    await source.failNext(2)
+    model.select(audioTracks, index: 0)
+    await model.waitUntilLoaded()
+    #expect(model.trackProblem(for: track) == .network)
+    #expect(model.trackProblem(for: otherSource) == nil)
+    model.select(audioTracks, index: 1)
+    await model.waitUntilLoaded()
+    #expect(model.trackProblem(for: track) == .network)
+    #expect(model.trackProblem(for: audioTracks[1]) == nil)
+    model.select(audioTracks, index: 0)
+    await model.waitUntilLoaded()
+    #expect(model.state == .playing)
+    #expect(model.trackProblem(for: track) == nil)
+}
+
 @Test @MainActor func pauseDuringLoadingDoesNotAutoPlayAndSeekUsesLatestPosition() async {
     let source = AudioSourceFixture()
     await source.block()
@@ -140,7 +189,7 @@ private let fakeDownload: @Sendable (MediaResource) async throws -> URL = { _ in
 
 @Test @MainActor func failedLoadRetainsResumePositionForAnotherAttempt() async {
     let source = AudioSourceFixture()
-    await source.failNext()
+    await source.failNext(2)
     let engine = TestAudio()
     let store = SessionFixture(PlaybackSession(queue: audioTracks, index: 1, positionMilliseconds: 22_000))
     let model = PlaybackModel(source: source, engine: engine, store: store, download: fakeDownload)
@@ -153,6 +202,23 @@ private let fakeDownload: @Sendable (MediaResource) async throws -> URL = { _ in
     await model.waitUntilLoaded()
     #expect(engine.loaded == [22_000])
     #expect(model.state == .playing)
+}
+
+@Test @MainActor func recoverableAudioFailureRefetchesOnceAndKeepsPausedVideoIntent() async {
+    let source = AudioSourceFixture(), engine = TestAudio()
+    let model = PlaybackModel(source: source, engine: engine, download: fakeDownload)
+    await source.failNext()
+    model.holdForVideo(true)
+    model.select(audioTracks, index: 0)
+    await model.waitUntilLoaded()
+    #expect(await source.calls().0 == 2)
+    #expect(model.state == .playing)
+    #expect(engine.played == 0)
+    model.pause()
+    model.holdForVideo(false)
+    #expect(engine.played == 0)
+    model.play()
+    #expect(engine.played == 1)
 }
 
 @Test @MainActor func manualNextWrapsButNaturalEndStopsAtEndOfQueue() async {
@@ -169,6 +235,33 @@ private let fakeDownload: @Sendable (MediaResource) async throws -> URL = { _ in
     await model.waitUntilLoaded()
     #expect(model.queue.index == 0)
     #expect(model.state == .playing)
+}
+
+@Test @MainActor func paginatedQueueWaitsAtTheBoundaryAndDoesNotWrapAtTheFinalPage() async {
+    let source = AudioSourceFixture(), engine = TestAudio()
+    let model = PlaybackModel(source: source, engine: engine, download: fakeDownload)
+    let (pages, send) = AsyncStream<Track>.makeStream()
+    let final = audioTracks[1]
+    model.select([audioTracks[0]], index: 0)
+    model.attachPages(PlaybackPageLoader {
+        var stream = pages.makeAsyncIterator()
+        return (await stream.next().map { [audioTracks[0], $0] } ?? [], nil)
+    })
+    await model.waitUntilLoaded()
+    #expect(model.queue.current == audioTracks[0])
+    engine.finished = true
+    model.tick()
+    #expect(model.queue.current == audioTracks[0])
+    send.yield(final)
+    send.finish()
+    for _ in 0..<1000 where model.queue.current != final { await Task.yield() }
+    #expect(model.queue.tracks == audioTracks)
+    #expect(model.queue.current == final)
+    #expect(model.selectionIntent == .automatic)
+    await model.waitUntilLoaded()
+    engine.finished = true; model.tick()
+    #expect(model.state == .paused)
+    #expect(model.queue.current == final)
 }
 
 @Test @MainActor func oldAudioDoesNotReplaceTheNewSelection() async {

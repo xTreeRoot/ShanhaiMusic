@@ -18,6 +18,9 @@ public final class LocalLibraryModel {
     }
     public var favorites: [Track] { resolve(snapshot.favorites) }
     public var recent: [Track] { Array(resolve(snapshot.recent).prefix(100)) }
+    public var resources: [Track] { snapshot.resources ?? [] }
+    public func saveResource(_ track: Track) async { await perform { try await $0.saveResource(track) } }
+    public func removeResource(_ id: String) async { await perform { try await $0.removeResource(id) } }
     public func toggleFavorite(_ track: Track) async {
         await perform { try await $0.toggleFavorite(track.id) }
     }

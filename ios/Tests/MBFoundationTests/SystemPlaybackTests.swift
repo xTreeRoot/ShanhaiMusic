@@ -1,6 +1,8 @@
 import Foundation
 @testable import MBFoundation
 @preconcurrency import MediaPlayer
+import Observation
+import os
 import Testing
 
 private let systemTracks = [
@@ -45,13 +47,14 @@ private actor SystemSource: PlaybackSource {
 @MainActor private final class SystemClock: AudioEngine, AudioEngineEvents, AudioEngineStreaming {
     var onUpdate: (() -> Void)?
     var position: Int64 = 0
+    var bassLevel = 0.0
     func load(url: URL, at milliseconds: Int64) { position = milliseconds }
     func load(resource: MediaResource, at milliseconds: Int64) { position = milliseconds }
     func play() {}
     func pause() {}
     func stop() { position = 0 }
     func seek(to milliseconds: Int64) { position = milliseconds }
-    func snapshot() -> AudioEngineSnapshot { AudioEngineSnapshot(positionMilliseconds: position, durationMilliseconds: 10_000) }
+    func snapshot() -> AudioEngineSnapshot { AudioEngineSnapshot(positionMilliseconds: position, durationMilliseconds: 10_000, bassLevel: bassLevel) }
     func advance(to milliseconds: Int64) { position = milliseconds; onUpdate?() }
 }
 
@@ -95,24 +98,25 @@ private actor SystemSource: PlaybackSource {
         defer { f.coordinator.disconnect() }
         f.playback.select(systemTracks, index: 0)
         await f.playback.waitUntilLoaded()
-        #expect(f.info.artist == "Artist one")
-        f.clock.advance(to: 1_100)
         #expect(f.info.title == "Song one")
-        #expect(f.info.artist == "First line")
+        #expect(f.info.artist == "Song one")
+        f.clock.advance(to: 1_100)
+        #expect(f.info.artist == "Song one")
+        #expect(f.info.title == "First line")
         #expect(f.info.rate == 1)
         let first = f.info.writes
         f.clock.advance(to: 1_200)
         #expect(f.info.writes == first)
         f.clock.advance(to: 1_400)
-        #expect(f.info.artist == "Second line")
+        #expect(f.info.title == "Second line")
         #expect(f.info.writes == first + 1)
         f.clock.position = 1_500
         f.playback.pause()
-        #expect(f.info.artist == "Second line")
+        #expect(f.info.title == "Second line")
         #expect(f.info.rate == 0)
         #expect(f.info.state == .paused)
         f.playback.seek(to: 1_150)
-        #expect(f.info.artist == "First line")
+        #expect(f.info.title == "First line")
         let sought = f.info.writes
         f.playback.seek(to: 1_180)
         #expect(f.info.writes == sought + 1)
@@ -122,7 +126,34 @@ private actor SystemSource: PlaybackSource {
         #expect(f.info.rate == 1)
     }
 
-    @Test @MainActor func gapsBlankLinesNoLyricsAndSwitchingRestoreRealArtist() async {
+    @Test @MainActor func backgroundAudioUpdatesLyricsButDoesNotInvalidateProgressUntilResume() async {
+        let fixture = SystemFixture()
+        defer { fixture.coordinator.disconnect() }
+        let playback = fixture.playback
+        playback.select(systemTracks, index: 0)
+        await playback.waitUntilLoaded()
+
+        let positionChanges = OSAllocatedUnfairLock(initialState: 0)
+        let bassChanges = OSAllocatedUnfairLock(initialState: 0)
+        withObservationTracking { _ = playback.positionMilliseconds } onChange: { positionChanges.withLock { $0 += 1 } }
+        withObservationTracking { _ = playback.bassLevel } onChange: { bassChanges.withLock { $0 += 1 } }
+        playback.setProgressObservationEnabled(false)
+        fixture.clock.bassLevel = 0.5
+        fixture.clock.advance(to: 1_100)
+        #expect(fixture.info.title == "First line")
+        fixture.clock.advance(to: 1_400)
+        #expect(fixture.info.title == "Second line" && fixture.info.rate == 1)
+        #expect(playback.positionMilliseconds == 1_400 && playback.bassLevel == 0.5)
+        #expect(positionChanges.withLock { $0 } == 0 && bassChanges.withLock { $0 } == 0)
+
+        playback.setProgressObservationEnabled(true)
+        #expect(positionChanges.withLock { $0 } == 1 && bassChanges.withLock { $0 } == 1)
+        withObservationTracking { _ = playback.positionMilliseconds } onChange: { positionChanges.withLock { $0 += 1 } }
+        fixture.clock.advance(to: 1_600)
+        #expect(positionChanges.withLock { $0 } == 2 && playback.positionMilliseconds == 1_600)
+    }
+
+    @Test @MainActor func gapsBlankLinesAndSwitchingKeepSongNameInSubtitle() async {
         let lines = CaptionTimeline(lines: [
             CaptionLine(startMilliseconds: 1_000, endMilliseconds: 2_000, text: "  Hello\n world \t ", translation: "你好"),
             CaptionLine(startMilliseconds: 2_000, endMilliseconds: 3_000, text: " \n "),
@@ -131,21 +162,24 @@ private actor SystemSource: PlaybackSource {
         defer { f.coordinator.disconnect() }
         f.playback.select(systemTracks, index: 0)
         await f.playback.waitUntilLoaded()
-        #expect(f.info.artist == "Artist one")
+        #expect(f.info.title == "Song one")
+        #expect(f.info.artist == "Song one")
         f.clock.advance(to: 1_100)
-        #expect(f.info.artist == "Hello world")
+        #expect(f.info.title == "Hello world")
         f.coordinator.setLyricsEnabled(false)
+        #expect(f.info.title == "Song one")
         #expect(f.info.artist == "Artist one")
         f.coordinator.setLyricsEnabled(true)
-        #expect(f.info.artist == "Hello world")
+        #expect(f.info.title == "Hello world")
         for position: Int64 in [2_000, 3_000, 9_999, 0] {
             f.clock.advance(to: position)
-            #expect(f.info.artist == "Artist one")
+            #expect(f.info.title == "Song one")
+            #expect(f.info.artist == "Song one")
         }
         f.playback.next()
         await f.playback.waitUntilLoaded()
         #expect(f.info.title == "Song two")
-        #expect(f.info.artist == "Artist two")
+        #expect(f.info.artist == "Song two")
     }
 
     @Test @MainActor func lateCaptionsPublishWhilePausedWithoutAnotherClockEvent() async throws {
@@ -157,10 +191,11 @@ private actor SystemSource: PlaybackSource {
         try #require(f.playback.state == .playing)
         f.clock.position = 1_150
         f.playback.pause()
-        #expect(f.info.artist == "Artist one")
+        #expect(f.info.title == "Song one")
+        #expect(f.info.artist == "Song one")
         await source.releaseCaptions()
         await f.playback.waitUntilLoaded()
-        #expect(f.info.artist == "First line")
+        #expect(f.info.title == "First line")
         #expect(f.info.state == .paused)
         #expect(f.info.rate == 0)
     }
@@ -178,7 +213,7 @@ private actor SystemSource: PlaybackSource {
         await source.releaseCaptions()
         await old.value
         #expect(f.info.title == "Song two")
-        #expect(f.info.artist == "Artist two")
+        #expect(f.info.artist == "Song two")
         #expect(f.info.writes == writes)
     }
 
@@ -214,11 +249,11 @@ private actor SystemSource: PlaybackSource {
         f.playback.select([track], index: 0, autoplay: false)
         track.localMetadata = LocalAudioMetadata(lyrics: "[00:00.00]Local line")
         f.playback.updateLocalTrack(track)
-        #expect(f.info.artist == "Local line")
+        #expect(f.info.title == "Local line")
         track.localMetadata?.lyrics = "[00:00.00]Updated line"
         f.playback.updateLocalTrack(track)
-        #expect(f.info.artist == "Updated line")
-        #expect(f.info.title == "Song one")
+        #expect(f.info.title == "Updated line")
+        #expect(f.info.artist == "Song one")
     }
 
     @Test @MainActor func systemArtworkCanBeRequestedOffMainAfterSelectionAndSessionRestore() async throws {

@@ -5,8 +5,9 @@ public struct SourceAccount: Identifiable, Equatable, Sendable {
     public let name: String
     public let avatarURL: URL?
     public let page: String?
-    public init(id: String, name: String, avatarURL: URL? = nil, page: String? = nil) {
-        self.id = id; self.name = name; self.avatarURL = avatarURL; self.page = page
+    public let avatarHeaders: [String: String]
+    public init(id: String, name: String, avatarURL: URL? = nil, page: String? = nil, avatarHeaders: [String: String] = [:]) {
+        self.id = id; self.name = name; self.avatarURL = avatarURL; self.page = page; self.avatarHeaders = avatarHeaders
     }
 }
 
@@ -16,13 +17,29 @@ public struct SignInPrompt: Equatable, Sendable {
     public init(qrURL: URL? = nil, message: String) { self.qrURL = qrURL; self.message = message }
 }
 
+public struct SignInMethod: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public let label: String
+    public init(id: String, label: String) { self.id = id; self.label = label }
+}
+public protocol SignInMethodSource: AccountSource {
+    var signInMethods: [SignInMethod] { get }
+    func signIn(method: String, prompt: @escaping @Sendable (SignInPrompt) async -> Void) async throws -> SourceAccount
+}
+
 public protocol AccountSource: MusicSource {
     func account() async throws -> SourceAccount?
     func signIn(prompt: @escaping @Sendable (SignInPrompt) async -> Void) async throws -> SourceAccount
     func signOut() async throws
 }
 
-public enum LibraryRoute: Hashable, Sendable {
+/// 显式清理当前来源的登录会话；普通退出仍保留可复用的凭据。
+public protocol AccountCacheResetSource: AccountSource {
+    func supportsAccountCacheReset() async -> Bool
+    func signOutAndClearCache() async throws
+}
+
+public enum LibraryRoute: Hashable, Codable, Sendable {
     case favorites, liked, history, following, folder(String), creator(String)
     public var title: String {
         switch self {
@@ -36,7 +53,7 @@ public enum LibraryRoute: Hashable, Sendable {
     }
 }
 
-public struct LibraryLink: Identifiable, Equatable, Sendable {
+public struct LibraryLink: Identifiable, Equatable, Codable, Sendable {
     public let id: String
     public let title: String
     public let subtitle: String
@@ -47,7 +64,7 @@ public struct LibraryLink: Identifiable, Equatable, Sendable {
     }
 }
 
-public struct LibraryPage: Sendable {
+public struct LibraryPage: Codable, Sendable {
     public let title: String
     public let tracks: [Track]
     public let links: [LibraryLink]
@@ -59,6 +76,10 @@ public struct LibraryPage: Sendable {
 
 public protocol LibrarySource: MusicSource {
     func library(_ route: LibraryRoute, cursor: String?) async throws -> LibraryPage
+    func invalidateLibraryCache() async
+}
+public extension LibrarySource {
+    func invalidateLibraryCache() async {}
 }
 
 public struct TrackComment: Identifiable, Equatable, Sendable {
@@ -83,7 +104,18 @@ public struct CommentPage: Sendable {
     }
 }
 
+/// 平台公开的互动总数；nil 表示平台未提供，不用 0 冒充未知数据。
+public struct TrackInteractionSummary: Equatable, Sendable {
+    public let likes: Int?
+    public let comments: Int?
+    public init(likes: Int? = nil, comments: Int? = nil) {
+        self.likes = likes.flatMap { $0 >= 0 ? $0 : nil }
+        self.comments = comments.flatMap { $0 >= 0 ? $0 : nil }
+    }
+}
+
 public protocol InteractionSource: MusicSource {
+    func interactionSummary(trackID: String) async throws -> TrackInteractionSummary
     func supportsCommentLikes() async -> Bool
     func likeComment(trackID: String, commentID: String, enabled: Bool) async throws
     func capabilities() async -> InteractionCapabilities
@@ -101,6 +133,7 @@ public struct InteractionCapabilities: Sendable {
     public init(likes: Bool = true, comments: Bool = true, posting: Bool = true) { self.likes = likes; self.comments = comments; self.posting = posting }
 }
 public extension InteractionSource {
+    func interactionSummary(trackID: String) async throws -> TrackInteractionSummary { TrackInteractionSummary() }
     func supportsCommentLikes() async -> Bool { false }
     func likeComment(trackID: String, commentID: String, enabled: Bool) async throws { throw PluginFailure.unavailable }
     func capabilities() async -> InteractionCapabilities { InteractionCapabilities() }

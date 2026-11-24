@@ -1,8 +1,8 @@
-// YouTube Music for MB iOS, based on egoist/mygo-music-youtube-music.
-// Catalog and account requests retain the upstream contract. Audio uses the
-// existing VisionOS response's AAC variants, decoded natively by AVFoundation.
+// YouTube Music for MB, based on egoist/mygo-music-youtube-music.
+import { hasOAuth, oauthHeaders, signInOAuth, endOAuth, isOAuthSignInPending } from "./oauth.js";
 
 const site = "https://music.youtube.com";
+const validVideoID = id => typeof id === "string" && /^[a-zA-Z0-9_-]{11}$/.test(id);
 const webUA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
@@ -16,7 +16,9 @@ function fail(code, message) {
 }
 
 // The session's cookies, as a Cookie header, kept in the plugin's storage.
-const cookie = () => host.storage.get("cookie") || "";
+const cookie = () => host.storage.get("cookieActive") === false ? "" : host.storage.get("cookie") || "";
+let accountRevision = 0;
+const hasSession = () => hasOAuth() || Boolean(cookie());
 
 function cookieValue(name) {
   for (const part of cookie().split(";")) {
@@ -27,7 +29,7 @@ function cookieValue(name) {
 }
 
 function needAccount() {
-  if (!cookie()) throw fail("signIn");
+  if (!hasSession()) throw fail("signIn");
 }
 
 function sha1(text) {
@@ -60,7 +62,12 @@ function sha1(text) {
 }
 
 // What the website sends to say whose session this is, to the site at origin.
-function authHeaders(origin = site) {
+async function authHeaders(origin = site) {
+  const destination = new URL(origin);
+  if (destination.protocol !== "https:" || destination.username || destination.password ||
+      !["music.youtube.com", "www.youtube.com", "youtube.com", "s.youtube.com"].includes(destination.hostname) ||
+      (destination.port && destination.port !== "443")) throw new Error("Invalid account request destination");
+  if (hasOAuth()) return oauthHeaders();
   const sapisid = cookieValue("__Secure-3PAPISID") || cookieValue("SAPISID");
   if (!sapisid) return {};
   const now = Math.floor(Date.now() / 1000);
@@ -119,6 +126,7 @@ const visionOS = (visitor) => ({
 // call asks the service as the website, or as another of its apps. An
 // anonymous call leaves the session out.
 async function call(endpoint, body, as = remix) {
+  const generation = accountRevision;
   const res = await fetch(`${site}/youtubei/v1/${endpoint}?prettyPrint=false`, {
     method: "POST",
     headers: {
@@ -126,13 +134,13 @@ async function call(endpoint, body, as = remix) {
       "user-agent": webUA,
       origin: site,
       "x-origin": site,
-      ...(as.anonymous ? {} : authHeaders()),
+      ...(as.anonymous ? {} : await authHeaders()),
       ...as.headers,
     },
-    body: JSON.stringify({ context: { client: as.client }, ...body }),
+    body: JSON.stringify({ context: { client: as.client, user: {} }, ...body }),
   });
-  if (res.status === 401) {
-    endSession();
+  if (res.status === 401 && !as.anonymous) {
+    if (generation === accountRevision && !isOAuthSignInPending()) endSession();
     throw fail("signIn", t("Your YouTube Music session has ended: sign in again"));
   }
   if (!res.ok) throw new Error(`${endpoint}: ${res.status}`);
@@ -159,10 +167,14 @@ const findOne = (node, name) => findAll(node, name)[0];
 const textOf = (t) => (t ? t.simpleText || (t.runs || []).map((r) => r.text).join("") : "");
 
 // Covers come in the size asked for in their address.
-function imageOf(node) {
+function imageOf(node, video = false) {
   const list = node && findOne(node, "thumbnails");
   const url = list && list.length ? list[list.length - 1].url : "";
   if (!url) return undefined;
+  if (video) {
+    const wide = list.filter(image => image.width / image.height >= 1.6);
+    return wide.reduce((best, image) => image.width >= best.width ? image : best, wide[0] || { width: 0, url }).url;
+  }
   return url.replace(/=w\d+-h\d+[^/]*$/, "=w544-h544-l90-rj");
 }
 
@@ -197,7 +209,7 @@ function creditsOf(runs) {
   return out;
 }
 
-function trackFrom(id, name, credits, image, unavailable) {
+function trackFrom(id, name, credits, image, unavailable, video = false) {
   // A track whose artist has no page of their own only has them as words, the
   // first of which may be its kind in a list of everything.
   const artists = credits.artists.length
@@ -209,9 +221,14 @@ function trackFrom(id, name, credits, image, unavailable) {
     artists,
     album: credits.album ? { ...credits.album, imageUrl: image } : { id: "", name: "", imageUrl: image },
     duration: credits.duration,
-    url: `${site}/watch?v=${id}`,
+    url: `${video ? "https://www.youtube.com" : site}/watch?v=${id}`,
     unavailable: unavailable || undefined,
   };
+}
+
+function isMusicVideo(endpoint) {
+  const type = endpoint?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType;
+  return type === "MUSIC_VIDEO_TYPE_OMV" || type === "MUSIC_VIDEO_TYPE_UGC" || type === "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC";
 }
 
 // A row of a list: a song, or what a search for other things finds.
@@ -219,33 +236,35 @@ function rowOf(r) {
   const columns = (r.flexColumns || []).map((c) => c.musicResponsiveListItemFlexColumnRenderer?.text);
   const name = textOf(columns[0]);
   const nav = columns[0]?.runs?.[0]?.navigationEndpoint;
-  const videoId = r.playlistItemData?.videoId || nav?.watchEndpoint?.videoId;
+  const play = r.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint;
+  const videoId = r.playlistItemData?.videoId || nav?.watchEndpoint?.videoId || play?.videoId;
   const runs = columns.slice(1).flatMap((c) => [...(c?.runs || []), { text: "•" }]);
   const fixed = (r.fixedColumns || []).map((c) => textOf(c.musicResponsiveListItemFixedColumnRenderer?.text));
   const credits = creditsOf(runs);
   credits.duration = credits.duration || msOf(fixed[0]);
-  const image = imageOf(r.thumbnail);
   if (videoId) {
     const grey = r.musicItemRendererDisplayPolicy === "MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT";
-    return { kind: "track", value: trackFrom(videoId, name, credits, image, grey) };
+    const video = isMusicVideo(nav?.watchEndpoint) || isMusicVideo(play);
+    if (video && /^(video|音乐视频|视频)$/i.test(credits.names[0] || "")) credits.names.shift();
+    return { kind: "track", video, value: trackFrom(videoId, name, credits, imageOf(r.thumbnail, video), grey, video) };
   }
   const target = r.navigationEndpoint;
-  return collectionOf(target, name, runs, image);
+  return collectionOf(target, name, runs, imageOf(r.thumbnail));
 }
 
 // A card: anything at all, by where it leads.
 function cardOf(r) {
   const name = textOf(r.title);
   const runs = r.subtitle?.runs || [];
-  const image = imageOf(r.thumbnailRenderer);
   const nav = r.navigationEndpoint;
   if (nav?.watchEndpoint?.videoId) {
     const credits = creditsOf(runs);
-    // On a card, words come first that say what it is.
-    credits.names = credits.names.slice(1);
-    return { kind: "track", value: trackFrom(nav.watchEndpoint.videoId, name, credits, image) };
+    const video = isMusicVideo(nav.watchEndpoint);
+    if (!video || /^(video|音乐视频|视频)$/i.test(credits.names[0] || "")) credits.names.shift();
+    if (video) credits.names = credits.names.filter(name => !/(?:\bviews?$|次观看$)/i.test(name));
+    return { kind: "track", video, value: trackFrom(nav.watchEndpoint.videoId, name, credits, imageOf(r.thumbnailRenderer, video), false, video) };
   }
-  return collectionOf(nav, name, runs, image);
+  return collectionOf(nav, name, runs, imageOf(r.thumbnailRenderer));
 }
 
 function collectionOf(nav, name, runs, image) {
@@ -278,6 +297,14 @@ function itemsOf(list) {
 
 const ofKind = (items, kind) => items.filter((i) => i.kind === kind).map((i) => i.value);
 
+function videoItems(items, seen = new Set()) {
+  return items.filter(({ video, value }) => {
+    if (!video || value.unavailable || !validVideoID(value.id) || seen.has(value.id)) return false;
+    seen.add(value.id);
+    return true;
+  });
+}
+
 // Some lists leave out how long a song is, and the app needs that to seek and
 // to know when it ends. The queue answers for many at once.
 async function withDurations(tracks) {
@@ -299,18 +326,21 @@ function shelfTitle(shelf) {
 }
 
 // The sections of a page of shelves, in their order.
-async function sectionsOf(answer) {
+async function sectionsOf(answer, videosOnly = false, limit = Infinity) {
   const sections = [];
+  const seen = new Set();
   for (const list of findAll(answer, "sectionListRenderer").concat(findAll(answer, "sectionListContinuation"))) {
     for (const entry of list.contents || []) {
       const shelf =
         entry.musicCarouselShelfRenderer || entry.musicShelfRenderer || entry.musicPlaylistShelfRenderer || entry.gridRenderer;
       if (!shelf) continue;
-      const items = itemsOf(shelf.contents || shelf.items);
+      const raw = itemsOf(shelf.contents || shelf.items);
+      const items = videosOnly ? videoItems(raw, seen).slice(0, limit) : raw;
       if (!items.length) continue;
       sections.push({
         title: shelfTitle(shelf),
         tracks: await withDurations(ofKind(items, "track")),
+        trackLayout: items.every(item => item.video) ? "videos" : undefined,
         albums: ofKind(items, "album"),
         artists: ofKind(items, "artist"),
         playlists: ofKind(items, "playlist"),
@@ -335,7 +365,11 @@ function pageToken(key, offset) {
   return offset > 0 ? tokens.get(`${key}\0${offset}`) : null;
 }
 function keepToken(key, offset, token) {
-  if (token) tokens.set(`${key}\0${offset}`, token);
+  const entry = `${key}\0${offset}`;
+  if (token) {
+    if (tokens.size >= 256 && !tokens.has(entry)) tokens.delete(tokens.keys().next().value);
+    tokens.set(entry, token);
+  } else tokens.delete(entry);
   return Boolean(token);
 }
 
@@ -354,7 +388,18 @@ function rowsOf(answer) {
 // Account.
 
 export async function account() {
-  if (!cookie()) return null;
+  if (!hasSession()) return null;
+  if (hasOAuth()) {
+    // iOS OAuth uses the documented Data API; the website account menu can reject native client tokens.
+    const res = await fetch("https://youtube.googleapis.com/youtube/v3/channels?part=snippet&mine=true", {
+      method: "GET", headers: await oauthHeaders(),
+    });
+    if (!res.ok) throw new Error(`YouTube 账号读取失败（HTTP ${res.status}）`);
+    const channel = (await res.json()).items?.[0];
+    if (!channel?.id || !channel.snippet?.title) throw new Error("此 Google 账号没有可用的 YouTube 频道，请先在 YouTube 创建频道后重试");
+    const images = channel.snippet.thumbnails || {};
+    return { id: channel.id, name: channel.snippet.title, imageUrl: (images.high || images.medium || images.default)?.url };
+  }
   const r = await call("account/account_menu", {});
   const header = findOne(r, "activeAccountHeaderRenderer");
   if (!header) return null;
@@ -368,21 +413,33 @@ const signInPage =
   "https://accounts.google.com/ServiceLogin?ltmpl=music&service=youtube&uilel=3&passive=true" +
   "&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26app%3Ddesktop%26next%3Dhttps%253A%252F%252Fmusic.youtube.com%252F";
 
-// Google turns down signing in on a page it takes for one inside an app, so it's
-// told the page is the system's own browser.
+// Desktop hosts retain their existing web sign-in; iOS uses system OAuth below.
 const browserUA =
   host.platform === "darwin"
     ? "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15"
     : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0";
 
 export async function signIn() {
-  const { cookie: session } = await host.webSignIn({
-    url: signInPage,
-    cookiesOf: site,
-    until: ["SAPISID", "__Secure-3PSID"],
-    userAgent: browserUA,
-  });
+  accountRevision += 1;
+  if (host.platform === "ios") {
+    likedSet = null;
+    const me = await signInOAuth(account);
+    host.storage.set("cookieActive", false);
+    return me;
+  }
+  if (typeof host.webSignIn !== "function") throw fail("setup", t("This host cannot show the YouTube Music sign-in page"));
+  let result;
+  try {
+    result = await host.webSignIn({ url: signInPage, cookiesOf: site, until: ["SAPISID", "__Secure-3PSID"], userAgent: browserUA });
+  } catch (error) {
+    if (host.platform === "android" && error.message === "Host request is unavailable on Android") {
+      throw fail("setup", t("This host cannot show the YouTube Music sign-in page"));
+    }
+    throw error;
+  }
+  const { cookie: session } = result;
   host.storage.set("cookie", session);
+  host.storage.set("cookieActive", true);
   likedSet = null;
   const me = await account();
   if (!me) {
@@ -396,28 +453,86 @@ export function signOut() {
   endSession();
 }
 
-// What's kept of a session goes with it.
+// 退出仅停用插件私有目录中的会话，重新登录先验证后复用。
 function endSession() {
-  host.storage.remove("cookie");
+  accountRevision += 1;
+  endOAuth();
+  host.storage.set("cookieActive", false);
   likedSet = null;
 }
 
 // Pages.
 
-export async function home() {
+async function discovery(videosOnly = false) {
   const answer = await browseId("FEmusic_home");
-  const sections = await sectionsOf(answer);
+  const sections = await sectionsOf(answer, videosOnly);
   // It comes in a few pages. Two more make a page that's worth scrolling.
   let token = nextToken(findOne(answer, "sectionListRenderer"));
   for (let i = 0; token && i < 2; i++) {
     const more = await call("browse", { continuation: token });
-    sections.push(...(await sectionsOf(more)));
+    sections.push(...(await sectionsOf(more, videosOnly)));
     token = nextToken(findOne(more, "sectionListContinuation"));
   }
-  return { title: t("Home"), sections };
+  return sections;
+}
+
+export async function home() {
+  return { title: t("Home"), sections: await discovery() };
+}
+
+const videoPreviewLength = 6;
+
+async function videoCharts() {
+  const answer = await browseId("FEmusic_charts");
+  const shelf = findAll(answer, "musicCarouselShelfRenderer").find(item => /^(Video charts|视频排行榜)$/i.test(shelfTitle(item)));
+  return ofKind(itemsOf(shelf?.contents), "playlist").map(item => ({
+    title: item.name, imageUrl: item.imageUrl, page: `video-chart:${item.id}`,
+  }));
+}
+
+async function videoHome() {
+  const [fresh, charts] = await Promise.allSettled([
+    browseId("FEmusic_new_releases").then(answer => sectionsOf(answer, true, videoPreviewLength)),
+    videoCharts(),
+  ]);
+  let sections = fresh.status === "fulfilled" ? fresh.value : [];
+  if (sections.length) {
+    sections[0] = { ...sections[0], title: t("New Music Videos"), morePage: "videos:new" };
+  } else {
+    try { sections = await discovery(true); }
+    catch (error) { if (error.code === "signIn") throw error; }
+  }
+  if (!sections.length) {
+    if (fresh.status === "rejected" && charts.status === "rejected") throw fresh.reason;
+    sections.push({ title: t("New Music Videos"), empty: t("No music videos on the current feed"), morePage: "videos:new" });
+  }
+  if (charts.status === "fulfilled" && charts.value.length) {
+    sections.push({ title: t("Video Charts"), links: charts.value });
+  } else if (charts.status === "rejected") {
+    sections.push({ title: t("Video Charts"), links: [{ title: t("View Video Charts"), page: "videos:charts" }] });
+  }
+  return { title: t("Music Videos"), sections };
 }
 
 export async function browse({ page }) {
+  if (page === "videos") return videoHome();
+  if (page === "videos:new") {
+    const title = t("New Music Videos");
+    const sections = await sectionsOf(await browseId("FEmusic_new_releases_videos"), true);
+    if (!sections.length) sections.push({ empty: t("No music videos on the current feed") });
+    return { title, sections };
+  }
+  if (page === "videos:charts") {
+    const links = await videoCharts();
+    return { title: t("Video Charts"), sections: [{ links, empty: t("No music videos on the current feed") }] };
+  }
+  const chart = /^video-chart:((?:PL|OLAK)[\w-]{8,98})$/.exec(page);
+  if (chart) {
+    const answer = await browseId(`VL${chart[1]}`);
+    const tracks = await withDurations(ofKind(videoItems(await playlistItems(answer)), "track"));
+    const title = textOf(headerOf(answer).title) || t("Video Charts");
+    return { title, sections: [{ tracks, trackLayout: "videos", empty: t("No music videos on the current feed") }] };
+  }
   const ids = { charts: ["FEmusic_charts", "Charts"], new: ["FEmusic_new_releases", "New Releases"] };
   const known = ids[page];
   if (known) return { title: t(known[1]), sections: await sectionsOf(await browseId(known[0])) };
@@ -428,23 +543,104 @@ export async function browse({ page }) {
 
 const filters = {
   tracks: "EgWKAQIIAWoMEA4QChADEAQQCRAF",
+  videos: "EgWKAQIQAWoMEA4QChADEAQQCRAF",
   albums: "EgWKAQIYAWoMEA4QChADEAQQCRAF",
   artists: "EgWKAQIgAWoMEA4QChADEAQQCRAF",
   playlists: "EgeKAQQoAEABagwQDhAKEAMQBBAJEAU%3D",
 };
 
-export async function search({ query, kind, offset }) {
+function linkedVideoID(query) {
+  if (typeof query !== "string") return "";
+  const value = query.trim();
+  const short = /^https:\/\/youtu\.be\/([\w-]{11})(?:[?#][^\s]*)?$/i.exec(value);
+  const watch = /^https:\/\/(?:(?:www|m|music)\.)?youtube\.com\/watch\?([^#\s]+)(?:#[^\s]*)?$/i.exec(value);
+  return short?.[1] || (watch && /(?:^|&)v=([\w-]{11})(?:&|$)/.exec(watch[1])?.[1]) || "";
+}
+
+async function linkedVideo(id) {
+  const result = await playerResponse(id);
+  const detail = result.videoDetails;
+  if (result.playabilityStatus?.status !== "OK" || !detail?.title || detail.isLiveContent || !videoFormats(result).length || !audioFormats(result).length) {
+    throw fail("unavailable", result.playabilityStatus?.reason || t("No directly playable YouTube video"));
+  }
+  const duration = Number(detail.lengthSeconds);
+  const credits = { artists: [], names: detail.author ? [detail.author] : [], duration: duration > 0 ? duration * 1000 : 0 };
+  return { ...trackFrom(id, detail.title, credits, imageOf(detail.thumbnail, true), false, true), description: detail.shortDescription || undefined };
+}
+
+export async function search({ query, kind = "tracks", offset = 0 }) {
   const filter = filters[kind];
   if (!filter) return { [kind]: [], more: false };
+  const id = (kind === "tracks" || kind === "videos") && linkedVideoID(query);
+  if (id) return { tracks: offset > 0 ? [] : [await linkedVideo(id)], more: false };
   const key = `search\0${kind}\0${query}`;
   const token = pageToken(key, offset);
   if (offset > 0 && !token) return { [kind]: [], more: false };
   const answer = await call("search", token ? { continuation: token } : { query, params: decodeURIComponent(filter) });
   const { items, token: next } = rowsOf(answer);
-  const single = { tracks: "track", albums: "album", artists: "artist", playlists: "playlist" }[kind];
-  const found = ofKind(items, single);
-  if (kind === "tracks") await withDurations(found);
-  return { [kind]: found, more: keepToken(key, offset + found.length, next) };
+  const single = { tracks: "track", videos: "track", albums: "album", artists: "artist", playlists: "playlist" }[kind];
+  const found = ofKind(kind === "videos" ? videoItems(items) : items, single);
+  if (kind === "tracks" || kind === "videos") await withDurations(found);
+  return { [kind === "videos" ? "tracks" : kind]: found, more: keepToken(key, offset + found.length, kind !== "videos" || found.length ? next : "") };
+}
+
+export function searchVideos({ query, offset = 0 }) {
+  return search({ query, offset, kind: "videos" });
+}
+
+function exactCount(value) {
+  if (typeof value !== "string" || !/^\d[\d,，\s]*$/.test(value)) return undefined;
+  const count = Number(value.replace(/\D/g, ""));
+  return Number.isSafeInteger(count) ? count : undefined;
+}
+
+const commentCounts = new Map();
+
+export async function comments({ trackId, offset = 0 }) {
+  if (!validVideoID(trackId)) throw fail("unavailable", "无效的 YouTube 视频 ID");
+  const key = `comments\0${trackId}`;
+  let continuation = pageToken(key, offset);
+  if (offset === 0) {
+    commentCounts.delete(trackId);
+    const watch = await call("next", { videoId: trackId });
+    const tab = findAll(watch, "tabRenderer").find(item => /^(Comments|评论)$/i.test(item.title));
+    continuation = tab?.content?.sectionListRenderer?.continuations?.[0]?.reloadContinuationData?.continuation;
+  }
+  if (!continuation) return { comments: [], more: false };
+
+  const answer = await call("next", { continuation });
+  const actions = answer.onResponseReceivedEndpoints || [];
+  const rows = actions.flatMap(action => {
+    const batch = action.reloadContinuationItemsCommand || action.appendContinuationItemsAction;
+    return batch?.targetId === trackId ? batch.continuationItems || [] : [];
+  });
+  const entities = new Map(findAll(answer.frameworkUpdates, "commentEntityPayload").map(item => [item.key, item]));
+  const comments = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const view = row.commentThreadRenderer?.commentViewModel?.commentViewModel;
+    const item = entities.get(view?.commentKey);
+    const id = item?.properties?.commentId;
+    const content = item?.properties?.content?.content;
+    if (!id || typeof content !== "string" || !content.trim() || seen.has(id)) continue;
+    seen.add(id);
+    const avatar = item.author?.avatarThumbnailUrl;
+    comments.push({ id, text: content, author: item.author?.displayName || "",
+      avatarUrl: typeof avatar === "string" && avatar.startsWith("https://") ? avatar : undefined,
+      likes: exactCount(item.toolbar?.likeCountNotliked) });
+  }
+  const header = rows.find(row => row.commentsHeaderRenderer)?.commentsHeaderRenderer;
+  const count = [header?.commentsCount, header?.countText].map(value =>
+    exactCount(textOf(value).trim().match(/^([\d,，\s]+)(?:comments?|条评论)?$/i)?.[1]?.trim())
+  ).find(value => value !== undefined);
+  if (count !== undefined) {
+    if (commentCounts.size >= 32 && !commentCounts.has(trackId)) commentCounts.delete(commentCounts.keys().next().value);
+    commentCounts.set(trackId, count);
+  }
+  const tail = rows.at(-1)?.continuationItemRenderer;
+  const next = tail?.continuationEndpoint?.continuationCommand?.token;
+  const more = comments.length > 0 && keepToken(key, offset + comments.length, next === continuation ? "" : next);
+  return { comments, total: commentCounts.get(trackId), more };
 }
 
 export async function suggest({ query }) {
@@ -497,13 +693,12 @@ export { albumPage as album, artistPage as artist };
 // A long playlist comes in pages: this many is thousands of songs.
 const pagesAtMost = 30;
 
-async function tracksOfAll(answer) {
-  const out = [];
+async function playlistItems(answer) {
   let { items, token } = rowsOf(answer);
-  out.push(...ofKind(items, "track"));
+  const out = [...items];
   for (let i = 0; token && i < pagesAtMost; i++) {
     ({ items, token } = rowsOf(await call("browse", { continuation: token })));
-    out.push(...ofKind(items, "track"));
+    out.push(...items);
   }
   return out;
 }
@@ -511,7 +706,7 @@ async function tracksOfAll(answer) {
 async function playlistPage({ id }) {
   const answer = await browseId(`VL${id}`);
   const header = headerOf(answer);
-  const tracks = await withDurations(await tracksOfAll(answer));
+  const tracks = await withDurations(ofKind(await playlistItems(answer), "track"));
   return {
     id,
     name: textOf(header.title),
@@ -527,7 +722,7 @@ export { playlistPage as playlist };
 // The app loads this for its sidebar as it starts: no account is no playlists,
 // rather than asking someone who's only browsing to sign in.
 export async function playlists() {
-  if (!cookie()) return [];
+  if (!hasSession()) return [];
   const items = (await sectionsOf(await browseId("FEmusic_liked_playlists"))).flatMap((s) => s.playlists);
   // Liked Music has an entry of its own, and episodes for later aren't songs.
   return items.filter((p) => p.id !== "LM" && p.id !== "SE").map((p) => ({ ...p, saved: true }));
@@ -564,7 +759,7 @@ async function likedIds() {
 }
 
 export async function isLiked({ ids }) {
-  const set = cookie() ? await likedIds() : new Set();
+  const set = hasSession() ? await likedIds() : new Set();
   return Object.fromEntries(ids.map((id) => [id, set.has(id)]));
 }
 
@@ -578,7 +773,7 @@ export async function like({ id, on }) {
 }
 
 export async function recent() {
-  if (!cookie()) return [];
+  if (!hasSession()) return [];
   const sections = await sectionsOf(await browseId("FEmusic_history"));
   return sections.flatMap((s) => s.tracks).slice(0, 50);
 }
@@ -595,7 +790,7 @@ export function stations() {
 // recommendations are made from, as its own player would put it there.
 export async function played({ id }) {
   host.storage.set("lastPlayed", id);
-  if (!cookie()) return;
+  if (!hasSession()) return;
   try {
     await report(id);
   } catch (e) {
@@ -609,14 +804,15 @@ async function report(id) {
   if (!base) throw new Error(t("YouTube gave no address to report it to"));
   const url = new URL(base);
   // The session goes with it, so it goes to YouTube alone.
-  if (url.protocol !== "https:" || !/(^|\.)youtube\.com$/.test(url.hostname)) {
+  if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443") ||
+      !["music.youtube.com", "www.youtube.com", "youtube.com", "s.youtube.com"].includes(url.hostname)) {
     throw new Error(`not sending your session to ${url.hostname}`);
   }
   url.searchParams.set("ver", "2");
   url.searchParams.set("c", "WEB_REMIX");
   url.searchParams.set("cpn", playbackNonce());
   const res = await fetch(url.href, {
-    headers: { "user-agent": webUA, referer: `${site}/`, ...authHeaders(url.origin) },
+    headers: { "user-agent": webUA, referer: `${site}/`, ...await authHeaders(url.origin) },
   });
   if (!res.ok) throw new Error(`${res.status}`);
 }
@@ -760,8 +956,6 @@ async function youtubeLyrics(next) {
 
 // MB iOS plays AAC/MP4 directly with AVFoundation; no desktop processes are needed.
 let visitor = "";
-const located = new Map();
-const pendingAudio = new Map();
 
 async function visitorData() {
   if (visitor) return visitor;
@@ -772,20 +966,36 @@ async function visitorData() {
 }
 
 function mediaURL(value) {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:" || url.username || url.password || url.port || !url.hostname.endsWith(".googlevideo.com")) throw new Error();
-    return url.toString();
-  } catch { throw fail("unavailable", "YouTube 返回的音频地址不可用"); }
+  if (typeof value !== "string" || !/^https:\/\/(?:[a-z0-9-]+\.)+googlevideo\.com\//i.test(value) || /[\x00-\x20\x7f\\]/.test(value)) return "";
+  return value;
 }
 
-async function nativeAudio(id, quality) {
-  const result = await call("player", { videoId: id, contentCheckOk: true, racyCheckOk: true }, visionOS(await visitorData()));
+const pendingPlayer = new Map();
+
+async function playerResponse(id) {
+  const pending = pendingPlayer.get(id) || visitorData().then(visitor => call("player", { videoId: id, contentCheckOk: true, racyCheckOk: true }, visionOS(visitor)));
+  pendingPlayer.set(id, pending);
+  try { return await pending; }
+  finally { if (pendingPlayer.get(id) === pending) pendingPlayer.delete(id); }
+}
+
+function audioFormats(result) {
+  return (result.streamingData?.adaptiveFormats || []).filter(format =>
+    /^audio\/mp4\b/i.test(format.mimeType || "") && /mp4a/i.test(format.mimeType) && mediaURL(format.url) && !format.isDrc &&
+    (!format.audioTrack || format.audioTrack.audioIsDefault));
+}
+
+function videoFormats(result) {
+  return [...(result.streamingData?.formats || []), ...(result.streamingData?.adaptiveFormats || [])].filter(format =>
+    /^video\/mp4\b/i.test(format.mimeType || "") && /\bavc[13]\./i.test(format.mimeType) && mediaURL(format.url) && Number(format.height) > 0);
+}
+
+export async function stream({ id, quality = "high" }) {
+  if (!validVideoID(id)) throw fail("unavailable", "无效的 YouTube 视频 ID");
+  const result = await playerResponse(id);
   const status = result.playabilityStatus || {};
   if (status.status !== "OK") throw fail("unavailable", status.reason || "YouTube 当前未提供可播放音频");
-  const formats = (result.streamingData?.adaptiveFormats || []).filter(format =>
-    /^audio\/mp4\b/i.test(format.mimeType || "") && /mp4a/i.test(format.mimeType) && format.url && !format.isDrc &&
-    (!format.audioTrack || format.audioTrack.audioIsDefault));
+  const formats = audioFormats(result);
   if (!formats.length) throw fail("unavailable", "YouTube 当前未提供可直接播放的 AAC 音频");
   formats.sort((a, b) => Number(a.bitrate || 0) - Number(b.bitrate || 0));
   const selected = quality === "standard" ? formats[0] : formats[formats.length - 1];
@@ -798,18 +1008,15 @@ async function nativeAudio(id, quality) {
   };
 }
 
-export async function stream({ id, quality = "high" }) {
-  if (!/^[a-zA-Z0-9_-]{11}$/.test(String(id))) throw fail("unavailable", "无效的 YouTube 视频 ID");
-  const key = `${id}:${quality === "standard" ? "standard" : "high"}`;
-  const saved = located.get(key);
-  if (saved && Date.now() - saved.at < 30 * 60 * 1000) return saved.audio;
-  if (pendingAudio.has(key)) return pendingAudio.get(key);
-  const request = nativeAudio(id, quality).then(audio => {
-    if (located.size >= 32) located.delete(located.keys().next().value);
-    located.set(key, { audio, at: Date.now() });
-    return audio;
-  });
-  pendingAudio.set(key, request);
-  try { return await request; }
-  finally { if (pendingAudio.get(key) === request) pendingAudio.delete(key); }
+export async function video({ id, quality = "high" }) {
+  if (!validVideoID(id)) throw fail("unavailable", "无效的 YouTube 视频 ID");
+  const result = await playerResponse(id);
+  const status = result.playabilityStatus || {};
+  if (status.status !== "OK") throw fail("unavailable", status.reason || t("No directly playable YouTube video"));
+  const formats = videoFormats(result);
+  if (!formats.length) throw fail("unavailable", t("No directly playable YouTube video"));
+  const ceiling = quality === "standard" ? 360 : 720;
+  formats.sort((left, right) => Number(right.height) - Number(left.height) || Number(left.bitrate || 0) - Number(right.bitrate || 0));
+  const selected = formats.find(format => Number(format.height) <= ceiling) || formats.at(-1);
+  return { url: selected.url, type: "mp4", headers: { "User-Agent": visionUA } };
 }

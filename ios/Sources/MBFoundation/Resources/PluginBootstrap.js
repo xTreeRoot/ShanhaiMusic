@@ -15,10 +15,16 @@
     const found = pending.get(id);
     if (!found) return;
     pending.delete(id);
-    if (success) found.resolve(value); else found.reject(new Error(String(value)));
+    if (success) found.resolve(value);
+    else {
+      const error = new Error(value.message);
+      if (value.code) error.code = value.code;
+      found.reject(error);
+    }
   };
   globalThis.host = Object.freeze({
     platform: "ios", arch: "arm64", dir: ".", dataDir: ".",
+    capabilities: Object.freeze({ webSignInHTML: true, cencAudio: true }),
     storage: Object.freeze({ get: key => call("storage.get", String(key)), set: (key, value) => call("storage.set", String(key), value), remove: key => call("storage.remove", String(key)) }),
     language: () => call("language"), t: text => call("t", String(text)),
     setting: key => call("setting", String(key)),
@@ -28,6 +34,7 @@
     spawn: () => { throw new Error("iOS does not provide external processes"); },
     waitForRedirect: () => { throw new Error("This sign-in callback needs a desktop host"); },
     webSignIn: options => request({ kind: "webSignIn", options }),
+    oauthSignIn: options => request({ kind: "oauthSignIn", options }),
     removeDataDir: path => call("removeDataDir", path),
   });
   globalThis.console = Object.freeze(Object.fromEntries(["log", "info", "warn", "error", "debug"].map(name => [name, (...args) => call("console")])));
@@ -121,7 +128,9 @@
     if (body != null && typeof body !== "string") throw new TypeError("Fetch body must be text or URLSearchParams");
     options.signal?.throwIfAborted();
     let abort;
-    const event = { kind: "fetch", url: String(input), method: options.method || "GET", headers: Object.fromEntries(headers), body: body ?? null };
+    const redirect = options.redirect ?? "follow";
+    if (!["follow", "manual", "error"].includes(redirect)) throw new TypeError("Invalid fetch redirect mode");
+    const event = { kind: "fetch", url: String(input), method: options.method || "GET", headers: Object.fromEntries(headers), body: body ?? null, redirect };
     const operation = request(event);
     const cancelled = new Promise((_, reject) => { abort = () => { __request({kind:"cancel", request:event.requestID}); pending.delete(event.requestID); reject(options.signal.reason); }; options.signal?.addEventListener("abort", abort, {once:true}); });
     let result;

@@ -17,5 +17,6 @@ int mbjs_settle(MBJSRuntime *runtime, int request, int success, const char *json
 int mbjs_has_export(MBJSRuntime *runtime, const char *name);
 char *mbjs_take_event(MBJSRuntime *runtime);
 char *mbjs_result(MBJSRuntime *runtime);
+char *mbjs_error_code(MBJSRuntime *runtime);
 void mbjs_free_string(char *string);
 #endif

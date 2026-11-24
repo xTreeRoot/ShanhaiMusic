@@ -7,12 +7,16 @@ public struct AudioEngineSnapshot: Sendable {
     public let bassLevel: Double
     public let finished: Bool
     public let errorMessage: String?
-    public init(positionMilliseconds: Int64, durationMilliseconds: Int64, finished: Bool = false, bassLevel: Double = 0, errorMessage: String? = nil) {
+    public let buffering: Bool
+    public let recoverable: Bool
+    public init(positionMilliseconds: Int64, durationMilliseconds: Int64, finished: Bool = false, bassLevel: Double = 0, errorMessage: String? = nil, buffering: Bool = false, recoverable: Bool = false) {
         self.positionMilliseconds = positionMilliseconds
         self.durationMilliseconds = durationMilliseconds
         self.bassLevel = bassLevel
         self.finished = finished
         self.errorMessage = errorMessage
+        self.buffering = buffering
+        self.recoverable = recoverable
     }
 }
 
@@ -36,7 +40,7 @@ public struct AudioEngineSnapshot: Sendable {
 }
 
 /// 使用公开 AVFoundation API 播放本地缓存文件；请求头和代理由下载层统一处理。
-@MainActor public final class NativeAudioEngine: NSObject, AudioEngine, AudioEngineEvents, AudioEngineVolume, AudioEngineStreaming, AudioEngineNormalization {
+@MainActor public final class NativeAudioEngine: NSObject, AudioEngine, AudioEngineEvents, AudioEngineVolume, AudioEnginePreloading, AudioEngineNormalization {
     private let player = AVPlayer()
     private var duration: Int64 = 0
     private var ended = false
@@ -48,6 +52,8 @@ public struct AudioEngineSnapshot: Sendable {
     private var measured = false
     private var asset: AVURLAsset?
     private var loadRevision = 0
+    private var seekRevision = 0
+    private var seekTarget: Int64?
     public var onUpdate: (() -> Void)?
     nonisolated(unsafe) private var timeObserver: Any?
     public override init() {
@@ -70,14 +76,36 @@ public struct AudioEngineSnapshot: Sendable {
     }
 
     public func load(resource: MediaResource, at milliseconds: Int64) async throws {
+        if resource.url.isFileURL { try await load(url: resource.url, at: milliseconds); return }
         remote?.cancel()
         let loader = try RemoteMediaAsset(resource: resource)
         remote = loader
-        try await prepare(loader.asset, at: milliseconds)
+        do { try await prepare(loader.asset, at: milliseconds) }
+        catch { throw loader.lastFailure ?? error }
+    }
+
+    public func prepare(resource: MediaResource) async throws -> any PreparedAudio {
+        if resource.url.isFileURL {
+            guard try await AVURLAsset(url: resource.url).load(.isPlayable) else { throw MediaStreamingFailure.unplayable }
+            try Task.checkCancellation()
+            return NativePreparedLocalAudio(resource.url)
+        }
+        let loader = try RemoteMediaAsset(resource: resource)
+        do { try await loader.prime(); return NativePreparedAudio(loader) }
+        catch { loader.cancel(); throw error }
+    }
+    public func load(prepared: any PreparedAudio, at milliseconds: Int64) async throws {
+        if let local = prepared as? NativePreparedLocalAudio, let url = local.take() {
+            try await load(url: url, at: milliseconds); return
+        }
+        guard let token = prepared as? NativePreparedAudio, let loader = token.take() else { throw MediaStreamingFailure.unplayable }
+        remote?.cancel(); remote = loader
+        do { try await prepare(loader.asset, at: milliseconds) }
+        catch { throw loader.lastFailure ?? error }
     }
 
     private func prepare(_ asset: AVURLAsset, at milliseconds: Int64) async throws {
-        guard try await asset.load(.isPlayable) else { throw NetworkFailure.response }
+        guard try await asset.load(.isPlayable) else { throw MediaStreamingFailure.unplayable }
         let time = try await asset.load(.duration)
         try Task.checkCancellation()
         duration = Self.milliseconds(time)
@@ -106,7 +134,7 @@ public struct AudioEngineSnapshot: Sendable {
         else { normalizationTask?.cancel(); normalizationTask = nil }
     }
     private func measureGain() {
-        guard normalization == .standard, !measured, normalizationTask == nil, let asset else { return }
+        guard remote == nil, normalization == .standard, !measured, normalizationTask == nil, let asset else { return }
         let current = loadRevision
         normalizationTask = Task {
             do {
@@ -130,6 +158,8 @@ public struct AudioEngineSnapshot: Sendable {
     public func pause() { player.pause() }
     public func setVolume(_ volume: Double) { player.volume = Float(volume.isFinite ? min(1, max(0, volume)) : 0.8) }
     public func stop() {
+        seekRevision += 1
+        seekTarget = nil
         loadRevision += 1
         normalizationTask?.cancel(); normalizationTask = nil
         normalizer = nil; asset = nil; fixedGain = 1
@@ -141,11 +171,25 @@ public struct AudioEngineSnapshot: Sendable {
     }
     public func seek(to milliseconds: Int64) {
         ended = false
-        player.seek(to: CMTime(value: max(0, milliseconds), timescale: 1_000), toleranceBefore: .zero, toleranceAfter: .zero)
+        seekRevision += 1
+        let revision = seekRevision
+        let target = max(0, milliseconds)
+        seekTarget = target
+        player.currentItem?.cancelPendingSeeks()
+        player.seek(to: CMTime(value: target, timescale: 1_000), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.seekRevision == revision else { return }
+                self.seekTarget = nil; self.onUpdate?()
+            }
+        }
     }
     public func snapshot() -> AudioEngineSnapshot {
-        AudioEngineSnapshot(positionMilliseconds: Self.milliseconds(player.currentTime()), durationMilliseconds: duration,
-                            finished: ended, bassLevel: player.rate == 0 ? 0 : normalizer?.bassLevel ?? 0, errorMessage: player.currentItem?.error == nil ? nil : "音频读取失败，点击播放重试")
+        let failure = remote?.lastFailure ?? player.currentItem?.error
+        return AudioEngineSnapshot(positionMilliseconds: seekTarget ?? Self.milliseconds(player.currentTime()), durationMilliseconds: duration,
+                                   finished: ended, bassLevel: player.rate == 0 ? 0 : normalizer?.bassLevel ?? 0,
+                                   errorMessage: player.currentItem?.error == nil ? nil : "音频读取失败，点击播放重试",
+                                   buffering: seekTarget != nil || player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
+                                   recoverable: failure.map(MediaStreamingFailure.allowsRefresh) ?? false)
     }
 
     private static func milliseconds(_ time: CMTime) -> Int64 {
@@ -158,4 +202,19 @@ public struct AudioEngineSnapshot: Sendable {
         NotificationCenter.default.removeObserver(self)
         if let timeObserver { player.removeTimeObserver(timeObserver) }
     }
+}
+
+/// 消费后移交所有权，清理旧队列预备令牌不会取消当前播放。
+@MainActor private final class NativePreparedAudio: PreparedAudio {
+    private var loader: RemoteMediaAsset?
+    init(_ loader: RemoteMediaAsset) { self.loader = loader }
+    func take() -> RemoteMediaAsset? { defer { loader = nil }; return loader }
+    func cancel() { loader?.cancel(); loader = nil }
+}
+
+@MainActor private final class NativePreparedLocalAudio: PreparedAudio {
+    private var url: URL?
+    init(_ url: URL) { self.url = url }
+    func take() -> URL? { defer { url = nil }; return url }
+    func cancel() { url = nil }
 }

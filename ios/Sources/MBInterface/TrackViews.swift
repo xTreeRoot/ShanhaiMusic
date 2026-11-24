@@ -52,6 +52,7 @@ struct VideoTrackGrid: View {
 }
 
 struct VideoTrackRow: View {
+    @Environment(\.skinAccent) private var skinAccent
     let track: Track
     var selected = false
 
@@ -60,7 +61,7 @@ struct VideoTrackRow: View {
             VideoArtwork(track: track).frame(width: 122)
             VStack(alignment: .leading, spacing: 5) {
                 Text(track.title).font(.subheadline.weight(.medium)).lineLimit(2)
-                    .foregroundStyle(selected ? MBTheme.accent : .primary)
+                    .foregroundStyle(selected ? skinAccent : .primary)
                 Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }.frame(maxWidth: .infinity, alignment: .leading)
         }.contentShape(Rectangle())
@@ -72,6 +73,7 @@ struct RemoteArtwork: View {
     let track: Track
     @State private var image: Image?
     private struct Request: Hashable {
+        let sourceID: String
         let url: URL?
         let headers: [String: String]
     }
@@ -89,7 +91,7 @@ struct RemoteArtwork: View {
                 else { Image(systemName: "music.note").foregroundStyle(.white.opacity(0.75)).frame(maxWidth: .infinity, maxHeight: .infinity) }
             }
         }
-        .task(id: Request(url: track.artworkURL, headers: track.artworkHeaders)) {
+        .task(id: Request(sourceID: track.sourceID, url: track.artworkURL, headers: track.artworkHeaders)) {
             image = nil
             guard let url = track.artworkURL else { return }
             if url.isFileURL {
@@ -97,12 +99,9 @@ struct RemoteArtwork: View {
                 guard !Task.isCancelled else { return }
                 image = result.flatMap(decodedImage); return
             }
-            var request = URLRequest(url: url)
-            request.allHTTPHeaderFields = track.artworkHeaders
             do {
-                let (value, response) = try await NetworkClient.shared.data(for: request)
-                guard !Task.isCancelled, let response = response as? HTTPURLResponse,
-                      (200..<300).contains(response.statusCode) else { return }
+                let value = try await ArtworkCache.shared.data(url: url, sourceID: track.sourceID, headers: track.artworkHeaders)
+                guard !Task.isCancelled else { return }
                 image = decodedImage(value)
             } catch { /* 无封面时保留渐变占位。 */ }
         }
@@ -120,23 +119,44 @@ struct RemoteArtwork: View {
     }
 }
 
+struct TrackProblemAccessibility: ViewModifier {
+    @Environment(\.stationPlayback) private var playback
+    let track: Track
+    var enabled = true
+
+    func body(content: Content) -> some View {
+        let problem = enabled ? (playback?.trackProblem(for: track) ?? track.declaredProblem) : nil
+        content.accessibilityValue(problem?.label ?? "")
+    }
+}
+
 struct TrackRow: View {
+    @Environment(\.skinAccent) private var skinAccent
+    @Environment(\.stationPlayback) private var playback
     let track: Track
     var selected = false
+    var position: Int? = nil
 
     var body: some View {
+        let problem = playback?.trackProblem(for: track) ?? track.declaredProblem
         HStack(spacing: 14) {
+            if let position {
+                Text(position.formatted()).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .frame(minWidth: 24, alignment: .trailing)
+            }
             ArtworkView(track: track)
             VStack(alignment: .leading, spacing: 5) {
                 Text(track.title).font(.body.weight(.medium)).lineLimit(2)
-                    .foregroundStyle(selected ? MBTheme.accent : .primary)
+                    .foregroundStyle(selected ? skinAccent : .primary)
                 Text(track.artist.isEmpty ? "未知作者" : track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if let problem {
+                    Text(problem.label).font(.caption.weight(.medium)).foregroundStyle(skinAccent)
+                }
             }
             Spacer(minLength: 8)
             Text(TimeLabel.string(milliseconds: track.durationMilliseconds))
                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }
-        .opacity(track.unavailable == true ? 0.45 : 1)
         .padding(.vertical, 5)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -167,7 +187,7 @@ private struct PreviewCover: View {
                     }
                 }
                 VStack(alignment: .leading) {
-                    Text("MB / DEMO").font(.system(size: max(5, side * 0.045), weight: .medium, design: .monospaced)).tracking(side * 0.005)
+                    Text("山海 / DEMO").font(.system(size: max(5, side * 0.045), weight: .medium, design: .monospaced)).tracking(side * 0.005)
                     Spacer()
                     Text(track.title).font(.system(size: max(7, side * 0.09), weight: .bold)).lineLimit(2)
                 }.foregroundStyle(.white).padding(side * 0.09)

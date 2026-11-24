@@ -9,11 +9,13 @@ public final class SearchModel {
     public private(set) var isLoading = false
     public private(set) var hasMore = false
     public private(set) var errorMessage: String?
+    public private(set) var warnings: [String] = []
 
     @ObservationIgnored private let loadPage: @Sendable (String, Int) async throws -> (TrackPage, Int)
     @ObservationIgnored private let initialCursor: Int
-    @ObservationIgnored private var generation = 0
-    @ObservationIgnored private var cursor: Int
+    private var generation = 0
+    public var paginationGeneration: Int { generation }
+    public private(set) var cursor: Int
 
     public init(source: any MusicSource) {
         initialCursor = 1; cursor = 1
@@ -33,6 +35,7 @@ public final class SearchModel {
         cursor = initialCursor
         hasMore = false
         errorMessage = nil
+        warnings = []
         isLoading = !query.isEmpty
         guard !query.isEmpty else { return }
         await load(generation: current)
@@ -43,6 +46,15 @@ public final class SearchModel {
         isLoading = true
         errorMessage = nil
         await load(generation: generation)
+    }
+
+    public func playbackPages() -> PlaybackPageLoader? {
+        guard hasMore else { return nil }
+        let query = self.query, load = loadPage
+        return .following(cursor) { offset in
+            let (page, next) = try await load(query, offset)
+            return (page.tracks, page.hasMore && next > offset ? next : nil)
+        }
     }
 
     public func cancel() {
@@ -57,6 +69,7 @@ public final class SearchModel {
             guard !Task.isCancelled else { isLoading = false; return }
             var seen = Set(tracks.map(\.id))
             tracks += result.tracks.filter { seen.insert($0.id).inserted }
+            warnings = result.warnings
             hasMore = result.hasMore
             cursor = nextCursor
             isLoading = false

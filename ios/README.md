@@ -1,14 +1,16 @@
 # MB iPhone / iPad
 
-SwiftUI 原生客户端，最低 iOS / iPadOS 17，Swift 6。源码位于 [xTreeRoot/MB](https://github.com/xTreeRoot/MB) 的 `ios` 分支，工程入口为 `ios/MBiOS.xcodeproj`。桌面源码在 `main`，功能对照基准见 [PARITY.md](PARITY.md)。当前产品版本为 `0.1.0`、build `16`。
+SwiftUI 原生客户端，最低 iOS / iPadOS 17，Swift 6。源码在 `ios` 分支维护，工程入口为 `ios/MBiOS.xcodeproj`。产品版本与构建号以工程设置为准，功能对照基准见 [PARITY.md](PARITY.md)。
+
+build 20 增加播放到 70% 时预取下一首地址和首个 256 KiB 数据块，切歌复用，改音质、切源和改队列时取消；预取失败不打断当前播放。播放器显示中文模式反馈和底部功能小字，横屏支持歌词、律动、待播清单、选歌、评论。音乐与视频统一使用小圆点细进度条；视频单击切换控制条、双击播放/暂停，播放中无操作 4 秒收起，拖动时保留。YouTube 0.1.6 使用官方频道接口验证 OAuth 账号，登录已获用户确认。build 21 修复 iPad 播放器窄弹层导致的横屏失效；iPhone/iPad 相关 UI 回归通过。build 22 补齐插件 fetch 的手动跳转和逐跳网络权限检查，并为扫码登录申请短时后台执行。汽水 0.3.5 改用官方汽水专用扫码入口后仍返回 2156，0.3.6 增加本机匿名设备注册后仍返回 7。build 23 与汽水 0.4.0 使用隔离 WebKit 网页加载官方安全 SDK，并由同一浏览器会话取码和确认；2026-11-20 已装手机，用户确认授权登录成功并显示个人歌单。验收状态与截图见 [播放器验证](Review/PlayerExperience/README.md)。
 
 ## 在另一台 Mac 编译
 
 安装完整 Xcode，首次打开并完成组件安装。终端执行：
 
 ```bash
-git clone --branch ios --single-branch https://github.com/xTreeRoot/MB.git
-cd MB/ios
+git clone --branch ios https://github.com/xTreeRoot/ShanhaiMusic.git
+cd ShanhaiMusic/ios
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 swift package resolve
 open MBiOS.xcodeproj
@@ -36,23 +38,45 @@ build 7 参考 Apple Music、网易云音乐官方手机版截图重构页面：
 
 浏览页模式只影响主动点选的资源，不打开当前曲目，也不受播放、暂停或队列推进影响。要看正在听的曲目，可在音频播放页点“观看当前视频”或封面，进入同一播放会话的视频详情。视频静音跟随同一音频时钟，保留曲目、进度和暂停状态；切回听歌取消视频加载并隔离迟到响应。没有视频能力的音源显示明确状态，本地纯音频保持听歌界面。重启恢复和返回浏览不会自行打开视频。
 
-[YouTube Music 兼容插件 0.1.2](https://github.com/xTreeRoot/mygo-music-youtube-music) 使用原生 AAC 直链，已验证真实首页、搜索和完整音频可播放；设备网络仍需能访问 YouTube，Google 登录未验收。[汽水音乐兼容插件 0.2.1](https://github.com/xTreeRoot/mygo-music-soda) 提供公开推荐歌单、分类和可用完整 AAC，不声明搜索、私有歌单或会员能力。两个插件均不启动桌面辅助进程。
+[YouTube Music 兼容插件 0.1.6](https://github.com/xTreeRoot/mygo-music-youtube-music) 使用原生 AAC 直链，已验证真实首页、搜索和完整音频可播放；设备网络仍需能访问 YouTube，授权登录已获用户确认。[汽水音乐兼容插件 0.4.0](https://github.com/xTreeRoot/mygo-music-soda) 提供公开推荐歌单、分类和可用完整 AAC；账号及个人歌单已有合同回归，用户已在真机确认扫码登录成功、显示个人歌单，不声明搜索或会员专属取流。两个插件均不启动桌面辅助进程。
 
 ## CarPlay 系统正在播放与逐句歌词
 
-继续使用 AltStore 个人签名。先在手机打开 MB 开始播放，连接 CarPlay 后打开车机自带的“正在播放”，可使用系统播放/暂停、上下曲与进度控制；实际显示和可用按钮由车机决定。无需为这条路径增加 CarPlay 专属 entitlement，App 没有独立的车机图标或歌单页面。
+继续使用 AltStore 个人签名。先在手机打开山海开始播放，连接 CarPlay 后打开车机自带的“正在播放”，可使用系统播放/暂停、上下曲与进度控制；实际显示和可用按钮由车机决定。无需为这条路径增加 CarPlay 专属 entitlement，App 没有独立的车机图标或歌单页面。
 
-默认开启「设置 → CarPlay 与锁屏 → 在歌手栏显示当前歌词」：歌名保留，歌手字段按音频播放时间替换为当前句；前奏、间奏、无歌词或空白歌词行恢复原歌手。暂停时保留对应句，拖动、切曲、歌词迟到及开关变更立即刷新；普通进度按秒更新，句子变化不受整秒节流限制。关闭开关立即恢复正常歌手信息，选择会保存。
+iOS 将当前输出识别为车载音频时，山海只播放音频，停止当前视频和视频预加载，不覆盖原来的播放模式偏好。只被系统识别为普通蓝牙音频的设备不会触发该规则。退到后台时，停掉界面进度刷新和不可见的视频预热，不影响系统播放控制与歌词。
+
+诊断记录位于 App 沙盒的 `Library/Application Support/MBMobile/playback-diagnostics.json`，保留最近 128 条启动、前后台、车载路由与播放状态事件，包含时间与构建号，不含歌曲信息、地址或凭据。记录会在事件发生时尽力写入，不等 App 退出；被系统终止时最后一条未写完的事件可能丢失，是否被强杀仍以系统 `.ips` 报告为准。
+
+默认开启「设置 → CarPlay 与锁屏 → 在主标题显示当前歌词」：歌曲名放入副标题（系统 artist 字段），主标题按音频播放时间替换为当前句；前奏、间奏、无歌词或空白歌词行回退到歌曲名。暂停时保留对应句，拖动、切曲、歌词迟到及开关变更立即刷新；普通进度按秒更新，句子变化不受整秒节流限制。关闭开关立即恢复正常的歌曲名和歌手信息，选择会保存。
 
 手机锁屏和控制中心也会使用同一份文字。系统决定刷新速度、截断与文字滚动，此功能不提供自定义滚动歌词界面。真实 CarPlay 尚未实测，不能将元数据回归或设置截图当成车机显示验收。
 
+## 插件登录（宿主兼容版本 0.1.28）
+
+`host.capabilities.webSignInHTML` 为真时，`host.webSignIn({url, cookiesOf, until, userAgent, html})` 可在独立临时 WKWebView 中加载插件提供的登录文档。`html` 必须为非空字符串、UTF-8 不超过 256 KiB，页面与 Cookie 目标须使用 HTTPS、同域名及端口，并通过插件网络权限检查；省略 `html` 保留原有加载远程网页登录方式。页面使用自己的浏览器网络栈和非持久 Cookie 库，达到 `until` 中的 Cookie 条件后把匹配目标路径的 Cookie 交给插件，是否保存由插件在线验证决定。
+
+HTML 页面可通过 `window.webkit.messageHandlers.mbSignIn.postMessage({error: message})` 报告失败；宿主只接受初始 HTTPS 同源顶层页面、长度受限的错误。失败、取消和旧页面迟到的 Cookie 不会完成后续登录，WebKit 进程终止会正常结束本次登录。汽水 0.4.0 在此页面加载平台安全 SDK、初始化浏览器会话、显示专用二维码并等待确认，切到后台暂停轮询，回前台恢复；平台错误不自动重试。用户已在真机确认官方 App 扫码后登录成功并显示个人歌单；平台额外安全验证 2046 尚未实现交互处理。
+
+`host.oauthSignIn({authorizationEndpoint, tokenEndpoint, clientID, redirectURI, scopes})` 返回授权服务器的 token JSON。两个服务端点必须使用 HTTPS 并在插件 `permissions.network` 内；`redirectURI` 必须为 App 已注册的自定义回调 scheme。宿主通过 `ASWebAuthenticationSession` 打开系统授权页面，每次生成独立 state 和 PKCE S256，校验回调后用 POST 交换一次性授权码，禁止 token 请求自动重定向。取消会关闭当前授权，迟到回调不能完成后续请求。
+
+YouTube Music 0.1.6 使用 MB 自己的公开 iOS OAuth 客户端和 YouTube 权限；当前 Google Cloud 为外部测试模式，已加入的测试用户可以登录。测试模式下 Google 刷新令牌通常 7 天失效，需要再次授权。插件把会话保存在现有私有数据目录，退出仅停用，重新登录先验证后复用；候选授权验证通过才替换旧会话。源码仅包含公开客户端 ID 和回调 scheme。系统授权页面遵循系统网络设置，MB 的 URLSession 代理白名单不控制系统浏览器。
+
+## 流式播放检查（2026-11-19）
+
+音频、视频均通过 AVFoundation 和 HTTP Range 播放。插件 `stream()` 负责解析直链和请求头，宿主按需请求 256 KiB 块，内存保留 16 块，可直接请求 seek 所在区间。并非先下载整首，也不是 HLS/DASH 自适应直播。服务端不支持 Range 等特定错误会退回整文件下载，下载完成后开始播放。
+
+本次使用隔离游客会话检查星标插件最新 main：网易云 0.1.17、喜马拉雅 0.1.7、汽水 0.3.2 和内置哔哩哔哩的真实媒体开头/中段均返回 HTTP 206，AVFoundation 在未读完整文件前获取到可播元信息。YouTube 0.1.4 媒体解析超时，模板 0.1.0 的示例 WAV 请求遇到 TLS 错误，仅能确认代码合同，未完成本次真实流播验证。开启播放缓存后，当前实现会在开始流播 8 秒后另行全量下载缓存，存在重复流量；本轮未修改这项策略。
+
 ## 模块与数据
+
+每个插件的数据目录保留最近 24 次登录、验号、退出和登录缓存清理的 `account-diagnostics.json`，以及最近一次扫码或授权的 `sign-in-diagnostics.json`。诊断记录操作结果、存储读写计数、请求耗时、HTTP 状态和有界平台错误码；只记录请求是否声明 Cookie / Authorization 头及服务端设置 Cookie 的数量，不记录值、存储键、账号资料、URL 路径原文或查询、请求及响应正文，也不上传节点。平台未返回具体原因时，错误码只能证明当次会话没有通过验证。
 
 | 目录 | 职责 |
 | --- | --- |
 | `MBiOS/` | App 入口、图标、系统配置、中英文资源 |
 | `Sources/MBFoundation/` | 来源协议、业务状态、网络、存储、原生播放、插件宿主 |
-| `Sources/MBBilibili/` | B 站合同、WBI、账号、发现、互动及媒体解析 |
+| 独立信息源插件 | 平台合同、签名、会话和媒体解析均在插件仓库，App 不内置平台适配器 |
 | `Sources/MBInterface/` | 手机/平板 SwiftUI 页面 |
 | `Sources/MBSignal/` | 音频响度及低音采样 |
 | `Sources/MBJavaScript/` | QuickJS C 桥与上游解释器 |
@@ -62,6 +86,8 @@ build 7 参考 Apple Music、网易云音乐官方手机版截图重构页面：
 数据位于 App 沙盒 `Application Support/MBMobile`。Cookie 与设置留在沙盒文件，退出仅停用；不读取桌面账号，不保存临时媒体 URL，不把证书、账号或沙盒资料提交 Git。文件写入采用原子提交，iOS 文件保护允许首次解锁后后台播放。
 
 ## 验证与打包
+
+本轮四页紧凑布局、音源栏、系统 OAuth、CarPlay 元数据与流播检查的测试结果、26 张截图和真机未验收范围见 [验证记录](Review/CompactOAuth/README.md)。
 
 在本目录运行：
 
@@ -75,7 +101,13 @@ xcodebuild -project MBiOS.xcodeproj -scheme MBiOS -configuration Debug \
 bash scripts/package-ipa.sh
 ```
 
-`package-ipa.sh` 输出 `.build/artifacts/MB-iOS-0.1.0-14-unsigned.ipa` 及源码 SHA-256 清单。未签名 IPA 需要自己的签名，不能点击直接安装；Xcode 直接运行是首次安装最省事的方式。
+`package-ipa.sh` 按 Xcode 工程中的 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION` 输出 `.build/artifacts/MB-iOS-<版本>-<构建号>-unsigned.ipa` 及源码 SHA-256 清单。iOS 使用独立的 `mb-ios-v<版本>` 标签在 [GitHub Releases](https://github.com/xTreeRoot/MB/releases) 发布；公开包不带开发者签名，须自行签名后安装。
+
+### 0.1.0 (17) - 2026-11-19
+
+- 支持自托管节点绑定和已验证账号资料加密同步，不通过资料接口上传 Cookie。线上真实账号同步尚未验收。
+- 补充音视频分段缓存、有限重试及原位置恢复；尚未实现同容器音视频共用分段，断网后的音画偏差尚未实测。
+- 插件页支持音源标签、GitHub Stars 批量导入、检查更新、一键更新和删除；新增独立皮肤及已知不可播原因提示。
 
 UI 回归使用后台启动的 Simulator 设备和 XCTest，不需要打开 Simulator.app 或控制 Xcode 窗口。可先用 `xcrun simctl list devices available` 找设备，再按 [Review/README.md](Review/README.md) 的命令运行和导出截图。Release 忽略 `--demo`；Debug 演示资料、插件、静音音频与实际沙盒数据隔离。
 

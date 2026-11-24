@@ -1,0 +1,43 @@
+{
+  "date": "2026-11-21",
+  "androidVersion": "0.1.28 (29)",
+  "iOSVersion": "0.1.0 (29)",
+  "sourceSHA256": {
+    "android/app/build.gradle.kts": "32e293e39dec051f3cb163b827ff9b8b587e2d2bd2b9bf20bba198c6037d5714",
+    "android/app/src/main/java/com/xtreeroot/mb/playback/PlaybackPresentation.kt": "f9de0579e6c0a1ef39e8cc1f071b5963140f57667a162d8af54f5f4c75afa4b0",
+    "android/app/src/main/java/com/xtreeroot/mb/ui/MBRoot.kt": "aa1e11b7b08f6858b156e42907bcf9d1d6bb0c7fba77e4f7921336f89d10b03f",
+    "android/app/src/main/java/com/xtreeroot/mb/ui/PortraitVideoPage.kt": "187f66ab10401b36e372a1b4bd97570856077b9cad5f738a244995fd4034153e",
+    "android/app/src/main/java/com/xtreeroot/mb/music/TorrentSearchSource.kt": "f14d883a8bc66192e1e0ebe13eadb3b54247a7f838c2b203e2ed88dfffd9a876",
+    "android/app/src/main/java/com/xtreeroot/mb/plugin/LegacyPluginStorage.kt": "2635181a708ae24b140404cc1b682054e98fb3e0f15ad1354018a4ac6d95c18b",
+    "android/app/src/androidTest/java/com/xtreeroot/mb/ui/UnifiedSearchDeviceTest.kt": "4742075655b3b1da001dd4134f41dd127192e25e9c973ce556f19403f638f28f",
+    "android/app/src/androidTest/java/com/xtreeroot/mb/ui/VideoDetailsDeviceTest.kt": "d9497a5eb07869a91b06e8f8167ac94303664201af654bad17ce84fee2467014",
+    "ios/Sources/MBFoundation/VideoModel.swift": "30713c7d219c4d84b88eeb15ca75213fc0ace284f7d8ee034fcc7fdd54309537",
+    "ios/Sources/MBFoundation/PreferencesModel.swift": "11355597a7fb642017ef7266ffef3d0532eddb6a2f612b7876ba0c3a7a8d63f5",
+    "ios/Sources/MBFoundation/LegacyPluginStorage.swift": "9fe1b6397d70b3eada394e4f53d7de88ad0e95a6095fcb13b8d5808860a92332",
+    "ios/Sources/MBFoundation/TorrentSearchSource.swift": "913cfe43a7e0a3fc2f7947b61501eeec8c3703f227e41ea91910e7c542f96d2d",
+    "ios/Sources/MBInterface/MBRootView.swift": "34b7f984c5b4da027af1d2e4c33bad7d69b87d74f0a6d02059e871991e0156bf",
+    "ios/Sources/MBInterface/PortraitVideoView.swift": "8804ec0b0b7e8d8ba023adcfb513bf32edcea089f2aadc19e5edd9e60443d828",
+    "ios/Sources/MBJavaScript/MBJavaScript.c": "9e56c76d28ed696e684838bf395c66fc7ed24613702140e924250b7c50b5ce98",
+    "ios/MBiOSUITests/MBiOSUITests.swift": "28434761f86660c9da7efde36fc6333bbcbb029689d2cc5a72f17a3d810cafbc",
+    "icon/shanhai.png": "b65819689ed6067cfe713c94a8359dff417e477b41fd06589c8af33b88af4ae9",
+    "android/app/src/main/res/drawable-nodpi/mb_icon.png": "5a4b35e83e5af2f0815357506cf7e10d747f9ef77e87e9c3e9b6494c6055ffdc",
+    "ios/MBiOS/Assets.xcassets/AppIcon.appiconset/AppIcon.png": "2f8556f6c95314bb4d048a5164272c9baea3c8291a37406578c19365cb9bef85"
+  },
+  "screenshots": {
+    "android-magnet-direct-result.png": "1831f0bbf62e3659a102ffcb7489b1c22db6f1d9c30bf71c832e78a48bd9534d",
+    "android-portrait-controls.png": "0710484337826883669b61df8d07afb9138df841b16950fd6d4ae18444caf1f7",
+    "ipad-最近搜索-单条删除.png": "929a1f09ebc712c0646bbfa284fa51e0f26016d844a76f93908f8c5b8fc4805b",
+    "ipad-磁力链-直接识别.png": "6961be0cfa79effe7cbc7172c17c2170aa8d120c0a6da20233776c9a2eff64e4",
+    "ipad-竖屏-通用操作.png": "f36230266f86d8d00c4730346f839864b848386a57665c031c69fd11a8aa0cd6",
+    "iphone-最近搜索-单条删除.png": "5117d5efcee6b33ebd67ae1cc6c8b773b11c449cb7f92fbd646b65576d418ba0",
+    "iphone-点击资源-自动展开播放器.png": "1088635d880d2d31ddf0b87cb7bad0620acdb8e42cad0ce61f4e1542374bd567",
+    "iphone-磁力链-直接识别.png": "ecb6d1eb962ec3fb6d93409a004d9983d7e11dd6b72be2a3afc96d716b2818ea",
+    "iphone-竖屏-字幕.png": "6431779e0f3a94510a82f27e440a7c34585bfd3a389dff50e3ec1c7a186efd29",
+    "iphone-竖屏-通用操作.png": "45f17e6ead4f83ba54f44767c1f0ed729dd927ae2ace99200f49bf1f68af5835"
+  },
+  "assets": {
+    "MB-android-v0.1.28.apk": "0d6df8ab26497a22f044d0e8e107ca75a5446f2463eacf7807c4fc08e1dda5ae",
+    "MB-iOS-v0.1.0-build29-unsigned.ipa": "4b24912e985cf3042d4bb6968d810c214ececa6146898cce494cd16a14e3ebb8",
+    "Shanhai-macOS-arm64-v0.1.14.zip": "66661d1141ff23bdbe11032408308f53ce25c9acab1a2cd387eebe5ad94bebaf"
+  }
+}

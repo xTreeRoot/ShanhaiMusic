@@ -1,6 +1,6 @@
 # iOS 与 main 功能对照
 
-对照 main `27d433743f29b5c04ce4a9ddc95aff99f1204067`，产品 build 7。工程位于同仓库 `ios` 分支的 `ios/`。平台合同沿用 main 已启用能力，平台专属请求集中在 MBBilibili，公共业务与插件能力集中在 MBFoundation。
+对照 main `27d433743f29b5c04ce4a9ddc95aff99f1204067`，产品 build 7。以下为历史 build 7 验收记录。当前三端在 `main` 维护，平台实现已移至独立插件；当前 build 29 的验收见 `Review/VideoAndMagnet/README.md`。
 
 | 功能 | iOS 实现与验证 | 实机/宿主边界 |
 | --- | --- | --- |

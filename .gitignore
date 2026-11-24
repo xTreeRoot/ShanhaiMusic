@@ -6,3 +6,8 @@ mygo_windows_*.syso
 /node_modules/
 /.idea/
 .DS_Store
+/android/.gradle/
+/android/.kotlin/
+/android/app/build/
+/android/app/.cxx/
+/android/local.properties

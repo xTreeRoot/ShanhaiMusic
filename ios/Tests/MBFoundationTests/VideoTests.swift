@@ -5,6 +5,7 @@ import Testing
 @MainActor private final class TestVideo: VideoEngine, VideoEngineEvents {
     var onUpdate: (() -> Void)?
     var isBuffering = false
+    var aspectRatio: Double?
     var loads: [URL] = []
     var positions: [Int64] = []
     var isPlaying = false
@@ -291,14 +292,16 @@ private actor OrderedModeStore: PlaybackModeStore {
     var starts = 0
     var stops = 0
     var position: Int64 = 0
+    var finished = false
+    var actuallyPlaying = false
     var errorMessage: String?
     func load(url: URL, at milliseconds: Int64) { loads += 1; position = milliseconds }
-    func play() { starts += 1 }
-    func pause() {}
-    func stop() { stops += 1 }
+    func play() { starts += 1; actuallyPlaying = true }
+    func pause() { actuallyPlaying = false }
+    func stop() { stops += 1; actuallyPlaying = false }
     func seek(to milliseconds: Int64) { position = milliseconds }
     func snapshot() -> AudioEngineSnapshot {
-        AudioEngineSnapshot(positionMilliseconds: position, durationMilliseconds: 90_000, errorMessage: errorMessage)
+        AudioEngineSnapshot(positionMilliseconds: position, durationMilliseconds: 90_000, finished: finished, errorMessage: errorMessage)
     }
 }
 
@@ -438,4 +441,139 @@ private actor RestoredSession: PlaybackSessionStore {
     #expect(playback.selectionRevision == revision)
     #expect(video.mode == .video && !video.isVisible && !video.isLoading)
     #expect(await source.calls().isEmpty)
+}
+
+@Test @MainActor func musicPreloadsMutedVideoAndOpeningReusesItAndMeasuredSizeWins() async {
+    let source = VideoFixture(), engine = TestVideo()
+    engine.aspectRatio = 9.0 / 16
+    let model = VideoModel(source: source, engine: engine)
+    model.updateTrack(videoTracks[0])
+    model.sync(positionMilliseconds: 1200, playing: true)
+    model.preloadCurrent()
+    await model.waitUntilLoaded()
+    #expect(model.isReady && !model.isVisible && model.aspectRatio == 9.0 / 16)
+    model.sync(positionMilliseconds: 45_000, playing: true)
+    #expect(engine.loads.count == 1 && !engine.isPlaying && engine.positions == [1_200])
+    model.watchCurrent()
+    #expect(model.isVisible && model.isReady && engine.loads.count == 1)
+    #expect(engine.isPlaying && engine.positions.last == 45_000)
+    model.updateTrack(videoTracks[1])
+    #expect(!model.isReady)
+    await model.waitUntilLoaded()
+    #expect(engine.loads.count == 2)
+}
+
+@Test @MainActor func backgroundReleasesHiddenVideoButCanPrepareOnReturn() async {
+    let source = VideoFixture(), engine = TestVideo()
+    let model = VideoModel(source: source, engine: engine)
+    model.updateTrack(videoTracks[0])
+    model.sync(positionMilliseconds: 1_200, playing: true)
+    model.preloadCurrent()
+    await model.waitUntilLoaded()
+    let stopped = engine.stopped
+    model.suspendPreloading()
+    #expect(!model.isReady && engine.stopped == stopped + 1)
+    model.preloadCurrent()
+    await model.waitUntilLoaded()
+    #expect(model.isReady && engine.loads.count == 2 && !engine.isPlaying)
+}
+
+@Test @MainActor func carAudioCancelsVideoBlocksNewRequestsAndPreservesModePreference() async {
+    let source = VideoFixture(), engine = TestVideo()
+    let model = VideoModel(source: source, engine: engine, store: source)
+    await model.choose(.video)
+    model.handleSelection(videoTracks[0], intent: .content, positionMilliseconds: 0, playing: true)
+    await model.waitUntilLoaded()
+    #expect(model.isVisible && engine.isPlaying)
+    model.setAudioOnly(true)
+    #expect(!model.isVisible && !model.isReady && !engine.isPlaying)
+    model.handleSelection(videoTracks[1], intent: .content, positionMilliseconds: 15_000, playing: true)
+    model.preloadCurrent()
+    model.watchCurrent()
+    model.preloadNext(videoTracks[0], enabled: true)
+    await model.waitUntilLoaded()
+    #expect(model.presentationMode == .music && model.mode == .video && !model.isLoading)
+    #expect(await source.calls() == ["one"])
+    model.setAudioOnly(false)
+    #expect(!model.isVisible)
+    #expect(await source.calls() == ["one"])
+    model.watchCurrent()
+    await model.waitUntilLoaded()
+    #expect(model.isVisible && engine.isPlaying && engine.positions.last == 15_000)
+    #expect(await source.calls() == ["one", "two"])
+}
+
+@Test @MainActor func nativeVideoMeasuresPortraitTrackAndClearsGeometryOnStop() async throws {
+    let file = try #require(Bundle.module.url(forResource: "Fixtures/video-portrait", withExtension: "mp4"))
+    let engine = NativeVideoEngine()
+    try await engine.load(resource: MediaResource(url: file, headers: [:], fileExtension: "mp4"), at: 0)
+    #expect(abs((engine.aspectRatio ?? 0) - 9.0 / 16) < 0.001)
+    engine.stop()
+    #expect(engine.aspectRatio == nil)
+}
+
+@Test @MainActor func floatingVideoReusesTheLoadedEngineAndKeepsTransportSelection() async {
+    let source = VideoFixture(), engine = TestVideo(), model = VideoModel(source: nil)
+    #expect(!model.isFloating)
+    let video = VideoModel(source: source, engine: engine)
+    video.updateTrack(videoTracks[0]); video.sync(positionMilliseconds: 12_000, playing: true)
+    video.watchCurrent(); await video.waitUntilLoaded()
+    let loaded = engine.loads.count, stopped = engine.stopped
+    video.minimize()
+    #expect(video.isFloating && !video.isVisible && video.isReady)
+    video.sync(positionMilliseconds: 13_000, playing: true)
+    video.open()
+    #expect(!video.isFloating && video.isVisible)
+    #expect(engine.loads.count == loaded && engine.stopped == stopped && engine.positions.last == 13_000)
+    video.minimize(); video.handleSelection(videoTracks[1], intent: .transport, positionMilliseconds: 0, playing: true)
+    await video.waitUntilLoaded()
+    #expect(video.isFloating && video.track == videoTracks[1] && engine.loads.count == loaded + 1)
+    video.browse()
+    #expect(!video.isFloating && !video.isReady && !video.isVisible)
+}
+
+@Test @MainActor func systemVideoControlsAreNotOverwrittenByPeriodicAudioTicks() async {
+    let source = VideoFixture(), engine = TestVideo(), video = VideoModel(source: source, engine: engine)
+    video.updateTrack(videoTracks[0]); video.watchCurrent(); await video.waitUntilLoaded()
+    video.setSystemControlled(true)
+    let count = engine.positions.count
+    video.sync(positionMilliseconds: 10_000, playing: true)
+    #expect(engine.positions.count == count)
+    video.applySystemPlayback(positionMilliseconds: 20_000, playing: false)
+    #expect(engine.positions.last == 20_000 && !engine.isPlaying)
+    video.setSystemControlled(false)
+    video.sync(positionMilliseconds: 21_000, playing: true)
+    #expect(engine.positions.last == 21_000 && engine.isPlaying)
+}
+
+@Test @MainActor func visibleVideoLoadingFreezesTheAudioClockAndRejectsALateFinishedSnapshot() async {
+    let source = VideoFixture(), audio = ContinuousAudio(), picture = TestVideo()
+    let playback = PlaybackModel(source: source, engine: audio, download: { _ in URL(fileURLWithPath: "/tmp/mb-video-hold.m4a") })
+    let video = VideoModel(source: source, engine: picture)
+    video.onPlaybackHoldChanged = { [weak playback] in playback?.holdForVideo($0) }
+    await source.block()
+    await video.choose(.video)
+    playback.select(videoTracks, index: 0)
+    video.handleSelection(playback.queue.current, intent: .content, positionMilliseconds: 0, playing: true)
+    await source.waitBlocked()
+    await playback.waitUntilLoaded()
+    #expect(video.isLoading && !audio.actuallyPlaying)
+    // 音频结束消息可能已在途，缓冲闸门仍必须阻止自动换片。
+    audio.position = 90_000; audio.finished = true
+    playback.tick()
+    #expect(playback.queue.index == 0 && playback.positionMilliseconds == 0)
+    audio.position = 0; audio.finished = false
+    picture.isBuffering = true
+    await source.release(); await video.waitUntilLoaded()
+    #expect(video.isBuffering && !audio.actuallyPlaying)
+    picture.isBuffering = false; picture.onUpdate?()
+    #expect(audio.actuallyPlaying)
+    picture.isBuffering = true; picture.onUpdate?()
+    #expect(!audio.actuallyPlaying)
+    playback.pause()
+    let starts = audio.starts
+    picture.isBuffering = false; picture.onUpdate?()
+    #expect(!audio.actuallyPlaying && audio.starts == starts && playback.state == .paused)
+    video.browse()
+    #expect(!audio.actuallyPlaying)
 }

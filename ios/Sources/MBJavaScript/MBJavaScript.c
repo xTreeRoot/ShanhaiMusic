@@ -15,32 +15,53 @@ struct MBJSRuntime {
     atomic_bool cancelled;
     double deadline;
     char *result;
+    char *error_code;
     char *events[128];
     int event_count;
     int request_id;
 };
 
-static double monotonic(void) {
-    struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+static double execution_time(void) {
+    // 每段 JS 计算按当前线程 CPU 用时限额，避免系统调度/同步宿主 IO 被误判为死循环。
+    // 宿主仍独立限制整个异步调用的实际时长，并支持原子取消。
+    struct timespec now;
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now) != 0) clock_gettime(CLOCK_MONOTONIC, &now);
     return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
 }
 static int interrupt(JSRuntime *rt, void *opaque) {
     MBJSRuntime *r = opaque;
-    return atomic_load(&r->cancelled) || monotonic() > r->deadline;
+    return atomic_load(&r->cancelled) || execution_time() > r->deadline;
 }
 static void budget(MBJSRuntime *r, int milliseconds) {
     JS_UpdateStackTop(r->runtime);
-    r->deadline = monotonic() + (double)(milliseconds > 0 ? milliseconds : 100) / 1000;
+    r->deadline = execution_time() + (double)(milliseconds > 0 ? milliseconds : 100) / 1000;
 }
 static void result(MBJSRuntime *r, const char *value) {
     free(r->result); r->result = strdup(value ? value : "null");
+    free(r->error_code); r->error_code = NULL;
+}
+static int failure(MBJSRuntime *r, JSValue value, const char *fallback) {
+    const char *message = JS_ToCString(r->context, value);
+    result(r, message ? message : fallback);
+    JS_FreeCString(r->context, message);
+    if (!message) JS_FreeValue(r->context, JS_GetException(r->context));
+    if (JS_IsObject(value)) {
+        JSValue code = JS_GetPropertyStr(r->context, value, "code");
+        if (JS_IsString(code)) {
+            const char *text = JS_ToCString(r->context, code);
+            if (text) r->error_code = strdup(text);
+            else JS_FreeValue(r->context, JS_GetException(r->context));
+            JS_FreeCString(r->context, text);
+        } else if (JS_IsException(code)) {
+            JS_FreeValue(r->context, JS_GetException(r->context));
+        }
+        JS_FreeValue(r->context, code);
+    }
+    JS_FreeValue(r->context, value);
+    return -1;
 }
 static int exception(MBJSRuntime *r) {
-    JSValue value = JS_GetException(r->context);
-    const char *message = JS_ToCString(r->context, value);
-    result(r, message ? message : "JavaScript execution failed");
-    JS_FreeCString(r->context, message); JS_FreeValue(r->context, value);
-    return -1;
+    return failure(r, JS_GetException(r->context), "JavaScript execution failed");
 }
 static JSValue host_call(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
     MBJSRuntime *r = JS_GetContextOpaque(ctx);
@@ -116,7 +137,7 @@ void mbjs_destroy(MBJSRuntime *r) {
     JS_FreeValue(r->context, r->exports); JS_FreeValue(r->context, r->pending);
     JS_FreeContext(r->context); JS_FreeRuntime(r->runtime);
     for (int i = 0; i < r->event_count; i++) free(r->events[i]);
-    free(r->result); free(r);
+    free(r->result); free(r->error_code); free(r);
 }
 void mbjs_cancel(MBJSRuntime *r) { if (r) atomic_store(&r->cancelled, 1); }
 int mbjs_evaluate(MBJSRuntime *r, const char *source, const char *name, int module, int milliseconds) {
@@ -165,9 +186,7 @@ int mbjs_poll(MBJSRuntime *r, int milliseconds) {
     if (state == JS_PROMISE_PENDING) return 0;
     JSValue value = state == JS_PROMISE_FULFILLED || state == JS_PROMISE_REJECTED ? JS_PromiseResult(r->context, r->pending) : JS_DupValue(r->context, r->pending);
     if (state == JS_PROMISE_REJECTED) {
-        const char *message = JS_ToCString(r->context, value);
-        result(r, message ? message : "Plugin promise rejected");
-        JS_FreeCString(r->context, message); JS_FreeValue(r->context, value); return -1;
+        return failure(r, value, "Plugin promise rejected");
     }
     JSValue json = JS_JSONStringify(r->context, value, JS_UNDEFINED, JS_UNDEFINED);
     JS_FreeValue(r->context, value);
@@ -192,6 +211,7 @@ char *mbjs_take_event(MBJSRuntime *r) {
     memmove(r->events, r->events + 1, (size_t)--r->event_count * sizeof(char *)); return event;
 }
 char *mbjs_result(MBJSRuntime *r) { return strdup(r->result ? r->result : "null"); }
+char *mbjs_error_code(MBJSRuntime *r) { return r->error_code ? strdup(r->error_code) : NULL; }
 void mbjs_free_string(char *value) { free(value); }
 
 int mbjs_has_export(MBJSRuntime *r, const char *name) {

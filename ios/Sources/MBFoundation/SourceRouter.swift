@@ -2,7 +2,7 @@ import Foundation
 
 /// 队列按曲目来源解析媒体；切换浏览音源后，旧队列继续使用原音源。
 public actor SourceRouter: PlaybackSource, VideoSource {
-    public nonisolated let displayName = "MB"
+    public nonisolated let displayName = "山海"
     private var sources: [String: any MusicSource] = [:]
     private var quality = AudioQuality.high
     public func setQuality(_ quality: AudioQuality) { self.quality = quality }
@@ -29,6 +29,10 @@ public actor SourceRouter: PlaybackSource, VideoSource {
     public func video(track: Track) async throws -> MediaResource {
         guard let source = sources[track.sourceID] as? any VideoSource else { throw PluginFailure.unavailable }
         return try await source.video(track: track, quality: quality)
+    }
+    public func video(track: Track, qualityID: String) async throws -> MediaResource {
+        guard let source = sources[track.sourceID] as? any VideoSource else { throw PluginFailure.unavailable }
+        return try await source.video(track: track, qualityID: qualityID)
     }
     public func source(for track: Track) -> (any MusicSource)? { sources[track.sourceID] }
     public func source(id: String) -> (any MusicSource)? { sources[id] }

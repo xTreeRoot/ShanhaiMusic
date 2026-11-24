@@ -29,6 +29,11 @@ import AppKit
     private var artworkTrack: String?
     private var artwork: MPMediaItemArtwork?
     private var artworkTask: Task<Void, Never>?
+    #if os(iOS)
+    private var audioRouteObserver: NSObjectProtocol?
+    private var lastCarAudio: Bool?
+    private var lastLoggedState: PlaybackState?
+    #endif
 
     public override init() {
         publish = { info, state in
@@ -49,7 +54,7 @@ import AppKit
         update()
     }
 
-    public func connect(_ playback: PlaybackModel) {
+    public func connect(_ playback: PlaybackModel, onCarAudioChanged: (@MainActor (Bool) -> Void)? = nil) {
         guard self.playback == nil else { return }
         self.playback = playback
         playback.stateDidChange = { [weak self] in self?.update() }
@@ -74,7 +79,16 @@ import AppKit
         commands.append((center.changePlaybackPositionCommand, token))
         #if os(iOS)
         NotificationCenter.default.addObserver(self, selector: #selector(interruption(_:)), name: AVAudioSession.interruptionNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(routeChanged(_:)), name: AVAudioSession.routeChangeNotification, object: nil)
+        audioRouteObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { [weak self] notification in
+            let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            let disconnected = raw == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue
+            Task { @MainActor [weak self] in
+                guard let self, self.playback != nil else { return }
+                let audioOnly = self.updateCarAudio(onChange: onCarAudioChanged)
+                if disconnected && !audioOnly { self.pauseAfterRouteLoss() }
+            }
+        }
+        updateCarAudio(onChange: onCarAudioChanged)
         #endif
         update()
     }
@@ -90,6 +104,19 @@ import AppKit
 
     private func update() {
         let hasTrack = playback?.queue.current != nil
+        #if os(iOS)
+        let state = hasTrack ? playback?.state : nil
+        if lastLoggedState != state {
+            lastLoggedState = state
+            switch state {
+            case .loading: AppPersistence.shared.logPlayback(.audioLoading)
+            case .playing: AppPersistence.shared.logPlayback(.audioPlaying)
+            case .paused: AppPersistence.shared.logPlayback(.audioPaused)
+            case .failed: AppPersistence.shared.logPlayback(.audioFailed)
+            case nil: break
+            }
+        }
+        #endif
         for (command, _) in commands { command.isEnabled = hasTrack }
         MPRemoteCommandCenter.shared().nextTrackCommand.isEnabled = hasTrack && ((playback?.queue.tracks.count ?? 0) > 1 || playback?.station != nil)
         MPRemoteCommandCenter.shared().previousTrackCommand.isEnabled = hasTrack && (playback?.queue.tracks.count ?? 0) > 1
@@ -103,14 +130,11 @@ import AppKit
             artworkTrack = track.id; artwork = nil; artworkTask?.cancel()
             if let url = track.artworkURL {
                 artworkTask = Task { [weak self] in
-                    var request = URLRequest(url: url); request.allHTTPHeaderFields = track.artworkHeaders
                     do {
                         let data: Data
                         if url.isFileURL { data = try await Task.detached(priority: .utility) { try Data(contentsOf: url) }.value }
                         else {
-                            let (bytes, response) = try await NetworkClient.shared.data(for: request)
-                            guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else { return }
-                            data = bytes
+                            data = try await ArtworkCache.shared.data(url: url, sourceID: track.sourceID, headers: track.artworkHeaders)
                         }
                         guard !Task.isCancelled, self?.artworkTrack == track.id else { return }
                         self?.artwork = Self.makeArtwork(data: data)
@@ -119,18 +143,19 @@ import AppKit
                 }
             }
         }
-        var artist = track.artist
+        var title = track.title
+        let artist = lyricsEnabled ? track.title : track.artist
         if lyricsEnabled, let index = playback.timeline.activeIndex(at: playback.positionMilliseconds) {
             let line = playback.timeline.lines[index].text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-            if !line.isEmpty { artist = line }
+            if !line.isEmpty { title = line }
         }
         // 普通进度每秒更新；同一秒内换句、拖动、切曲或修改设置立即更新。
-        let key = InfoKey(trackID: track.id, title: track.title, artist: artist,
+        let key = InfoKey(trackID: track.id, title: title, artist: artist,
                           second: playback.positionMilliseconds / 1_000, duration: playback.durationMilliseconds,
                           controlRevision: playback.controlRevision, playing: playback.state == .playing, artwork: artwork != nil)
         guard key != infoKey else { return }; infoKey = key
         var info: [String: Any] = [
-            MPMediaItemPropertyTitle: track.title, MPMediaItemPropertyArtist: artist,
+            MPMediaItemPropertyTitle: title, MPMediaItemPropertyArtist: artist,
             MPMediaItemPropertyPlaybackDuration: Double(playback.durationMilliseconds) / 1_000,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: Double(playback.positionMilliseconds) / 1_000,
             MPNowPlayingInfoPropertyPlaybackRate: playback.state == .playing ? 1.0 : 0.0,
@@ -154,6 +179,12 @@ import AppKit
         for (command, token) in commands { command.removeTarget(token); command.isEnabled = false }
         commands.removeAll()
         NotificationCenter.default.removeObserver(self)
+        #if os(iOS)
+        if let audioRouteObserver { NotificationCenter.default.removeObserver(audioRouteObserver) }
+        audioRouteObserver = nil
+        lastCarAudio = nil
+        lastLoggedState = nil
+        #endif
         artworkTask?.cancel(); artworkTask = nil
         playback?.stateDidChange = nil; playback = nil
         artwork = nil; artworkTrack = nil; infoKey = nil
@@ -176,9 +207,17 @@ import AppKit
             interruptedRevision = nil; interruptedTrack = nil
         }
     }
-    @objc private func routeChanged(_ notification: Notification) {
-        guard let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
-              AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable else { return }
+    @discardableResult private func updateCarAudio(onChange: (@MainActor (Bool) -> Void)?) -> Bool {
+        let audioOnly = AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .carAudio }
+        if audioOnly != lastCarAudio {
+            lastCarAudio = audioOnly
+            AppPersistence.shared.logPlayback(audioOnly ? .carAudio : .otherAudio)
+            onChange?(audioOnly)
+        }
+        return audioOnly
+    }
+
+    private func pauseAfterRouteLoss() {
         interruptedRevision = nil; interruptedTrack = nil
         playback?.pause()
     }

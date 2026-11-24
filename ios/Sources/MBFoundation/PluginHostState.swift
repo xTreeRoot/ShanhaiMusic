@@ -15,6 +15,16 @@ final class PluginHostState {
         let file = data.appendingPathComponent("storage.json")
         storage = FileManager.default.fileExists(atPath: file.path) ? try JSONDecoder().decode([String: PluginJSON].self, from: Data(contentsOf: file)) : [:]
     }
+    /// 仅清理本插件的宿主登录数据和缓存，不删除设置、资料库、下载或插件目录。
+    func clearLoginStorage() throws {
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        #if os(iOS)
+        try Data("{}".utf8).write(to: data.appendingPathComponent("storage.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        #else
+        try Data("{}".utf8).write(to: data.appendingPathComponent("storage.json"), options: .atomic)
+        #endif
+        storage = [:]; prompt = nil
+    }
     func call(_ operation: String, _ values: [PluginJSON]) throws -> PluginJSON {
         let first = values.first?.string ?? ""
         switch operation {

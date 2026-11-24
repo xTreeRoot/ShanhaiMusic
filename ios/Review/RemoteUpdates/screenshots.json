@@ -1,0 +1,22 @@
+[
+  {
+    "title": "分页-个人资源触底自动追加",
+    "file": "3E748D10-8251-47E3-A624-7B4100B25CDF.png",
+    "test": "MBiOSUITests/testBottomPaginationLoadsSearchAndPersonalLibraryWithoutButton()"
+  },
+  {
+    "title": "分页-搜索触底自动追加",
+    "file": "6949BF34-E34E-4030-866E-BAC233900300.png",
+    "test": "MBiOSUITests/testBottomPaginationLoadsSearchAndPersonalLibraryWithoutButton()"
+  },
+  {
+    "title": "播放-音频输出与操作图标对齐",
+    "file": "65218A97-6C24-474C-BAF0-7C0A1404C80A.png",
+    "test": "MBiOSUITests/testPlayerActionCaptionsShareOneBaseline()"
+  },
+  {
+    "title": "插件-独立视频搜索",
+    "file": "41CDC080-7833-456E-840F-47EB86DACC0F.png",
+    "test": "MBiOSUITests/testPluginVideoSearchKeepsMusicAndVideoResultsSeparate()"
+  }
+]

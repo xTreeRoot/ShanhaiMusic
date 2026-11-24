@@ -38,11 +38,12 @@ struct PluginPlaylistAddView: View {
                         HStack { TrackRow(track: track); Image(systemName: existing.contains(track.sourceTrackID) || selected.contains(track.sourceTrackID) ? "checkmark.circle.fill" : "circle") }
                     }.buttonStyle(.plain).disabled(saving || existing.contains(track.sourceTrackID)).accessibilityLabel("选择 \(track.title)")
                 }
-                if search.hasMore { Button("加载更多") { Task { await search.loadMore() } }.disabled(search.isLoading) }
+                if search.hasMore { PaginationFooter(page: "\(search.paginationGeneration):\(search.cursor)", loading: search.isLoading, blocked: search.errorMessage != nil) { await search.loadMore() } }
                 if search.isLoading { ProgressView() }
                 if let error = error ?? search.errorMessage { Text(error).foregroundStyle(.red) }
+                if search.errorMessage != nil { Button("重试") { Task { if search.hasMore { await search.loadMore() } else { await search.search(input) } } } }
                 if search.tracks.isEmpty && !search.isLoading { ContentUnavailableView("搜索音源", systemImage: "magnifyingglass") }
-                }
+                }.modifier(PaginationViewport())
             }
             .navigationTitle("添加平台歌曲")
             .toolbar {
@@ -53,7 +54,7 @@ struct PluginPlaylistAddView: View {
                         Task {
                             defer { saving = false }
                             do {
-                                _ = try await source.runtime.invoke("addToPlaylist", arguments: .object(["id": .string(playlist.sourceID), "trackIds": .array(selected.sorted().map(PluginJSON.string))]))
+                                try await source.mutate("addToPlaylist", arguments: .object(["id": .string(playlist.sourceID), "trackIds": .array(selected.sorted().map(PluginJSON.string))]))
                                 await didAdd(); dismiss()
                             } catch { self.error = error.localizedDescription }
                         }

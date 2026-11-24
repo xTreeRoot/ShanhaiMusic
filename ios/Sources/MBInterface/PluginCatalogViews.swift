@@ -9,9 +9,22 @@ struct PluginPersonalLinks: View {
     @State private var available: Set<String> = []
     private let entries = [("playlists", "平台歌单"), ("liked", "喜欢的歌曲"), ("recent", "最近播放"), ("savedAlbums", "收藏专辑"), ("shows", "订阅播客"), ("stations", "电台")]
     var body: some View {
-        if let page = account?.page { NavigationLink("我的主页") { PluginBrowseView(source: source, page: page, select: select, menu: menu) } }
+        let personal = source.personalNavigation
+        ForEach(personal, id: \.previewKey) { item in
+            if let page = item.page {
+                NavigationLink(item.title ?? page) { PluginBrowseView(source: source, page: page, select: select, menu: menu) }
+            } else if let method = item.builtin, available.contains(method) {
+                let title = item.title ?? entries.first(where: { $0.0 == method })?.1 ?? method
+                NavigationLink(LocalizedStringKey(title)) { PluginCatalogPage(source: source, request: .collection(method, title), select: select, menu: menu) }
+            }
+        }
+        if let page = account?.page, !personal.contains(where: { $0.page == page }) {
+            NavigationLink("我的主页") { PluginBrowseView(source: source, page: page, select: select, menu: menu) }
+        }
         ForEach(entries, id: \.0) { method, title in
-            if available.contains(method) { NavigationLink(LocalizedStringKey(title)) { PluginCatalogPage(source: source, request: .collection(method, title), select: select, menu: menu) } }
+            if available.contains(method), !personal.contains(where: { $0.builtin == method && $0.page == nil }) {
+                NavigationLink(LocalizedStringKey(title)) { PluginCatalogPage(source: source, request: .collection(method, title), select: select, menu: menu) }
+            }
         }
         Color.clear.frame(height: 0).task {
             var found: Set<String> = []
@@ -23,20 +36,31 @@ struct PluginPersonalLinks: View {
 
 enum PluginPageRequest {
     case home, browse(String), collection(String, String), entity(PluginEntity), search(String, String)
+    var isHome: Bool { if case .home = self { true } else { false } }
 }
 
 struct PluginCatalogPage: View {
+    @Environment(\.discoveryPreferencesModel) private var discoveryModel
+    @Environment(\.skinAccent) private var skinAccent
     let source: PluginSource
     let request: PluginPageRequest
     let select: ([Track], Int) -> Void
     let menu: (Track) -> AnyView
     @State private var content: PluginBrowse?
+    @State private var filterPage: String?
+    @State private var homeTab: String?
+    @State private var filterTabs: [PluginBrowse.Link] = []
+    @State private var navigationPreviews: [String: PluginNavigationPreview] = [:]
     @State private var error: String?
     @State private var loading = false
     @State private var loadRevision = 0
     @State private var initialLoad: Task<Void, Never>?
+    @State private var artworkPrefetch: Task<Void, Never>?
     @State private var offset = 0
+    @State private var nextBrowse: PluginBrowse.Cursor?
+    @State private var visitedBrowse: Set<PluginBrowse.Cursor> = []
     @State private var more = false
+    @State private var appendFailed = false
     @State private var capabilities: Set<String> = []
     @State private var changing = false
     @State private var enabled = false
@@ -47,87 +71,101 @@ struct PluginCatalogPage: View {
     @State private var adding = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.stationPlayback) private var playback
+    @Environment(\.sourceNames) private var sourceNames
     var body: some View {
-        List {
-            if case .home = request {
-                ForEach(Array((source.manifest.navigation ?? []).enumerated()), id: \.offset) { _, item in
-                    if let page = item.page { NavigationLink(item.title ?? page) { PluginBrowseView(source: source, page: page, select: select, menu: menu) } }
-                    else if let method = item.builtin, method == "home" || capabilities.contains(method) {
-                        NavigationLink(item.title ?? method) { PluginCatalogPage(source: source, request: method == "home" ? .home : .collection(method, item.title ?? method), select: select, menu: menu) }
-                    }
-                }
-                if capabilities.contains("search") { NavigationLink("搜索音源") { PluginCatalogSearch(source: source, select: select, menu: menu) } }
+        VStack(spacing: 0) {
+            if !filterTabs.isEmpty {
+                SourceTabs(sources: filterTabs.map { SourceTab(id: $0.page, name: $0.title) },
+                           selected: filterPage ?? content?.selectedTab ?? filterTabs[0].page,
+                           select: chooseFilter, namespace: "plugin-filter")
             }
-            if let content {
-                if !content.subtitle.isEmpty { Text(content.subtitle).font(.subheadline).foregroundStyle(.secondary) }
-                if !content.description.isEmpty { Text(content.description).font(.callout).foregroundStyle(.secondary) }
-                let tracks = content.sections.flatMap(\.tracks)
-                if !tracks.isEmpty, case .entity = request {
-                    Button { play(tracks, index: 0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
-                }
-                ForEach(content.sections) { section in
-                    Section {
-                        if section.trackLayout == "videos" {
-                            VideoTrackGrid(tracks: section.tracks, select: { play($0, index: $1) }, menu: menu, includeArtistInLabel: false)
-                        } else {
-                        ForEach(Array(section.tracks.enumerated()), id: \.offset) { index, track in
-                            HStack {
-                                Button { play(section.tracks, index: index) } label: { TrackRow(track: track) }.buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
-                                Menu { menu(track); playlistTrackActions(track, index: index) } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("曲目操作 \(track.title)")
-                            }.contextMenu { menu(track); playlistTrackActions(track, index: index) }
-                        }
-                        }
-                        ForEach(section.entities) { entity in
-                            NavigationLink { PluginCatalogPage(source: source, request: .entity(entity), select: select, menu: menu) } label: {
-                                HStack(spacing: 12) {
-                                    if let url = entity.value["imageUrl"].string.flatMap(URL.init(string:)) { ArtworkView(track: Track(sourceID: source.manifest.id, sourceTrackID: entity.id, title: entity.title, artist: "", artworkURL: url, durationMilliseconds: 0)) }
-                                    else { Image(systemName: entity.kind == .artist ? "person.crop.circle.fill" : entity.kind == .playlist ? "music.note.list" : "square.stack.fill").font(.title2).foregroundStyle(MBTheme.accent).frame(width: 52, height: 52).background(MBTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10)) }
-                                    VStack(alignment: .leading, spacing: 5) { Text(entity.title).font(.headline); if !entity.subtitle.isEmpty { Text(entity.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
+            if request.isHome {
+                PluginDiscoveryHome(source: source, capabilities: capabilities, content: content, loading: loading, error: error,
+                                    retry: { Task { await load(refresh: true) } }, select: select, menu: menu, previews: navigationPreviews, refresh: { await load(refresh: true) },
+                                    showNavigation: false, nextOffset: more ? offset : nil, loadMore: { await load(append: true) })
+            } else {
+                catalogList
+            }
+        }
+        .modifier(SkinSurface(defaultColor: MBTheme.background))
+        .navigationTitle(title)
+        .onChange(of: discoveryModel?.discoveryPreferences) { _, _ in
+            guard request.isHome else { return }; initialLoad?.cancel(); artworkPrefetch?.cancel(); content = nil
+            initialLoad = Task { await load(refresh: true) }
+        }
+        .onAppear { startLoading() }
+        .onDisappear { initialLoad?.cancel(); initialLoad = nil; artworkPrefetch?.cancel() }
+    }
+
+    private func chooseFilter(_ page: String) {
+        let next = request.isHome && page == homeTab ? nil : page
+        guard filterPage != next else { return }
+        initialLoad?.cancel(); filterPage = next
+        content = nil; more = false
+        initialLoad = Task { await load(refresh: true) }
+    }
+
+    private var catalogList: some View {
+        List {
+            Group {
+                if let content {
+                    if !content.subtitle.isEmpty { Text(content.subtitle).font(.subheadline).foregroundStyle(.secondary) }
+                    if !content.description.isEmpty { Text(content.description).font(.callout).foregroundStyle(.secondary) }
+                    ForEach(content.sections) { section in
+                        Section {
+                            if section.trackLayout == "videos" {
+                                VideoTrackGrid(tracks: section.tracks, select: { play($0, index: $1) }, menu: menu, includeArtistInLabel: false)
+                            } else {
+                            ForEach(Array(section.tracks.enumerated()), id: \.offset) { index, track in
+                                HStack {
+                                    Button { play(section.tracks, index: index) } label: { TrackRow(track: track, position: index + 1) }
+                                        .buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
+                                        .accessibilityIdentifier("catalog-track-\(section.id)-\(index + 1)")
+                                        .modifier(TrackProblemAccessibility(track: track))
+                                    Menu { menu(track); playlistTrackActions(track, index: index) } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("曲目操作 \(track.title)")
+                                }.contextMenu { menu(track); playlistTrackActions(track, index: index) }
+                            }
+                            }
+                            ForEach(section.entities) { entity in
+                                NavigationLink { PluginCatalogPage(source: source, request: .entity(entity), select: select, menu: menu) } label: {
+                                    PluginCatalogRow(track: entity.artworkTrack(sourceID: source.manifest.id), subtitle: entity.subtitle,
+                                                     avatar: entity.kind == .artist, symbol: entity.kind == .artist ? "person.crop.circle.fill" : entity.kind == .playlist ? "music.note.list" : "square.stack.fill")
                                 }
                             }
-                        }
-                        ForEach(section.links) { link in
-                            NavigationLink { PluginBrowseView(source: source, page: link.page, select: select, menu: menu) } label: {
-                                VStack(alignment: .leading) { Text(link.title); if !link.subtitle.isEmpty { Text(link.subtitle).font(.caption).foregroundStyle(.secondary) } }
+                            ForEach(section.links) { link in
+                                NavigationLink { PluginBrowseView(source: source, page: link.page, select: select, menu: menu) } label: {
+                                    PluginCatalogRow(track: artwork(link), subtitle: link.subtitle, avatar: true, symbol: "person.crop.circle.fill")
+                                }.accessibilityLabel(link.title).accessibilityIdentifier("catalog-link-" + link.page)
                             }
-                        }
-                        if let page = section.morePage { NavigationLink("查看更多") { PluginBrowseView(source: source, page: page, select: select, menu: menu) } }
-                        if section.tracks.isEmpty && section.entities.isEmpty && section.links.isEmpty && !section.empty.isEmpty { Text(section.empty).foregroundStyle(.secondary) }
-                    } header: { Text(section.title) }
+                            if let page = section.morePage { NavigationLink("查看更多") { PluginBrowseView(source: source, page: page, select: select, menu: menu) } }
+                            if section.tracks.isEmpty && section.entities.isEmpty && section.links.isEmpty && !section.empty.isEmpty { Text(section.empty).foregroundStyle(.secondary) }
+                        } header: { Text(section.title) }
+                    }
                 }
-            }
-            if let action = saveAction, capabilities.contains(action.method) {
-                Button(LocalizedStringKey(enabled ? action.off : action.on), systemImage: enabled ? "checkmark.circle.fill" : "plus.circle") {
-                    guard case .entity(let item) = request else { return }
-                    Task { await change { try await source.change(action.method, entity: item, on: !enabled); enabled.toggle() } }
-                }.disabled(changing)
-            }
-            if case .collection("playlists", _) = request, capabilities.contains("createPlaylist") { Button("新建平台歌单") { name = ""; create = true } }
-            if case .entity(let item) = request, item.kind == .playlist && item.value["mine"] == .bool(true) && item.value["fixed"] != .bool(true) {
-                if capabilities.contains("addToPlaylist") { Button("添加平台歌曲") { adding = true } }
-                if capabilities.contains("renamePlaylist") { Button("重命名歌单") { name = content?.title ?? item.title; rename = true } }
-                if capabilities.contains("deletePlaylist") { Button("删除平台歌单", role: .destructive) { delete = true } }
-            }
-            if more { Button("加载更多") { Task { await load(append: true) } }.disabled(loading) }
-            if loading { ProgressView() }
-            if let error { Text(error).foregroundStyle(.red); Button("重试") { Task { await load() } } }
-            if !loading && content?.sections.isEmpty != false && error == nil { ContentUnavailableView("暂无内容", systemImage: "music.note") }
+                if let action = saveAction, capabilities.contains(action.method) {
+                    Button(LocalizedStringKey(enabled ? action.off : action.on), systemImage: enabled ? "checkmark.circle.fill" : "plus.circle") {
+                        guard case .entity(let item) = request else { return }
+                        Task { await change { try await source.change(action.method, entity: item, on: !enabled); enabled.toggle() } }
+                    }.disabled(changing)
+                }
+                if case .collection("playlists", _) = request, capabilities.contains("createPlaylist") { Button("新建平台歌单") { name = ""; create = true } }
+                if case .entity(let item) = request, item.kind == .playlist && item.value["mine"] == .bool(true) && item.value["fixed"] != .bool(true) {
+                    if capabilities.contains("addToPlaylist") { Button("添加平台歌曲") { adding = true } }
+                    if capabilities.contains("renamePlaylist") { Button("重命名歌单") { name = content?.title ?? item.title; rename = true } }
+                    if capabilities.contains("deletePlaylist") { Button("删除平台歌单", role: .destructive) { delete = true } }
+                }
+                if more { PaginationFooter(page: "\(loadRevision):\(offset)", loading: loading, blocked: error != nil || changing) { await load(append: true) } }
+                if loading { ProgressView() }
+                if let error { Text(error).foregroundStyle(.red); Button("重试") { Task { await load(append: appendFailed) } } }
+                if !loading && content?.sections.isEmpty != false && error == nil { ContentUnavailableView("暂无内容", systemImage: "music.note") }
+
+            }.modifier(SkinRow())
         }
         .listStyle(.plain)
+        .refreshable { await load(refresh: true) }
+        .modifier(PaginationViewport())
+        .modifier(SkinSurface(list: true))
         .navigationTitle(title)
-        .onAppear {
-            initialLoad?.cancel()
-            initialLoad = Task {
-                var found: Set<String> = []
-                for method in ["liked", "savedAlbums", "stations", "shows", "search", "createPlaylist", "renamePlaylist", "deletePlaylist", "addToPlaylist", "removeFromPlaylist", "movePlaylistTrack", "savePlaylist", "saveAlbum", "followArtist", "subscribeShow"] where (try? await source.supports(method)) == true { found.insert(method) }
-                guard !Task.isCancelled else { return }
-                capabilities = found
-                if case .entity(let item) = request { enabled = item.value["saved"] == .bool(true) || item.value["following"] == .bool(true) || item.value["subscribed"] == .bool(true) }
-                await load()
-            }
-        }
-        .onDisappear { initialLoad?.cancel(); initialLoad = nil }
-        .refreshable { await load() }
         .alert("歌单名称", isPresented: $rename) { TextField("名称", text: $name); Button("取消", role: .cancel) {}; Button("保存") { Task { await playlistName(create: false) } }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || changing) }
         .alert("新建平台歌单", isPresented: $create) { TextField("名称", text: $name); Button("取消", role: .cancel) {}; Button("创建") { Task { await playlistName(create: true) } }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || changing) }
         .sheet(isPresented: $adding) {
@@ -139,19 +177,70 @@ struct PluginCatalogPage: View {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) {
                 guard case .entity(let item) = request else { return }
-                Task { await change { _ = try await source.runtime.invoke("deletePlaylist", arguments: .object(["id": .string(item.sourceID)])); dismiss() } }
+                Task { await change { try await source.mutate("deletePlaylist", arguments: .object(["id": .string(item.sourceID)])); dismiss() } }
             }
         }
     }
+    private func startLoading() {
+        initialLoad?.cancel()
+        initialLoad = Task {
+            var found: Set<String> = []
+            for method in ["liked", "savedAlbums", "stations", "shows", "search", "createPlaylist", "renamePlaylist", "deletePlaylist", "addToPlaylist", "removeFromPlaylist", "movePlaylistTrack", "savePlaylist", "saveAlbum", "followArtist", "subscribeShow"] where (try? await source.supports(method)) == true { found.insert(method) }
+            guard !Task.isCancelled else { return }
+            capabilities = found
+            if case .entity(let item) = request { enabled = item.value["saved"] == .bool(true) || item.value["following"] == .bool(true) || item.value["subscribed"] == .bool(true) }
+            await load()
+        }
+    }
+    private func artwork(_ link: PluginBrowse.Link) -> Track {
+        var track = Track(sourceID: source.manifest.id, sourceTrackID: link.page, title: link.title, artist: "", artworkURL: link.imageURL)
+        track.artworkHeaders = link.artworkHeaders
+        return track
+    }
     private var title: String {
+        if request.isHome { return sourceNames[source.manifest.id] ?? source.displayName }
         if case .collection(_, let title) = request { return AppLocalization.text(title) }
         if let content, !content.title.isEmpty { return content.title }
         switch request { case .home: return source.displayName; case .browse(let page): return page; case .collection(_, let title): return title; case .entity(let item): return item.title; case .search(let query, _): return query }
     }
     private func play(_ tracks: [Track], index: Int) {
+        let queue: [Track]
+        let selected: Int
+        let paged = more || visitedBrowse.count > 1 || (content?.sections.count ?? 0) > 1 && !request.isHome
+        let entity: Bool
+        if case .entity = request { entity = true } else { entity = false }
+        if (paged || entity), tracks.indices.contains(index), let loaded = content?.sections.flatMap(\.tracks),
+           let position = loaded.firstIndex(where: { $0.id == tracks[index].id }) {
+            queue = loaded; selected = position
+        } else { queue = tracks; selected = index }
         if case .entity(let item) = request, item.kind == .station, let playback {
-            playback.startStation(PlaybackStation(sourceID: source.manifest.id, id: item.sourceID, title: item.title), tracks: tracks, index: index)
-        } else { select(tracks, index) }
+            playback.startStation(PlaybackStation(sourceID: source.manifest.id, id: item.sourceID, title: item.title), tracks: queue, index: selected)
+        } else {
+            let pages = playbackPages()
+            select(queue, selected)
+            if let pages { playback?.attachPages(pages) }
+        }
+    }
+    private func playbackPages() -> PlaybackPageLoader? {
+        guard more else { return nil }
+        let source = self.source
+        if let nextBrowse {
+            return .following(nextBrowse, visited: visitedBrowse) { cursor in
+                let (page, _, _) = try await source.browsePage(cursor.page, offset: cursor.offset)
+                return (page.sections.flatMap(\.tracks), page.nextBrowse)
+            }
+        }
+        let load: @Sendable (Int) async throws -> PluginBrowse
+        switch request {
+        case .collection(let method, _): load = { try await source.collection(method, offset: $0).0 }
+        case .entity(let item) where item.kind != .station: load = { try await source.entity(item, offset: $0).0 }
+        case .search(let query, let kind): load = { try await source.searchCatalog(query, kind: kind, offset: $0).0 }
+        default: return nil
+        }
+        return .following(offset) { offset in
+            let page = try await load(offset)
+            return (page.sections.flatMap(\.tracks), page.nextOffset)
+        }
     }
     private var saveAction: (method: String, on: String, off: String)? {
         guard case .entity(let item) = request else { return nil }
@@ -166,12 +255,12 @@ struct PluginCatalogPage: View {
     @ViewBuilder private func playlistTrackActions(_ track: Track, index: Int) -> some View {
         if case .entity(let item) = request, item.kind == .playlist, item.value["mine"] == .bool(true), item.value["fixed"] != .bool(true) {
             if capabilities.contains("removeFromPlaylist") { Button("从歌单移除", role: .destructive) { Task { await playlistTracks("removeFromPlaylist", ids: [track.sourceTrackID]) } } }
-            if capabilities.contains("movePlaylistTrack"), index > 0 { Button("向上移动") { Task { await change { _ = try await source.runtime.invoke("movePlaylistTrack", arguments: .object(["id": .string(item.sourceID), "from": .number(Double(index)), "to": .number(Double(index - 1))])); await load() } } } }
+            if capabilities.contains("movePlaylistTrack"), index > 0 { Button("向上移动") { Task { await change { try await source.mutate("movePlaylistTrack", arguments: .object(["id": .string(item.sourceID), "from": .number(Double(index)), "to": .number(Double(index - 1))])); await load() } } } }
         }
     }
     private func playlistTracks(_ method: String, ids: [String]) async {
         guard !ids.isEmpty, case .entity(let item) = request else { return }
-        await change { _ = try await source.runtime.invoke(method, arguments: .object(["id": .string(item.sourceID), "trackIds": .array(ids.map(PluginJSON.string))])); await load() }
+        await change { try await source.mutate(method, arguments: .object(["id": .string(item.sourceID), "trackIds": .array(ids.map(PluginJSON.string))])); await load() }
     }
     private func playlistName(create: Bool) async {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -179,28 +268,56 @@ struct PluginCatalogPage: View {
         await change {
             var values: [String: PluginJSON] = ["name": .string(name)]
             if case .entity(let item) = request { values["id"] = .string(item.sourceID) }
-            _ = try await source.runtime.invoke(create ? "createPlaylist" : "renamePlaylist", arguments: .object(values)); await load()
+            try await source.mutate(create ? "createPlaylist" : "renamePlaylist", arguments: .object(values)); await load()
         }
     }
     private func change(_ operation: () async throws -> Void) async { guard !changing else { return }; changing = true; defer { changing = false }; do { try await operation() } catch { self.error = error.localizedDescription } }
-    private func load(append: Bool = false) async {
+    private func load(append: Bool = false, refresh: Bool = false) async {
+        if refresh && changing { return }
+        if append { guard more, !loading else { return } }
+        appendFailed = append
         loadRevision += 1
         let revision = loadRevision
         loading = true; error = nil
         defer { if revision == loadRevision { loading = false } }
         do {
             let page: PluginBrowse, hasMore: Bool, count: Int
-            switch request {
-            case .home: page = try await source.home(); hasMore = false; count = 0
-            case .browse(let value): page = try await source.browse(value); hasMore = false; count = 0
+            if refresh && (!request.isHome || filterPage != nil) { await source.invalidateCatalog() }
+            let cursor = append ? nextBrowse : nil
+            let effectiveRequest = cursor.map { PluginPageRequest.browse($0.page) } ?? filterPage.map(PluginPageRequest.browse) ?? request
+            var loadedBrowse: PluginBrowse.Cursor?
+            switch effectiveRequest {
+            case .home:
+                page = try await source.discoveryHome(preferences: discoveryModel?.discoveryPreferences ?? DiscoveryPreferences(), refresh: refresh)
+                navigationPreviews = [:]
+                hasMore = false; count = 0
+            case .browse(let value):
+                let at = cursor?.offset ?? (append ? offset : 0)
+                loadedBrowse = .init(page: value, offset: at)
+                (page, hasMore, count) = try await source.browsePage(value, offset: at, refresh: refresh)
             case .collection(let method, _): (page, hasMore, count) = try await source.collection(method, offset: append ? offset : 0)
             case .entity(let item): (page, hasMore, count) = try await source.entity(item, offset: append ? offset : 0)
             case .search(let query, let kind): (page, hasMore, count) = try await source.searchCatalog(query, kind: kind, offset: append ? offset : 0)
             }
             guard revision == loadRevision, !Task.isCancelled else { return }
-            if append, var previous = content { previous.sections += page.sections.enumerated().map { index, section in section.reidentified("\(offset)-\(index)") }; content = previous; offset += count }
-            else { content = page; offset = count }
-            more = hasMore && count > 0
+            if !append { visitedBrowse = [] }
+            if let loadedBrowse { visitedBrowse.insert(loadedBrowse) }
+            nextBrowse = page.nextBrowse.flatMap { visitedBrowse.contains($0) ? nil : $0 }
+            let previous = append ? content : nil
+            if let previous { content = previous.appending(page, offset: offset) }
+            else { content = page }
+            let (followingOffset, overflow) = offset.addingReportingOverflow(max(1, count))
+            offset = page.nextOffset ?? (append && !overflow ? followingOffset : count)
+            if !page.tabs.isEmpty { filterTabs = page.tabs }
+            if request.isHome && filterPage == nil { homeTab = page.selectedTab }
+            let addedItems = previous.map { old in
+                let oldCount = old.sections.reduce(0) { $0 + $1.tracks.count + $1.entities.count + $1.links.count }
+                return (content?.sections.reduce(0) { $0 + $1.tracks.count + $1.entities.count + $1.links.count } ?? 0) > oldCount
+            } ?? true
+            more = hasMore && (count == 0 || addedItems) && (loadedBrowse == nil || nextBrowse != nil)
+            artworkPrefetch?.cancel()
+            let artwork = page.artworkTracks(sourceID: source.manifest.id)
+            artworkPrefetch = Task { await ArtworkCache.shared.prefetch(artwork) }
         } catch { if revision == loadRevision, !Task.isCancelled { self.error = error.localizedDescription } }
     }
 }

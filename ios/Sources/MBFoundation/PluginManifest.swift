@@ -2,10 +2,11 @@ import Foundation
 
 public enum PluginFailure: LocalizedError, Sendable {
     case invalid(String), execution(String), unavailable
+    case playback(TrackProblem, String)
     public var errorDescription: String? {
         switch self {
         case .invalid(let reason): AppLocalization.text("插件无效：%@", arguments: [reason])
-        case .execution(let reason): AppLocalization.text("插件执行失败：%@", arguments: [reason])
+        case .execution(let reason), .playback(_, let reason): AppLocalization.text("插件执行失败：%@", arguments: [reason])
         case .unavailable: AppLocalization.text("此插件需要 iOS 不提供的桌面宿主能力")
         }
     }
@@ -33,27 +34,50 @@ public struct PluginManifest: Codable, Sendable {
         public let options: [Option]?
         public var id: String { key }
     }
-    public struct Navigation: Codable, Sendable { public let title: String?; public let page: String?; public let builtin: String?; public let icon: String? }
+    public struct Navigation: Codable, Sendable {
+        public enum Placement: String, Codable, Sendable { case discovery, personal }
+        public let title: String?
+        public let page: String?
+        public let builtin: String?
+        public let icon: String?
+        public let placement: Placement?
+    }
     public struct HeaderRule: Codable, Sendable { public let hosts: [String]; public let kinds: [String]?; public let headers: [String: String] }
+    public let discovery: [Discovery]?
     public let id: String
     public let name: String?
     public let version: String?
     public let main: String?
     public let minAppVersion: String?
+    public let minAppVersionByPlatform: [String: String]?
     public let playback: String?
     public let permissions: Permissions?
     public let settings: [Setting]?
     public let navigation: [Navigation]?
     public let requestHeaders: [HeaderRule]?
+    public let signInMethods: [SignInMethod]?
     public var entry: String { main ?? "index.js" }
     public var displayName: String { name ?? id }
-    public func validate(hostVersion: String = "0.1.25") throws {
+    public var requiredHostVersion: String? { minAppVersionByPlatform?["ios"] ?? minAppVersion }
+    public func validate(hostVersion: String = "0.1.28") throws {
         guard id.range(of: "^[A-Za-z0-9][A-Za-z0-9_.-]*$", options: .regularExpression) != nil, !id.contains("..") else { throw PluginFailure.invalid("Invalid plugin ID") }
         guard !entry.hasPrefix("/"), !entry.split(separator: "/").contains(".."), entry.hasSuffix(".js") else { throw PluginFailure.invalid("Invalid entry path") }
-        if let minAppVersion {
-            guard let required = Self.version(minAppVersion), let host = Self.version(hostVersion) else { throw PluginFailure.invalid("Invalid compatibility version") }
-            if host.lexicographicallyPrecedes(required) { throw PluginFailure.invalid("Requires host \(minAppVersion)") }
+        if let minAppVersion, Self.version(minAppVersion) == nil { throw PluginFailure.invalid("Invalid compatibility version") }
+        for (platform, version) in minAppVersionByPlatform ?? [:] {
+            guard ["desktop", "ios", "android"].contains(platform),
+                  version.range(of: #"\A[0-9]+\.[0-9]+\.[0-9]+\z"#, options: .regularExpression) != nil,
+                  let parts = Self.version(version), parts.allSatisfy({ $0 <= Int32.max }) else {
+                throw PluginFailure.invalid("Invalid minAppVersionByPlatform")
+            }
         }
+        if let requiredHostVersion {
+            guard let required = Self.version(requiredHostVersion), let host = Self.version(hostVersion) else { throw PluginFailure.invalid("Invalid compatibility version") }
+            if host.lexicographicallyPrecedes(required) { throw PluginFailure.invalid("Requires host \(requiredHostVersion)") }
+        }
+        try Self.validateDiscovery(discovery ?? [])
+        let methods = signInMethods ?? []
+        guard methods.count <= 16, Set(methods.map(\.id)).count == methods.count,
+              methods.allSatisfy({ !$0.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.id.range(of: "^[A-Za-z0-9][A-Za-z0-9_.-]*$", options: .regularExpression) != nil }) else { throw PluginFailure.invalid("Invalid sign-in methods") }
         guard playback == nil || playback == "stream" else { throw PluginFailure.unavailable }
         if !(permissions?.process ?? []).isEmpty { throw PluginFailure.unavailable }
         for rule in requestHeaders ?? [] {

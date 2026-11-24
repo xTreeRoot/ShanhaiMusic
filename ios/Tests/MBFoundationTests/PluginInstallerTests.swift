@@ -119,3 +119,47 @@ private actor RouterFixture: PlaybackSource, VideoSource {
     #expect(!PluginInstaller.isNewer("v1.0.0", than: "1.0.0"))
     #expect(!PluginInstaller.isNewer("1.9.0", than: "1.10.0"))
 }
+
+@Test func installedPluginNormalizesLegacyFullGitHubOriginWithoutChangingPrivateData() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let input = root.appendingPathComponent("input")
+    try writePlugin(to: input, version: "0.4.0")
+    let installer = PluginInstaller(directory: root.appendingPathComponent("plugins"))
+    let pending = try await installer.prepare(input)
+    let plugin = try await installer.install(pending)
+    try Data(#"{"repository":"https://github.com/xTreeRoot/mygo-music-soda","revision":"4532285445ab259e58b2607a7183546d1329187a"}"#.utf8)
+        .write(to: plugin.directory.appendingPathComponent(".mb-origin.json"))
+    let privateFile = plugin.dataDirectory.appendingPathComponent("storage.json")
+    try Data("private fixture".utf8).write(to: privateFile)
+    let reopened = try #require(try await installer.installed().first)
+    #expect(reopened.repository == "xTreeRoot/mygo-music-soda")
+    #expect(try Data(contentsOf: privateFile) == Data("private fixture".utf8))
+    #expect(!PluginInstaller.isNewer("v0.2.2", than: reopened.manifest.version!))
+}
+
+@Test func githubOriginNormalizationRejectsForeignHostsAndExtraPaths() {
+    #expect(PluginInstaller.normalizedRepository(" https://github.com/xTreeRoot/MB.git/ ") == "xTreeRoot/MB")
+    for input in ["https://github.com.evil.test/a/b", "https://user@github.com/a/b", "https://github.com/a/b/tree/main", "../b", "https://github.com/a/b?x=y"] {
+        #expect(PluginInstaller.normalizedRepository(input) == nil)
+    }
+}
+
+@Test func remotePluginRenameKeepsTheExistingDefaultDisplayOrder() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let input = root.appendingPathComponent("input")
+    let installer = PluginInstaller(directory: root.appendingPathComponent("store"))
+    func named(_ id: String, _ name: String) throws {
+        try writePlugin(to: input, version: "1.0.0")
+        try Data("{\"id\":\"\(id)\",\"name\":\"\(name)\"}".utf8).write(to: input.appendingPathComponent("plugin.json"))
+    }
+    try named("one", "Alpha"); _ = try await installer.install(installer.prepare(input))
+    try named("two", "Middle"); _ = try await installer.install(installer.prepare(input))
+    var display = PluginPresentation(); try display.rename("one", to: "本地名称")
+    try await installer.savePresentation(display)
+    try named("one", "Zulu"); _ = try await installer.install(installer.prepare(input))
+    let restored = try await installer.presentation()
+    #expect(restored.sorted(try await installer.installed()).map(\.id) == ["one", "two"])
+    #expect(restored.name(id: "one", fallback: "Zulu") == "本地名称")
+}

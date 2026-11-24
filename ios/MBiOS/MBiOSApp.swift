@@ -1,4 +1,4 @@
-import MBBilibili
+import MBFoundation
 import MBInterface
 import SwiftUI
 
@@ -6,7 +6,7 @@ import SwiftUI
 struct MBiOSApp: App {
     @UIApplicationDelegateAdaptor(MBMobileAppDelegate.self) private var appDelegate
     private let demo: Bool
-    private let source = BilibiliSource()
+    private let source = DisabledMusicSource()
 
     init() {
         #if DEBUG
@@ -14,12 +14,21 @@ struct MBiOSApp: App {
         #else
         demo = false
         #endif
+        if !demo { AppPersistence.shared.logPlayback(.launch) }
     }
 
     var body: some Scene {
         WindowGroup {
-            if demo { MBRootView(source: DemoSource(), demo: true) }
-            else { MBRootView(source: source, sourceID: "bilibili") }
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--portrait-demo") { PortraitVideoDemoView() }
+            else { root }
+            #else
+            root
+            #endif
         }
+    }
+    @ViewBuilder private var root: some View {
+            if demo { MBRootView(source: DemoSource(), demo: true) }
+            else { MBRootView(source: source, sourceID: "") }
     }
 }

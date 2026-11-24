@@ -9,10 +9,14 @@ import Observation
     func stop()
     var errorMessage: String? { get }
     var isBuffering: Bool { get }
+    var recoverable: Bool { get }
+    var aspectRatio: Double? { get }
 }
 
 public extension VideoEngine {
     var isBuffering: Bool { false }
+    var recoverable: Bool { false }
+    var aspectRatio: Double? { nil }
     func load(resource: MediaResource, at milliseconds: Int64) async throws { try await load(url: resource.url, at: milliseconds) }
 }
 
@@ -24,16 +28,33 @@ public extension VideoEngine {
 @MainActor @Observable public final class VideoModel {
     public private(set) var mode: PlaybackMode = .music
     public private(set) var presentationMode: PlaybackMode = .music
+    public private(set) var isAudioOnly = false
     public private(set) var isVisible = false
+    public private(set) var isFloating = false
+    public private(set) var systemControlled = false
     public private(set) var isLoading = false
     public private(set) var isReady = false
     public private(set) var isBuffering = false
     public private(set) var errorMessage: String?
     public private(set) var persistenceMessage: String?
+    public private(set) var qualityID = "auto"
+    public private(set) var actualQualityID: String?
+    public private(set) var qualities: [VideoQualityOption] = []
     public private(set) var track: Track?
+    private var measuredAspectRatio: Double?
+    public var aspectRatio: Double { measuredAspectRatio ?? track.flatMap { track in
+        guard let width = track.videoWidth, let height = track.videoHeight, width > 0, height > 0 else { return track.shortVideo == true ? 9.0 / 16 : nil }
+        return Double(width) / Double(height)
+    } ?? 16.0 / 9 }
     public private(set) var isSupported: Bool
     public var player: AVPlayer? { (engine as? NativeVideoEngine)?.player }
+    /// 可见画面缓冲时直接通知音频模型，不依赖页面渲染或下次时钟回调。
+    @ObservationIgnored public var onPlaybackHoldChanged: ((Bool) -> Void)? {
+        didSet { onPlaybackHoldChanged?(playbackHeld) }
+    }
+    @ObservationIgnored private var playbackHeld = false
     @ObservationIgnored private let source: (any VideoSource)?
+    @ObservationIgnored private let nextPreloader: NextVideoPreloader
     @ObservationIgnored private let engine: any VideoEngine
     @ObservationIgnored private let store: (any PlaybackModeStore)?
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -42,11 +63,14 @@ public extension VideoEngine {
     @ObservationIgnored private var preferenceRevision = 0
     @ObservationIgnored private var position: Int64 = 0
     @ObservationIgnored private var playing = false
+    @ObservationIgnored private var refreshUsed = false
+    @ObservationIgnored private var warmAttempted = false
 
     public init(source: (any VideoSource)?, engine: any VideoEngine = NativeVideoEngine(), store: (any PlaybackModeStore)? = nil) {
         self.source = source
         self.isSupported = source != nil
         self.engine = engine
+        nextPreloader = NextVideoPreloader(source: source)
         self.store = store
         if let events = engine as? any VideoEngineEvents {
             events.onUpdate = { [weak self] in self?.refreshEngineStatus() }
@@ -68,8 +92,9 @@ public extension VideoEngine {
         self.mode = mode
         if mode == .music {
             presentationMode = .music
-            isVisible = false
+            isVisible = false; isFloating = false
             release()
+            updatePlaybackHold()
         }
         let previous = saveTask
         let saving = Task {
@@ -86,23 +111,30 @@ public extension VideoEngine {
     }
 
     public func updateTrack(_ track: Track?) {
+        defer { updatePlaybackHold() }
         guard self.track?.id != track?.id else { return }
+        refreshUsed = false
+        warmAttempted = false
         release()
         self.track = track
         position = 0
-        if track == nil || track?.localFileID != nil { isVisible = false; presentationMode = .music }
-        if isVisible { load() }
+        if track == nil || track?.localFileID != nil { isVisible = false; isFloating = false; presentationMode = .music }
+        if isVisible || isFloating { load() }
     }
 
     public func handleSelection(_ track: Track?, intent: PlaybackSelectionIntent, positionMilliseconds: Int64, playing: Bool) {
+        defer { updatePlaybackHold() }
         if intent == .content {
+            refreshUsed = false
+            warmAttempted = false
             release()
             self.track = track
             position = positionMilliseconds
             self.playing = playing
-            presentationMode = track?.localFileID == nil ? mode : .music
+            presentationMode = !isAudioOnly && track?.localFileID == nil ? mode : .music
+            isFloating = false
             isVisible = presentationMode == .video && track != nil
-            if isVisible { load() }
+            if isVisible || isFloating { load() }
         } else {
             updateTrack(track)
             sync(positionMilliseconds: positionMilliseconds, playing: playing)
@@ -110,55 +142,134 @@ public extension VideoEngine {
     }
 
     public func open() {
-        guard presentationMode == .video, track != nil else { return }
-        isVisible = true
-        if !isReady && task == nil { load() }
+        defer { updatePlaybackHold() }
+        guard !isAudioOnly, presentationMode == .video, track != nil else { return }
+        isFloating = false; isVisible = true
+        if isReady { sync(positionMilliseconds: position, playing: playing) }
+        else if task == nil { load() }
+    }
+
+    /// 音频已播放后后台准备同一条静音视频，打开时复用已加载的播放器。
+    public func preloadCurrent() {
+        guard !isAudioOnly, !isVisible, playing, !isReady, task == nil, !warmAttempted,
+              let track, track.localFileID == nil else { return }
+        warmAttempted = true
+        load(warming: true)
+    }
+
+    /// 当前画面稳定且临近结尾才准备下一条，缓冲或队列变更立即取消。
+    public func preloadNext(_ next: Track?, enabled: Bool) {
+        nextPreloader.update(next: next, quality: qualityID, enabled: !isAudioOnly && enabled && engine is NativeVideoEngine && !isLoading && !isBuffering)
+    }
+
+    public func invalidatePreload() { nextPreloader.cancel() }
+
+    public func suspendPreloading() {
+        nextPreloader.cancel()
+        guard !isVisible, !isFloating, !systemControlled, isLoading || isReady else { return }
+        release()
+        warmAttempted = false
+    }
+
+    public func setAudioOnly(_ enabled: Bool) {
+        guard isAudioOnly != enabled else { return }
+        isAudioOnly = enabled
+        if enabled {
+            presentationMode = .music
+            browse()
+            warmAttempted = false
+        }
     }
 
     public func watchCurrent() {
-        guard let track, track.localFileID == nil else { return }
+        guard !isAudioOnly, let track, track.localFileID == nil else { return }
         presentationMode = .video
         open()
     }
 
-    public func browse() { isVisible = false; release() }
-    public func retry() { release(); load() }
+    public func browse() { nextPreloader.cancel(); isVisible = false; isFloating = false; release(); updatePlaybackHold() }
+    public func minimize() {
+        guard isVisible, presentationMode == .video, track != nil else { return }
+        isFloating = true; isVisible = false
+    }
+    public func retry() { refreshUsed = false; release(); load(); updatePlaybackHold() }
+
+    /// 单条资源的回退不覆盖偏好，换片后仍按用户选择请求，保持音频时钟和播放意图。
+    public func setQuality(_ id: String) {
+        defer { updatePlaybackHold() }
+        guard VideoQualityOption.valid(id), qualityID != id else { return }
+        nextPreloader.cancel()
+        qualityID = id
+        let warming = !isVisible && !isFloating && (isReady || isLoading)
+        refreshUsed = false
+        release()
+        if isVisible || isFloating || warming { load(warming: warming) }
+    }
 
     public func sync(positionMilliseconds: Int64, playing: Bool) {
+        defer { updatePlaybackHold() }
         position = positionMilliseconds
         self.playing = playing
-        guard isReady else { return }
+        guard (isVisible || isFloating), isReady else { return }
         refreshEngineStatus()
         guard isReady else { return }
-        engine.sync(positionMilliseconds: position, playing: playing)
+        if !systemControlled { engine.sync(positionMilliseconds: position, playing: playing) }
         isBuffering = engine.isBuffering
+        measuredAspectRatio = engine.aspectRatio
+    }
+
+    /// 系统画中画使用视频时钟；应用和锁屏上的显式操作仍可同步到当前视频。
+    public func setSystemControlled(_ value: Bool) { systemControlled = value }
+    public func applySystemPlayback(positionMilliseconds: Int64, playing: Bool) {
+        guard isReady else { return }
+        engine.sync(positionMilliseconds: positionMilliseconds, playing: playing)
     }
 
     private func refreshEngineStatus() {
+        defer { updatePlaybackHold() }
         guard isReady else { return }
-        if let message = engine.errorMessage { release(); errorMessage = message; return }
-        isBuffering = engine.isBuffering
+        if let message = engine.errorMessage {
+            let shouldRetry = engine.recoverable && !refreshUsed
+            release()
+            if shouldRetry { refreshUsed = true; load() }
+            else { errorMessage = message }
+            return
+        }
+        let buffering = engine.isBuffering
+        if buffering && !isBuffering && playing && position > 0 { Task { await MediaNetworkConditions.shared.stalled() } }
+        isBuffering = buffering
+        measuredAspectRatio = engine.aspectRatio
     }
 
     public func waitUntilLoaded() async { await task?.value }
 
-    private func load() {
-        guard isVisible, let track, let source else { return }
+    private func load(warming: Bool = false) {
+        guard !isAudioOnly, isVisible || isFloating || warming, let track, let source else { return }
         generation += 1
         let current = generation
         isLoading = true
         errorMessage = nil
+        updatePlaybackHold()
         task = Task {
+            defer { updatePlaybackHold() }
             do {
                 let supported = await source.supportsVideo(track: track)
                 guard current == generation, !Task.isCancelled else { return }
                 isSupported = supported
                 guard supported else { isLoading = false; task = nil; return }
-                let resource = try await source.video(track: track)
+                let prepared = nextPreloader.take(for: track, quality: qualityID)
+                let resource: MediaResource
+                if let prepared { resource = prepared.resource }
+                else { resource = try await source.video(track: track, qualityID: qualityID) }
                 try Task.checkCancellation()
-                try await engine.load(resource: resource, at: position)
+                guard current == generation else { return }
+                qualities = resource.videoQualities
+                actualQualityID = resource.videoQuality
+                if let prepared, let native = engine as? NativeVideoEngine { try await native.load(prepared: prepared, at: position) }
+                else { prepared?.cancel(); try await engine.load(resource: resource, at: position) }
                 guard current == generation, !Task.isCancelled else { return }
-                engine.sync(positionMilliseconds: position, playing: playing)
+                if isVisible || isFloating { engine.sync(positionMilliseconds: position, playing: playing) }
+                measuredAspectRatio = engine.aspectRatio
                 isReady = true
                 isBuffering = engine.isBuffering
                 isLoading = false
@@ -166,9 +277,17 @@ public extension VideoEngine {
             } catch {
                 guard current == generation, !Task.isCancelled else { return }
                 release()
-                errorMessage = "视频加载失败，点击重试"
+                if !warming, MediaStreamingFailure.allowsRefresh(error), !refreshUsed { refreshUsed = true; load(); return }
+                if !warming { errorMessage = "视频加载失败，点击重试" }
             }
         }
+    }
+
+    private func updatePlaybackHold() {
+        let hold = (isVisible || isFloating) && isSupported && (isLoading || isBuffering)
+        guard hold != playbackHeld else { return }
+        playbackHeld = hold
+        onPlaybackHoldChanged?(hold)
     }
 
     private func release() {
@@ -176,6 +295,7 @@ public extension VideoEngine {
         task?.cancel()
         task = nil
         engine.stop()
+        measuredAspectRatio = nil
         isReady = false
         isLoading = false
         isBuffering = false
@@ -186,14 +306,18 @@ public extension VideoEngine {
 /// 一个静音 AVPlayer 供主画面和展开播放器轮流使用，不启动第二条音轨。
 @MainActor public final class NativeVideoEngine: VideoEngine, VideoEngineEvents {
     public let player = AVPlayer()
+    public private(set) var aspectRatio: Double?
     public var onUpdate: (() -> Void)?
     private var playerObservation: NSKeyValueObservation?
-    private var itemObservation: NSKeyValueObservation?
+    private var itemObservations: [NSKeyValueObservation] = []
     private var seeking = false
     private var seekGeneration = 0
+    private var seekTarget: Int64?
     private var remote: RemoteMediaAsset?
+    private var temporaryFile: URL?
     public var errorMessage: String? { player.currentItem?.error == nil ? nil : "视频读取失败，点击重试" }
-    public var isBuffering: Bool { player.currentItem?.status == .unknown || player.timeControlStatus == .waitingToPlayAtSpecifiedRate }
+    public var recoverable: Bool { remote?.lastFailure.map(MediaStreamingFailure.allowsRefresh) ?? false }
+    public var isBuffering: Bool { seeking || player.currentItem?.status == .unknown || player.currentItem?.isPlaybackBufferEmpty == true || player.timeControlStatus == .waitingToPlayAtSpecifiedRate }
     public init() {
         player.isMuted = true
         playerObservation = player.observe(\.timeControlStatus) { @Sendable [weak self] _, _ in
@@ -209,10 +333,26 @@ public extension VideoEngine {
     }
 
     public func load(resource: MediaResource, at milliseconds: Int64) async throws {
+        if resource.url.isFileURL { try await load(url: resource.url, at: milliseconds); return }
         remote?.cancel()
         let loader = try RemoteMediaAsset(resource: resource)
         remote = loader
-        try await prepare(loader.asset, at: milliseconds)
+        do { try await prepare(loader.asset, at: milliseconds) }
+        catch {
+            try Task.checkCancellation()
+            let failure = loader.lastFailure ?? error
+            guard case MediaStreamingFailure.rangeStatus(200) = failure else { throw failure }
+            loader.cancel(); remote = nil
+            let file = try await NetworkClient.shared.download(resource, maximumBytes: 128 << 20)
+            if Task.isCancelled { try? FileManager.default.removeItem(at: file); throw CancellationError() }
+            temporaryFile = file
+            try await prepare(AVURLAsset(url: file), at: milliseconds)
+        }
+    }
+
+    func load(prepared: PreparedVideo, at milliseconds: Int64) async throws {
+        remote?.cancel(); remote = prepared.loader
+        try await prepare(prepared.loader.asset, at: milliseconds)
     }
 
     private func prepare(_ asset: AVURLAsset, at milliseconds: Int64) async throws {
@@ -221,16 +361,21 @@ public extension VideoEngine {
         guard !tracks.isEmpty else { throw MediaStreamingFailure.unplayable }
         for track in tracks {
             // 首帧需要的远程轨道信息先异步就绪，渲染时不再同步询问服务器。
-            _ = try await track.load(.formatDescriptions, .naturalSize, .preferredTransform)
+            let (_, size, transform) = try await track.load(.formatDescriptions, .naturalSize, .preferredTransform)
+            let display = size.applying(transform)
+            if abs(display.width) > 0, abs(display.height) > 0 { aspectRatio = abs(display.width / display.height) }
         }
         _ = try await asset.load(.duration)
         try Task.checkCancellation()
         seekGeneration += 1
         seeking = false
         let item = AVPlayerItem(asset: asset)
-        itemObservation = item.observe(\.status) { @Sendable [weak self] _, _ in
-            Task { @MainActor in self?.onUpdate?() }
-        }
+        item.preferredForwardBufferDuration = 3
+        itemObservations = [
+            item.observe(\.status) { @Sendable [weak self] _, _ in Task { @MainActor in self?.onUpdate?() } },
+            item.observe(\.isPlaybackBufferEmpty) { @Sendable [weak self] _, _ in Task { @MainActor in self?.onUpdate?() } },
+            item.observe(\.isPlaybackLikelyToKeepUp) { @Sendable [weak self] _, _ in Task { @MainActor in self?.onUpdate?() } }
+        ]
         player.replaceCurrentItem(with: item)
         player.isMuted = true
         _ = await player.seek(to: CMTime(value: max(0, milliseconds), timescale: 1_000), toleranceBefore: .zero, toleranceAfter: .zero)
@@ -241,12 +386,16 @@ public extension VideoEngine {
         let seconds = player.currentTime().seconds
         let drift = Double(positionMilliseconds) - (seconds.isFinite ? seconds * 1_000 : 0)
         let buffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
-        if abs(drift) > (playing ? 600 : 80), !seeking, !buffering {
+        let newTarget = seekTarget.map { abs($0 - positionMilliseconds) > 120 } ?? false
+        if abs(drift) > (playing ? 600 : 80), newTarget || !seeking && !buffering {
             seeking = true
+            seekGeneration += 1
             let current = seekGeneration
+            seekTarget = positionMilliseconds
+            player.currentItem?.cancelPendingSeeks()
             player.seek(to: CMTime(value: max(0, positionMilliseconds), timescale: 1_000), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
                 Task { @MainActor in
-                    if self?.seekGeneration == current { self?.seeking = false }
+                    if self?.seekGeneration == current { self?.seekTarget = nil; self?.seeking = false; self?.onUpdate?() }
                 }
             }
         }
@@ -258,11 +407,14 @@ public extension VideoEngine {
 
     public func stop() {
         seekGeneration += 1
-        itemObservation = nil
+        itemObservations = []
         remote?.cancel()
         remote = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
+        aspectRatio = nil
         seeking = false
+        seekTarget = nil
+        if let temporaryFile { try? FileManager.default.removeItem(at: temporaryFile); self.temporaryFile = nil }
     }
 }
