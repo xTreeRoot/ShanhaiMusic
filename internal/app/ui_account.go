@@ -1,8 +1,8 @@
 package app
 
 import (
-	"context"
 	"fmt"
+	"net/http"
 	"runtime"
 	"time"
 
@@ -56,11 +56,13 @@ func (a *app) loadAccount(lib *library) {
 	lib.accountBusy = true
 	gen := lib.accountGen
 	service := a.edge.service
+	syncContext := a.edge.profileContext
 	var migrator edge.Migrator
 	var ticket edge.Ticket
 	if source := pluginOf(lib); source != nil && service != nil {
-		migrator, ticket = source.SessionMigrator(), service.Ticket(lib.id)
+		migrator, ticket = source.VerifiedSessionMigrator(syncContext, a.edge.catalog), service.Ticket(lib.id)
 	}
+	waitForAccount := migrator != nil && service.Authorized() && lib.mineAt.IsZero()
 	go func() {
 		acc, err := lib.src.Account()
 		var choices []edge.Candidate
@@ -68,7 +70,7 @@ func (a *app) loadAccount(lib *library) {
 		queriedCloud := false
 		if err == nil && acc == nil && migrator != nil {
 			queriedCloud = true
-			acc, choices, syncErr = service.Restore(context.Background(), lib.id, ticket, migrator, "")
+			acc, choices, syncErr = service.Restore(syncContext, lib.id, ticket, migrator, "")
 		}
 		a.post(func() {
 			lib.accountBusy = false
@@ -98,11 +100,14 @@ func (a *app) loadAccount(lib *library) {
 			}
 			lib.account = acc
 			switch {
-			case first && was == nil && acc != nil && lib.homeErr == "" && !lib.needsSignIn:
+			case first && !queriedCloud && was == nil && acc != nil && lib.homeErr == "" && !lib.needsSignIn:
 				// What it listed as it started was already this listener's, and
 				// loading it again could only move it. But hearts asked about
 				// before they were known are dropped as someone else's.
 				lib.liked, lib.likedPending = nil, nil
+				if waitForAccount {
+					a.loadMine(lib)
+				}
 			case (was == nil) != (acc == nil):
 				a.afterAccount(lib)
 			}
@@ -171,10 +176,11 @@ func (a *app) startSignIn() {
 	}
 	a.invalidateEdge(lib)
 	service := a.edge.service
+	syncContext := a.edge.profileContext
 	var migrator edge.Migrator
 	var ticket edge.Ticket
 	if source := pluginOf(lib); service != nil && source != nil {
-		migrator, ticket = source.SessionMigrator(), service.Ticket(lib.id)
+		migrator, ticket = source.VerifiedSessionMigrator(syncContext, a.edge.catalog), service.Ticket(lib.id)
 	}
 	d.waiting, d.err, d.last = true, "", d.err
 	accountGen := lib.accountGen
@@ -228,11 +234,26 @@ func (a *app) startSignIn() {
 			if current && acc != nil && migrator != nil {
 				a.edge.fresh[lib] = ticket
 				go func() {
-					if err := service.Publish(context.Background(), lib.id, acc.ID, ticket, migrator); err == nil {
-						if err := service.Flush(context.Background()); err != nil && service.Ticket(lib.id) == ticket {
-							a.post(func() { a.edge.message = edgeError(err) })
-						}
+					err := service.PublishCurrent(syncContext, lib.id, acc.ID, ticket, migrator)
+					if err == nil {
+						err = service.Flush(syncContext)
 					}
+					a.post(func() {
+						if syncContext.Err() != nil || a.edge.service != service || service.Ticket(lib.id) != ticket {
+							return
+						}
+						if err == nil && !service.Authorized() {
+							err = &edge.StatusError{Code: http.StatusUnauthorized}
+						}
+						if err != nil {
+							a.edge.message = edgeError(err)
+						} else {
+							a.edge.message = T("Sign-in session saved to the node. Compatible devices can try to restore it.")
+						}
+						if a.edge.window != nil {
+							a.refreshEdgeOverview()
+						}
+					})
 				}()
 			}
 			// Signed in to another source from the settings: that's the one they're

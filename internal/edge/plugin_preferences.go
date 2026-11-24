@@ -14,12 +14,12 @@ import (
 // the latest local document and durably save it before returning that merged document.
 // The callbacks must not call Sync methods: commit runs under the binding guard.
 func (service *Sync) SyncPluginPreferences(ctx context.Context, load func() (pluginprefs.Document, error), commit func(pluginprefs.Document) (pluginprefs.Document, error)) error {
-	return syncPreferences(service, ctx, "plugins", pluginprefs.Empty, load, commit)
+	return syncPreferences(service, ctx, pluginPreferencesKey, pluginprefs.Empty, load, commit)
 }
 
 // SyncDiscoveryPreferences uses its own encrypted record and the same guarded CAS cycle.
 func (service *Sync) SyncDiscoveryPreferences(ctx context.Context, load func() (discoveryprefs.Document, error), commit func(discoveryprefs.Document) (discoveryprefs.Document, error)) error {
-	return syncPreferences(service, ctx, "discovery", discoveryprefs.Empty, load, commit)
+	return syncPreferences(service, ctx, discoveryPreferencesKey, discoveryprefs.Empty, load, commit)
 }
 
 type preferencesDocument[T any] interface {

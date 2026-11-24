@@ -130,7 +130,7 @@ func TestSignedCatalogRollbackAndBadPackage(t *testing.T) {
 	}
 	pack := []byte("good package")
 	digest := sha256.Sum256(pack)
-	entry := Package{"example", "1.2.3", "0.1.25", json.RawMessage(`{"network":[]}`), hex.EncodeToString(digest[:]), int64(len(pack)), "/v1/packages/" + hex.EncodeToString(digest[:])}
+	entry := Package{ID: "example", Version: "1.2.3", MinHost: "0.1.25", Permissions: json.RawMessage(`{"network":[]}`), SHA256: hex.EncodeToString(digest[:]), Size: int64(len(pack)), Path: "/v1/packages/" + hex.EncodeToString(digest[:])}
 	payload := func(revision int, padding string) []byte {
 		t.Helper()
 		encoded, _ := json.Marshal(entry)
@@ -308,5 +308,77 @@ func TestPendingReopenConflictAndBlockedRestore(t *testing.T) {
 	}
 	if space, _ := service.Binding(); space != "" || service.state.Recovery != "" || !service.state.Blocked[plugin] || len(service.state.Pending) != 0 {
 		t.Fatal("unbind leaked secrets or removed the local sign-out marker")
+	}
+}
+
+func TestFreshLoginReplacesAnObservedSessionAndRestoresOnAnotherDevice(t *testing.T) {
+	const plugin = "example"
+	currentTag := `"` + encoding.EncodeToString(bytes.Repeat([]byte{1}, 16)) + `"`
+	nextTag := `"` + encoding.EncodeToString(bytes.Repeat([]byte{2}, 16)) + `"`
+	newSession := Session{AccountID: "user-123", Data: json.RawMessage(`{"demo":"renewed"}`)}
+	desktopToken := testRecovery
+	phoneToken := encoding.EncodeToString(bytes.Repeat([]byte{3}, 32))
+	var remote Envelope
+	putCount, deleted := 0, false
+	client := useServer(t, func(writer http.ResponseWriter, request *http.Request) {
+		identity := request.Header.Get("Authorization")
+		switch {
+		case request.URL.Path == "/v1/sessions/example":
+			entries := []SessionInfo{{Ref: testRef, ETag: currentTag, Format: 1}}
+			if deleted {
+				entries[0].Deleted, entries[0].Format = true, 0
+			}
+			if identity != "Bearer "+desktopToken && identity != "Bearer "+phoneToken {
+				t.Fatal("listing used an unexpected device token")
+			}
+			json.NewEncoder(writer).Encode(map[string][]SessionInfo{"sessions": entries})
+		case request.URL.Path == "/v1/sessions/example/"+testRef && request.Method == http.MethodPut:
+			putCount++
+			if identity != "Bearer "+desktopToken || request.Header.Get("If-Match") != currentTag {
+				t.Fatal("publish did not use desktop grant and observed revision")
+			}
+			if err := json.NewDecoder(request.Body).Decode(&remote); err != nil {
+				t.Fatal(err)
+			}
+			writer.Header().Set("ETag", nextTag)
+			writer.WriteHeader(http.StatusNoContent)
+			currentTag = nextTag
+		case request.URL.Path == "/v1/sessions/example/"+testRef && request.Method == http.MethodGet:
+			if identity != "Bearer "+phoneToken {
+				t.Fatal("restore used an unexpected device token")
+			}
+			writer.Header().Set("ETag", currentTag)
+			json.NewEncoder(writer).Encode(remote)
+		default:
+			t.Fatalf("unexpected route %s %s", request.Method, request.URL.Path)
+		}
+	})
+	device := func(token string) *Sync {
+		service, err := OpenSync(client, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		grant := Grant{DeviceID: encoding.EncodeToString(make([]byte, 16)), Token: token, SpaceID: "test-space", ExpiresAt: time.Now().Add(time.Hour).Unix()}
+		if err := service.setGrant(nodeGrant{grant, testRecovery, testRecovery}, ""); err != nil {
+			t.Fatal(err)
+		}
+		return service
+	}
+	desktop, phone := device(desktopToken), device(phoneToken)
+	upload := &fakeMigration{session: newSession}
+	if err := desktop.PublishCurrent(t.Context(), plugin, newSession.AccountID, desktop.Ticket(plugin), upload); err != nil {
+		t.Fatal(err)
+	}
+	if err := desktop.Flush(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	restore := &fakeMigration{}
+	account, _, err := phone.Restore(t.Context(), plugin, phone.Ticket(plugin), restore, "")
+	if err != nil || account == nil || account.ID != newSession.AccountID || restore.commits != 1 {
+		t.Fatalf("second device did not restore: %v", err)
+	}
+	deleted = true
+	if err := desktop.PublishCurrent(t.Context(), plugin, newSession.AccountID, desktop.Ticket(plugin), upload); !dataStatus(err, http.StatusGone, "") || putCount != 1 {
+		t.Fatalf("fresh login unexpectedly replaced a tombstone: %v", err)
 	}
 }

@@ -203,7 +203,11 @@ func (a *app) startLibrary(lib *library) {
 	}
 	lib.started = true
 	a.loadAccount(lib)
-	a.loadMine(lib)
+	source := pluginOf(lib)
+	if !lib.accountBusy || source == nil || source.SessionMigrator() == nil ||
+		a.edge.catalog == nil || a.edge.service == nil || !a.edge.service.Authorized() {
+		a.loadMine(lib)
+	}
 	a.loadHome(lib)
 }
 
@@ -221,6 +225,10 @@ func (a *app) activate(lib *library) {
 	a.dismissSuggestions()
 	a.accountOpen = false
 	a.startLibrary(lib)
+	if a.edge.window != nil {
+		a.edge.deleteFor = ""
+		a.refreshEdgeOverview()
+	}
 }
 
 // switchSource goes to a source's Home.
@@ -251,6 +259,9 @@ func (a *app) problem(lib *library, err error, msg string) string {
 	switch {
 	case errors.Is(err, music.ErrSignIn):
 		lib.needsSignIn = true
+		if lib.accountBusy {
+			return Tf("Checking sign-in for %s…", lib.name())
+		}
 		if !lib.askedSignIn {
 			lib.askedSignIn = true
 			a.promptSignIn(lib)

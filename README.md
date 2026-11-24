@@ -76,6 +76,8 @@ npm run build -- -sign - -skip-notarize
 
 支持的客户端可在设置中接入自托管节点，应用没有默认服务器。节点管理员能够解密同步会话，因此只接入信任的节点。协议见 [server 分支](https://github.com/xTreeRoot/ShanhaiMusic/blob/server/server/EDGE.md)；账号资料与登录会话使用不同同步路径，真实跨端同步的验证状态见各端文档。
 
+三端在「山海服务」里分别查看云端偏好、账号资料和登录会话。只同步账号资料不会让另一台设备登录。要同步登录，先在各端连接同一节点、安装与节点签名目录一致且支持登录同步的插件，再在任一端登录；已有登录可点「同步登录到云端」。另一端没有有效本地登录时会尝试向平台验证并恢复，也可以手动触发。平台拒绝或要求安全验证时，仍需在本机登录；本机主动退出不会被云端自动撤销。
+
 ## 来源与许可证
 
 山海基于 [egoist/mygo-music](https://github.com/egoist/mygo-music) 开发，保留上游 Go 模块路径、许可证和历史变更记录，遵循 [AGPL-3.0](LICENSE)。源项目的歌词舞台动画参考 [folia-major](https://github.com/chthollyphile/folia-major)。

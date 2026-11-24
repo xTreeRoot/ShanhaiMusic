@@ -53,6 +53,49 @@ func (p *Plugin) SessionMigrator() edge.Migrator {
 	return p
 }
 
+var ErrUntrustedSessionPlugin = errors.New("plugin does not match the node's signed catalog")
+
+type verifiedSessionMigrator struct {
+	plugin  *Plugin
+	catalog *edge.Catalog
+	ctx     context.Context
+}
+
+func (p *Plugin) VerifiedSessionMigrator(ctx context.Context, catalog *edge.Catalog) edge.Migrator {
+	if catalog == nil || p.SessionMigrator() == nil {
+		return nil
+	}
+	return verifiedSessionMigrator{p, catalog, ctx}
+}
+
+func (v verifiedSessionMigrator) verify() error {
+	entries, err := v.catalog.Fetch(v.ctx)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.ID == v.plugin.manifest.ID && entry.Version == v.plugin.manifest.Version &&
+			entry.ContentHash != "" && entry.ContentHash == v.plugin.contentHash {
+			return nil
+		}
+	}
+	return ErrUntrustedSessionPlugin
+}
+
+func (v verifiedSessionMigrator) ExportSession() (edge.Session, int, error) {
+	if err := v.verify(); err != nil {
+		return edge.Session{}, 0, err
+	}
+	return v.plugin.ExportSession()
+}
+
+func (v verifiedSessionMigrator) StageSession(format int, session edge.Session) (func() (*music.Account, error), error) {
+	if err := v.verify(); err != nil {
+		return nil, err
+	}
+	return v.plugin.StageSession(format, session)
+}
+
 type migration struct {
 	Format int `json:"format"`
 	edge.Session

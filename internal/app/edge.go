@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
 	"mygo-music/internal/edge"
+	"mygo-music/internal/plugin"
 )
 
 type edgePanel struct {
@@ -24,6 +24,7 @@ type edgePanel struct {
 	keyAddress        string
 	message           string
 	busy              bool
+	activity          string
 	deleteFor         string
 	owner             *library
 	choices           []edge.Candidate
@@ -32,6 +33,10 @@ type edgePanel struct {
 	stop              context.CancelFunc
 	profileContext    context.Context
 	profileJobs       map[*library]context.CancelFunc
+	overview          *edge.Overview
+	overviewSource    *library
+	overviewError     string
+	overviewStop      context.CancelFunc
 }
 
 func (a *app) startEdge(ctx context.Context) {
@@ -54,6 +59,10 @@ func (a *app) activateNode(node *edge.Node) {
 	if panel.stop != nil {
 		panel.stop()
 	}
+	if panel.overviewStop != nil {
+		panel.overviewStop()
+	}
+	panel.overview, panel.overviewSource, panel.overviewError, panel.overviewStop = nil, nil, "", nil
 	panel.node = node
 	panel.owner, panel.choices, panel.deleteFor = nil, nil, ""
 	panel.fresh = make(map[*library]edge.Ticket)
@@ -130,13 +139,62 @@ func (a *app) syncEdgeProfile(lib *library, publish bool) {
 			if err != nil {
 				panel.message = edgeError(err)
 			} else if publish {
-				panel.message = T("Platform profile synced.")
+				if service.Authorized() {
+					panel.message = T("Account profile synced. No sign-in session was sent.")
+				} else {
+					panel.message = edgeError(&edge.StatusError{Code: http.StatusUnauthorized})
+				}
+				a.refreshEdgeOverview()
 			}
 		})
 	}()
 }
 
+func (a *app) refreshEdgeOverview() {
+	panel := &a.edge
+	service := panel.service
+	if service == nil || !service.Authorized() {
+		return
+	}
+	if panel.overviewStop != nil {
+		panel.overviewStop()
+	}
+	lib := a.library
+	platform, account := "", ""
+	if lib != nil && lib.can("account") {
+		platform = lib.id
+		if lib.account != nil {
+			account = lib.account.ID
+		}
+	}
+	parent, stop := context.WithCancel(panel.profileContext)
+	panel.overview, panel.overviewSource, panel.overviewError, panel.overviewStop = nil, lib, "", stop
+	go func() {
+		ctx, cancel := context.WithTimeout(parent, 12*time.Second)
+		defer cancel()
+		overview, err := service.Inspect(ctx, platform, account)
+		a.post(func() {
+			if parent.Err() != nil || service != panel.service {
+				return
+			}
+			stop()
+			panel.overviewStop = nil
+			if err != nil {
+				panel.overviewError = edgeError(err)
+				return
+			}
+			panel.overview = &overview
+		})
+	}()
+}
+
 func edgeError(err error) string {
+	if errors.Is(err, plugin.ErrUntrustedSessionPlugin) {
+		return T("Install the plugin version verified by this node before syncing sign-ins.")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return T("The node did not respond in time. Try again.")
+	}
 	if status, ok := errors.AsType[*edge.StatusError](err); ok {
 		switch status.Code {
 		case http.StatusUnauthorized:
@@ -170,13 +228,13 @@ func (a *app) joinEdge() {
 	if panel.keyAddress == address {
 		approved = panel.keyApproval
 	}
-	panel.busy, panel.message = true, ""
+	panel.busy, panel.activity, panel.message = true, T("Connecting to the node…"), ""
 	password, nodes, current := panel.password, panel.nodes, panel.node
 	a.cancelInstall()
 	go func() {
 		node, err := nodes.Join(panel.context, current, address, password, approved)
 		a.post(func() {
-			panel.busy = false
+			panel.busy, panel.activity = false, ""
 			a.cancelInstall()
 			if err != nil {
 				panel.message = edgeError(err)
@@ -190,27 +248,33 @@ func (a *app) joinEdge() {
 			}
 			panel.password, panel.keyAddress, panel.keyApproval = "", "", ""
 			a.activateNode(node)
+			panel.message = T("Node connected. This device is authorized to sync.")
 			a.retryEdgeRestore()
+			a.refreshEdgeOverview()
 		})
 	}()
 }
 
-func (a *app) runEdge(action func(*edge.Sync) error, finished func()) {
+func (a *app) runEdge(activity string, action func(*edge.Sync) error, finished func()) {
 	panel := &a.edge
 	if panel.service == nil || panel.busy {
 		return
 	}
-	panel.busy, panel.message = true, ""
+	panel.busy, panel.activity, panel.message = true, T(activity), ""
 	service := panel.service
 	go func() {
 		err := action(service)
 		a.post(func() {
-			panel.busy = false
+			panel.busy, panel.activity = false, ""
+			if service != panel.service {
+				return
+			}
 			if err != nil {
 				panel.message = edgeError(err)
 			} else {
 				finished()
 			}
+			a.refreshEdgeOverview()
 		})
 	}()
 }
@@ -225,128 +289,73 @@ func (a *app) retryEdgeRestore() {
 
 func (a *app) chooseEdgeAccount(lib *library, ref string) {
 	source := pluginOf(lib)
-	if source == nil || lib.account != nil || lib.accountBusy || a.libOf(lib.id) != lib {
+	panel := &a.edge
+	if source == nil || lib.account != nil || lib.accountBusy || a.libOf(lib.id) != lib || panel.busy {
 		return
 	}
-	migrator, service := source.SessionMigrator(), a.edge.service
-	if migrator == nil || service == nil {
+	migrator, service := source.VerifiedSessionMigrator(panel.profileContext, panel.catalog), panel.service
+	if migrator == nil || service == nil || !service.Authorized() {
 		return
 	}
 	ticket, generation := service.Ticket(lib.id), lib.accountGen
 	lib.accountBusy = true
+	panel.busy, panel.activity, panel.message = true, T("Verifying cloud sign-in…"), ""
+	ctx := panel.profileContext
 	go func() {
-		account, _, err := service.Restore(context.Background(), lib.id, ticket, migrator, ref)
+		account, choices, err := service.Restore(ctx, lib.id, ticket, migrator, ref)
 		a.post(func() {
 			lib.accountBusy = false
-			if generation != lib.accountGen || service.Ticket(lib.id) != ticket {
+			panel.busy, panel.activity = false, ""
+			if generation != lib.accountGen || service != panel.service || service.Ticket(lib.id) != ticket {
 				return
 			}
-			if err != nil {
-				a.edge.message = edgeError(err)
-			}
-			if account != nil {
-				a.edge.owner, a.edge.choices = nil, nil
+			panel.owner, panel.choices = nil, nil
+			switch {
+			case err != nil:
+				panel.message = edgeError(err)
+			case account != nil:
+				panel.message = Tf("Signed in as %s on this device.", account.Name)
 				lib.account = account
+				lib.accountAsked = true
 				a.afterAccount(lib)
+			case len(choices) > 1:
+				panel.owner, panel.choices = lib, choices
+				panel.message = T("Choose which cloud account to restore.")
+			default:
+				panel.message = T("No sign-in was restored. If the session expired or you signed out here, sign in again on this device.")
 			}
+			a.refreshEdgeOverview()
 		})
 	}()
 }
 
-func (a *app) edgeSettings(c *ui.Context, p palette) {
+func (a *app) publishEdgeSession(lib *library, source *plugin.Plugin, recreate bool) {
 	panel := &a.edge
-	ui.Column(c).Gap(12).Children(func() {
-		if panel.message != "" {
-			ui.Text(c, panel.message).TextColor(p.muted)
+	migrator := source.VerifiedSessionMigrator(panel.profileContext, panel.catalog)
+	if migrator == nil {
+		panel.message = T("Install the plugin version verified by this node before syncing sign-ins.")
+		return
+	}
+	ctx, ticket, account := panel.profileContext, panel.service.Ticket(lib.id), lib.account.ID
+	a.runEdge("Syncing sign-in session…", func(service *edge.Sync) error {
+		action := service.PublishCurrent
+		if recreate {
+			action = service.Recreate
 		}
-		space, expires := "", int64(0)
-		if panel.service != nil {
-			space, expires = panel.service.Binding()
+		if err := action(ctx, lib.id, account, ticket, migrator); err != nil {
+			return err
 		}
-		if space != "" {
-			ui.Text(c, Tf("%s · Authorization expires %s", panel.node.Address, time.Unix(expires, 0).Format("2006-01-02")))
-			if ui.Button(c.Key("edge-unbind"), T("Unlink This Device")).Disabled(panel.busy).Clicked() {
-				a.runEdge((*edge.Sync).Unbind, func() {
-					a.activateNode(panel.node)
-					a.cancelInstall()
-				})
-			}
-			if ui.Button(c.Key("edge-restore"), T("Check for Sessions to Restore")).Disabled(panel.busy).Clicked() {
-				a.retryEdgeRestore()
-			}
+		if err := service.Flush(ctx); err != nil {
+			return err
 		}
-		for _, choice := range panel.choices {
-			if ui.Button(c.Key(choice.Ref), Tf("Restore %s", choice.Label)).Disabled(panel.owner.accountBusy).Clicked() {
-				a.chooseEdgeAccount(panel.owner, choice.Ref)
-			}
+		if !service.Authorized() {
+			return &edge.StatusError{Code: http.StatusUnauthorized}
 		}
-		if lib := a.library; space != "" && lib != nil && lib.account != nil {
-			if ui.Button(c.Key("edge-profile"), T("Sync This Platform Profile")).Disabled(panel.busy).Clicked() {
-				a.syncEdgeProfile(lib, true)
-			}
-			if source := pluginOf(lib); source != nil && source.SessionMigrator() != nil {
-				ticket, account := panel.service.Ticket(lib.id), lib.account.ID
-				migrator := source.SessionMigrator()
-				publish := func(recreate bool) {
-					a.runEdge(func(service *edge.Sync) error {
-						action := service.Publish
-						if recreate {
-							action = service.Recreate
-						}
-						if err := action(context.Background(), lib.id, account, ticket, migrator); err != nil {
-							return err
-						}
-						return service.Flush(context.Background())
-					}, func() {})
-				}
-				if ui.Button(c.Key("edge-publish"), T("Sync This Verified Account")).Disabled(panel.busy).Clicked() {
-					publish(false)
-				}
-				if fresh, ok := panel.fresh[lib]; ok && fresh == ticket && ui.Button(c.Key("edge-recreate"), T("Confirm Recreating the Deleted Session")).Disabled(panel.busy).Clicked() {
-					publish(true)
-				}
-			}
+		if ctx.Err() != nil || service.Ticket(lib.id) != ticket {
+			return context.Canceled
 		}
-		if lib := a.library; space != "" && lib != nil && panel.service.HasRemote(lib.id) {
-			label := T("Delete This Source’s Cloud Session…")
-			if panel.deleteFor == lib.id {
-				label = T("Delete Cloud Session and Stay Signed In Locally")
-			}
-			if ui.Button(c.Key("edge-delete"), label).Disabled(panel.busy).Clicked() {
-				if panel.deleteFor == lib.id {
-					a.runEdge(func(service *edge.Sync) error { return service.Delete(context.Background(), lib.id) }, func() { panel.deleteFor = "" })
-				} else {
-					panel.deleteFor = lib.id
-				}
-			}
-		}
-		ui.Column(c).Radius(12).Border(1, p.hairline).Dividers(1, p.hairline).Children(func() {
-			ui.Row(c).Padding(12, 16).Gap(12).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, T("Node Address")).Width(104).Shrink(0).SingleLine()
-				ui.TextInput(c.Key("edge-address"), &panel.address).Grow(1).MinWidth(0).Label(T("Server Domain or HTTPS Address")).Placeholder(T("Server Domain or HTTPS Address")).Disabled(panel.busy)
-				ui.Button(c.Key("edge-clear"), T("Clear")).Label(T("Clear Node Address")).Disabled(panel.busy || panel.address == "").OnClick(func() { panel.address = "" })
-			})
-			ui.Row(c).Padding(12, 16).Gap(12).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, T("Node Password")).Width(104).Shrink(0).SingleLine()
-				input := ui.TextInput(c.Key("edge-password"), &panel.password).Grow(1).MinWidth(0).Label(T("Password")).Placeholder(T("Password")).Disabled(panel.busy)
-				if !panel.passwordVisible {
-					input.Password()
-				}
-				label := T("Show Password")
-				if panel.passwordVisible {
-					label = T("Hide Password")
-				}
-				ui.Button(c.Key("edge-password-visibility"), label).Disabled(panel.busy).OnClick(func() { panel.passwordVisible = !panel.passwordVisible })
-			})
-		})
-		ui.Text(c, T("Node administrators can decrypt synced sessions. Only connect to a node you trust.")).TextColor(p.muted)
-		label := T("Connect to Node")
-		address, _ := edge.NormalizeAddress(panel.address)
-		if panel.keyApproval != "" && panel.keyAddress == address {
-			label = T("Trust the New Signing Key and Reconnect")
-		}
-		if ui.PrimaryButton(c.Key("edge-pair"), label).Height(44).WidthPercent(100).Label(label + " MB Server").Disabled(panel.busy || panel.address == "" || panel.password == "").Clicked() {
-			a.joinEdge()
-		}
+		return nil
+	}, func() {
+		panel.message = T("Sign-in session saved to the node. Compatible devices can try to restore it.")
 	})
 }

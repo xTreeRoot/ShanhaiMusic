@@ -158,12 +158,13 @@ func (e *NeedsNewerApp) Error() string {
 // Plugin is a music.Source in JavaScript. It starts on first use, and again on
 // the next use after it got stuck.
 type Plugin struct {
-	manifest Manifest
-	dir      string // where plugin.json is
-	data     string // the plugin's own data, and ours about it
-	mod      *moejs.Module
-	exports  map[string]bool
-	locales  map[string]map[string]string // by language, the English to what it is in it
+	manifest    Manifest
+	dir         string // where plugin.json is
+	data        string // the plugin's own data, and ours about it
+	mod         *moejs.Module
+	contentHash string
+	exports     map[string]bool
+	locales     map[string]map[string]string // by language, the English to what it is in it
 
 	// starting is held while the plugin starts, and by Close, so one start
 	// runs at a time and none outlives a Close. It isn't mu: the module's top
@@ -258,6 +259,9 @@ func Load(dir, dataDir string) (*Plugin, error) {
 	}
 	for _, name := range mod.Exports() {
 		p.exports[name] = true
+	}
+	if p.SessionMigrator() != nil {
+		p.contentHash = pluginContentHash(dir)
 	}
 	if p.locales, err = readLocales(dir); err != nil {
 		return nil, err

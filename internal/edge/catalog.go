@@ -27,6 +27,7 @@ type Package struct {
 	MinHost     string          `json:"minAppVersion"`
 	Permissions json.RawMessage `json:"permissions"`
 	SHA256      string          `json:"sha256"`
+	ContentHash string          `json:"content_sha256,omitempty"`
 	Size        int64           `json:"size"`
 	Path        string          `json:"path"`
 }
@@ -66,7 +67,7 @@ func (catalog *Catalog) verify(data []byte) (index, []byte, error) {
 	seen := map[string]bool{}
 	for _, entry := range result.Plugins {
 		var permissions map[string]json.RawMessage
-		if !entry.valid() || !versionPattern.MatchString(entry.Version) || entry.MinHost != "" && !versionPattern.MatchString(entry.MinHost) ||
+		if !entry.valid() || entry.ContentHash != "" && !digestPattern.MatchString(entry.ContentHash) || !versionPattern.MatchString(entry.Version) || entry.MinHost != "" && !versionPattern.MatchString(entry.MinHost) ||
 			json.Unmarshal(entry.Permissions, &permissions) != nil || permissions == nil || seen[entry.ID] {
 			return index{}, nil, errors.New("invalid MB catalog package")
 		}
@@ -116,7 +117,7 @@ func (catalog *Catalog) Download(ctx context.Context, entry Package) ([]byte, er
 	current, _, err := catalog.verify(signed)
 	if err != nil || !slices.ContainsFunc(current.Plugins, func(signed Package) bool {
 		return signed.ID == entry.ID && signed.Version == entry.Version && signed.MinHost == entry.MinHost &&
-			signed.Size == entry.Size && signed.SHA256 == entry.SHA256 && signed.Path == entry.Path && bytes.Equal(signed.Permissions, entry.Permissions)
+			signed.Size == entry.Size && signed.SHA256 == entry.SHA256 && signed.ContentHash == entry.ContentHash && signed.Path == entry.Path && bytes.Equal(signed.Permissions, entry.Permissions)
 	}) {
 		return nil, errors.New("package is not in the verified MB catalog")
 	}

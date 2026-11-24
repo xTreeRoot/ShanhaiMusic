@@ -256,14 +256,18 @@ func (service *Sync) Restore(ctx context.Context, plugin string, ticket Ticket, 
 }
 
 func (service *Sync) Publish(ctx context.Context, plugin, account string, ticket Ticket, migrator Migrator) error {
-	return service.publish(ctx, plugin, account, ticket, migrator, false)
+	return service.publish(ctx, plugin, account, ticket, migrator, false, false)
+}
+
+func (service *Sync) PublishCurrent(ctx context.Context, plugin, account string, ticket Ticket, migrator Migrator) error {
+	return service.publish(ctx, plugin, account, ticket, migrator, true, false)
 }
 
 func (service *Sync) Recreate(ctx context.Context, plugin, account string, ticket Ticket, migrator Migrator) error {
-	return service.publish(ctx, plugin, account, ticket, migrator, true)
+	return service.publish(ctx, plugin, account, ticket, migrator, false, true)
 }
 
-func (service *Sync) publish(ctx context.Context, plugin, account string, ticket Ticket, migrator Migrator, recreate bool) error {
+func (service *Sync) publish(ctx context.Context, plugin, account string, ticket Ticket, migrator Migrator, readRemote, recreate bool) error {
 	service.mu.Lock()
 	op := service.snapshot(plugin)
 	if ticket != (Ticket{op.serial, op.epoch}) || ctx.Err() != nil {
@@ -294,13 +298,28 @@ func (service *Sync) publish(ctx context.Context, plugin, account string, ticket
 	if err != nil {
 		return err
 	}
-	var tombstone string
+	var observed string
 	if recreate {
 		_, tag, err := service.client.get(ctx, op.grant, plugin, ref)
 		if status, ok := errors.AsType[*StatusError](err); !ok || status.Code != http.StatusGone || !validTag(tag) {
 			return errors.New("There is no deleted cloud session to recreate")
 		}
-		tombstone = tag
+		observed = tag
+	} else if readRemote {
+		entries, err := service.client.list(ctx, op.grant, plugin)
+		if err != nil {
+			return err
+		}
+		observed = "*"
+		for _, entry := range entries {
+			if entry.Ref == ref {
+				if entry.Deleted {
+					return &StatusError{Code: http.StatusGone}
+				}
+				observed = entry.ETag
+				break
+			}
+		}
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -309,8 +328,8 @@ func (service *Sync) publish(ctx context.Context, plugin, account string, ticket
 	}
 	key := plugin + "/" + ref
 	previous := service.state.Versions[key]
-	if tombstone != "" {
-		previous = tombstone
+	if observed != "" {
+		previous = observed
 	}
 	if previous == "" {
 		previous = "*"

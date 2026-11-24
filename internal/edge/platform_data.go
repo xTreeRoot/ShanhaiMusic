@@ -140,6 +140,9 @@ func retryData(err error) bool {
 
 func (service *Sync) SyncProfile(ctx context.Context, platform string, ticket Ticket, local Profile, publish bool) error {
 	if !identifier.MatchString(platform) || !local.valid() {
+		if publish {
+			return errors.New("This account has no valid profile to sync.")
+		}
 		return nil
 	}
 	service.mu.Lock()
