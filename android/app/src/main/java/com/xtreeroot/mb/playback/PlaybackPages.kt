@@ -21,6 +21,7 @@ internal fun interface PlaybackPages {
 }
 
 internal data class PlaybackPage(val tracks: List<Track>, val next: PlaybackPages?)
+internal data class QueuePageStatus(val more: Boolean = false, val loading: Boolean = false, val failed: Boolean = false)
 
 internal fun <Cursor> playbackPages(cursor: Cursor, visited: Set<Cursor> = emptySet(),
                                    load: suspend (Cursor) -> Pair<List<Track>, Cursor?>): PlaybackPages? {
@@ -44,7 +45,7 @@ internal class PendingPlaybackPages {
 
 @OptIn(UnstableApi::class)
 internal class PagedPlayback(private val player: ExoPlayer, private val scope: CoroutineScope,
-                             private val playable: (Track) -> Boolean, private val changed: () -> Unit) : Player.Listener {
+                             private val playable: (Track) -> Boolean, private val changed: (QueuePageStatus) -> Unit) : Player.Listener {
     private enum class Advance { Manual, Automatic }
 
     private var pages: PlaybackPages? = null
@@ -53,6 +54,7 @@ internal class PagedPlayback(private val player: ExoPlayer, private val scope: C
     private var advanceFrom: MediaItem? = null
     private var failed = false
     val pending: Boolean get() = pages != null
+    private fun publish() = changed(QueuePageStatus(pending, job != null, failed))
     val atTail: Boolean get() = player.mediaItemCount > 0 && nextIndex() == C.INDEX_UNSET
 
     init { player.addListener(this) }
@@ -63,8 +65,10 @@ internal class PagedPlayback(private val player: ExoPlayer, private val scope: C
         pages = loader
         if (wasPending || pending) updateTailPause()
         if (pending) refill()
-        if (wasPending || pending) changed()
+        if (wasPending || pending) publish()
     }
+
+    fun loadNextPage() = refill(requested = true)
 
     fun next(): Boolean {
         if (!pending || !atTail) return false
@@ -115,26 +119,26 @@ internal class PagedPlayback(private val player: ExoPlayer, private val scope: C
                 Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED)) refill()
     }
 
-    private fun refill() {
+    private fun refill(requested: Boolean = false) {
         val firstPage = pages ?: return
-        if (player.mediaItemCount == 0 || job != null || failed) return
-        if (advance == null && nextIndex(nextIndex()) != C.INDEX_UNSET) return
+        if (player.mediaItemCount == 0 || job != null || failed && !requested) return
+        if (!requested && advance == null && nextIndex(nextIndex()) != C.INDEX_UNSET) return
+        failed = false
         job = scope.launch {
             yield()
             var cursor: PlaybackPages? = firstPage
             try {
-                val queued = (0 until player.mediaItemCount).mapTo(mutableSetOf()) { player.getMediaItemAt(it).mediaId }
                 repeat(8) {
                     val loaded = cursor?.load() ?: return@repeat
                     ensureActive()
                     cursor = loaded.next
+                    val queued = (0 until player.mediaItemCount).mapTo(mutableSetOf()) { player.getMediaItemAt(it).mediaId }
                     val fresh = loaded.tracks.filter { queued.add(it.id) }
                     val tracks = fresh.filter(playable)
                     if (tracks.isNotEmpty()) {
                         finish(cursor, tracks)
                         return@launch
                     }
-                    if (fresh.isEmpty() && loaded.tracks.isNotEmpty()) cursor = null
                 }
                 finish(null, emptyList())
             } catch (cancelled: CancellationException) {
@@ -143,8 +147,10 @@ internal class PagedPlayback(private val player: ExoPlayer, private val scope: C
                 ensureActive()
                 pages = cursor; job = null; failed = true; cancelAdvance()
                 if (player.playbackState == Player.STATE_ENDED) player.pause()
+                publish()
             }
         }
+        publish()
     }
 
     private fun finish(next: PlaybackPages?, tracks: List<Track>) {
@@ -169,6 +175,6 @@ internal class PagedPlayback(private val player: ExoPlayer, private val scope: C
                 player.play()
             } else player.pause()
         }
-        changed()
+        publish()
     }
 }

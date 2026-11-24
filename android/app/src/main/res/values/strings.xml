@@ -1,5 +1,7 @@
 <resources>
     <string name="app_name">山海</string>
+    <string name="media_like">Like</string>
+    <string name="media_unlike">Unlike</string>
     <string name="qr_sign_in">QR sign-in</string>
     <string name="qr_sign_in_waiting">Shanhai is waiting for QR sign-in</string>
     <string name="qr_sign_in_expired">Background sign-in timed out. Try signing in again.</string>

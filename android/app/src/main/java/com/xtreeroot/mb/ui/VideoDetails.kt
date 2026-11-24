@@ -202,12 +202,14 @@ private fun VideoInformation(track: Track, state: PlaybackState, model: Playback
                     }
                 }
                 videoQueue(state, model::select)
+                if (state.queuePages.more) item { QueuePageFooter(model, state) }
             }
             VideoDetailTab.Comments -> if (source == null) EmptyMessage(mb("此音源不支持评论", "Comments are not available for this source"))
                 else TrackComments(source, track, signedIn, Modifier.fillMaxSize(), sharedPages = commentPages)
             VideoDetailTab.Captions -> VideoCaptions(track, state, model, preferences)
             VideoDetailTab.Queue -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
                 videoQueue(state, model::select)
+                if (state.queuePages.more) item { QueuePageFooter(model, state) }
                 if (showSystemVolume) item { SystemMediaVolume() }
             }
         }

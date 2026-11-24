@@ -48,6 +48,7 @@ private val LazyListItemInfo.center get() = offset + size / 2f
 @Composable
 internal fun <T> ReorderList(items: List<T>, itemKey: (T) -> String, enabled: Boolean, onMove: (Int, Int) -> Unit,
                               modifier: Modifier = Modifier, header: (@Composable () -> Unit)? = null,
+                              footer: (@Composable () -> Unit)? = null,
                               row: @Composable (Int, Modifier, Boolean, Boolean) -> Unit) {
     val list = rememberLazyListState()
     val firstTrack = if (header == null) 0 else 1
@@ -57,7 +58,7 @@ internal fun <T> ReorderList(items: List<T>, itemKey: (T) -> String, enabled: Bo
     var drag by remember { mutableStateOf<TrackDrag?>(null) }
     val dragging = drag != null
     fun destination(drag: TrackDrag): Int = list.layoutInfo.visibleItemsInfo.asSequence()
-        .filter { it.index >= firstTrack }.minByOrNull { abs(it.center - drag.center) }
+        .filter { it.index - firstTrack in items.indices }.minByOrNull { abs(it.center - drag.center) }
         ?.let { it.index - firstTrack } ?: drag.index
 
     LaunchedEffect(dragging, list, edge) {
@@ -91,7 +92,7 @@ internal fun <T> ReorderList(items: List<T>, itemKey: (T) -> String, enabled: Bo
                 val handle = trackReorderHandleSize.toPx()
                 if (distanceFromEnd !in 0f..handle) return@awaitEachGesture
                 val item = list.layoutInfo.visibleItemsInfo.firstOrNull {
-                    it.index >= firstTrack && abs(it.center - down.position.y) <= handle / 2
+                    it.index - firstTrack in items.indices && abs(it.center - down.position.y) <= handle / 2
                 } ?: return@awaitEachGesture
                 try {
                     while (true) {
@@ -134,6 +135,7 @@ internal fun <T> ReorderList(items: List<T>, itemKey: (T) -> String, enabled: Bo
                 val visibility = if (hidden) place.graphicsLayer { alpha = 0f } else place
                 row(index, if (dragging) visibility.clearAndSetSemantics {} else visibility, false, dragging)
             }
+            if (footer != null) item { footer() }
         }
         drag?.takeIf { it.index in items.indices }?.let { active ->
             row(active.index, Modifier.graphicsLayer { translationY = active.center - active.size / 2f }

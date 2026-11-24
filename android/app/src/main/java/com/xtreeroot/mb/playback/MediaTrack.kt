@@ -13,6 +13,7 @@ internal const val trackScheme = "mb-track"
 internal val enqueueTrack = SessionCommand("com.xtreeroot.mb.ENQUEUE_TRACK", Bundle.EMPTY)
 internal val nextStationTrack = SessionCommand("com.xtreeroot.mb.NEXT_STATION_TRACK", Bundle.EMPTY)
 internal val leaveStation = SessionCommand("com.xtreeroot.mb.LEAVE_STATION", Bundle.EMPTY)
+internal val loadQueuePage = SessionCommand("com.xtreeroot.mb.LOAD_QUEUE_PAGE", Bundle.EMPTY)
 private const val stationKey = "mb.station"
 private const val pagesKey = "mb.queuePages"
 

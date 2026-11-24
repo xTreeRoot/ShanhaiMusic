@@ -29,6 +29,7 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.source.ShuffleOrder
 import androidx.media3.session.LibraryResult
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
@@ -38,11 +39,13 @@ import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.xtreeroot.mb.MBApplication
 import com.xtreeroot.mb.MainActivity
+import com.xtreeroot.mb.R
 import com.xtreeroot.mb.music.MediaResource
 import com.xtreeroot.mb.music.toTrackMetadata
 import com.xtreeroot.mb.local.OfflineMediaStore
 import com.xtreeroot.mb.local.localSourceId
 import com.xtreeroot.mb.music.AudioQuality
+import com.xtreeroot.mb.music.InteractionSource
 import com.xtreeroot.mb.music.PlaybackIssue
 import com.xtreeroot.mb.music.PlaybackIssueException
 import com.xtreeroot.mb.music.PlaybackRecorder
@@ -55,6 +58,7 @@ import com.xtreeroot.mb.music.activeCaption
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.google.common.util.concurrent.SettableFuture
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
@@ -79,6 +83,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+
+private val likeCurrentTrack = SessionCommand("com.xtreeroot.mb.LIKE_CURRENT_TRACK", Bundle.EMPTY)
+private val unlikeCurrentTrack = SessionCommand("com.xtreeroot.mb.UNLIKE_CURRENT_TRACK", Bundle.EMPTY)
 
 @OptIn(UnstableApi::class)
 internal class PlaybackService : MediaLibraryService() {
@@ -196,7 +203,8 @@ internal class PlaybackService : MediaLibraryService() {
             persist()
         }
         this.stations = stations
-        val pages = PagedPlayback(player, scope, { !it.isUnavailable && it.resourceUrl == null && app.acceptsTrack(it) }) {
+        val pages = PagedPlayback(player, scope, { !it.isUnavailable && it.resourceUrl == null && app.acceptsTrack(it) }) { status ->
+            app.queuePageStatus.value = status
             (session?.player as? CaptionSessionPlayer)?.stationChanged()
         }
         val sessionPlayer = CaptionSessionPlayer(player, video, stations, pages, app.pendingPlaybackPages::take) {
@@ -234,6 +242,15 @@ internal class PlaybackService : MediaLibraryService() {
         }
         var prefetchTick: Job? = null
         val currentMedia = MutableStateFlow(player.currentMediaItem?.track())
+        val likes = SessionTrackLikes({ player.currentMediaItem?.track() }, { app.playbackSource(it) as? InteractionSource }) { liked ->
+            session?.setMediaButtonPreferences(if (liked == null) emptyList() else listOf(
+                CommandButton.Builder(if (liked) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED)
+                    .setDisplayName(getString(if (liked) R.string.media_unlike else R.string.media_like))
+                    .setSessionCommand(if (liked) unlikeCurrentTrack else likeCurrentTrack)
+                    .setSlots(CommandButton.SLOT_FORWARD_SECONDARY, CommandButton.SLOT_BACK_SECONDARY)
+                    .build(),
+            ))
+        }
         val openPlayer = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         fun resumeItem() = player.currentMediaItem?.takeIf { it.track()?.let(app::acceptsTrack) == true }?.resumeBrowserItem()
@@ -244,9 +261,17 @@ internal class PlaybackService : MediaLibraryService() {
                     val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
                         .remove(SessionCommand.COMMAND_CODE_LIBRARY_SEARCH)
                         .remove(SessionCommand.COMMAND_CODE_LIBRARY_GET_SEARCH_RESULT)
-                    if (controller.uid == applicationInfo.uid) commands.add(enqueueTrack).add(nextStationTrack).add(leaveStation)
+                    val notification = session.isMediaNotificationController(controller)
+                    val ownApp = controller.uid == applicationInfo.uid
+                    if (ownApp && !notification) commands.add(enqueueTrack).add(nextStationTrack).add(leaveStation).add(loadQueuePage)
+                    if (ownApp || notification) commands.add(likeCurrentTrack).add(unlikeCurrentTrack)
                     return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                        .setAvailableSessionCommands(commands.build()).build()
+                        .setAvailableSessionCommands(commands.build()).apply {
+                            if (notification || !ownApp) {
+                                setAvailablePlayerCommands(MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+                                    .removeAll(Player.COMMAND_SEEK_BACK, Player.COMMAND_SEEK_FORWARD).build())
+                            }
+                        }.build()
                 }
 
                 override fun onGetLibraryRoot(session: MediaLibrarySession, browser: MediaSession.ControllerInfo, params: LibraryParams?):
@@ -272,11 +297,35 @@ internal class PlaybackService : MediaLibraryService() {
 
                 override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo,
                                              command: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
-                    if (command != enqueueTrack && command != nextStationTrack && command != leaveStation) {
+                    if (command == likeCurrentTrack || command == unlikeCurrentTrack) {
+                        if (controller.uid != applicationInfo.uid && !session.isMediaNotificationController(controller)) {
+                            return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
+                        }
+                        val result = SettableFuture.create<SessionResult>()
+                        val job = scope.launch {
+                            try {
+                                result.set(SessionResult(if (likes.setLiked(command == likeCurrentTrack)) SessionResult.RESULT_SUCCESS
+                                    else SessionError.ERROR_INVALID_STATE))
+                            } catch (cancelled: CancellationException) {
+                                result.cancel(false)
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                Log.w(playbackLogTag, "media like failed: ${failure.javaClass.simpleName}")
+                                result.set(SessionResult(SessionError.ERROR_IO))
+                            }
+                        }
+                        result.addListener({ if (result.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
+                        return result
+                    }
+                    if (command != enqueueTrack && command != nextStationTrack && command != leaveStation && command != loadQueuePage) {
                         return super.onCustomCommand(session, controller, command, args)
                     }
                     if (controller.uid != applicationInfo.uid) {
                         return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
+                    }
+                    if (command == loadQueuePage) {
+                        pages.loadNextPage()
+                        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     }
                     if (command == nextStationTrack) return Futures.immediateFuture(SessionResult(
                         if (stations.next()) SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE,
@@ -476,6 +525,9 @@ internal class PlaybackService : MediaLibraryService() {
             app.settings.values.map { it.videoQuality }.distinctUntilChanged().drop(1).collect { video.qualityChanged() }
         }
         scope.launch {
+            combine(currentMedia, app.installedPlugins) { track, _ -> track }.collectLatest { likes.refresh(it) }
+        }
+        scope.launch {
             combine(currentMedia, app.settings.values) { track, preferences ->
                 track?.takeIf { preferences.nowPlayingLyrics }
             }.distinctUntilChanged().collectLatest { track ->
@@ -507,6 +559,7 @@ internal class PlaybackService : MediaLibraryService() {
         scope.cancel()
         persist()
         app.stationStatus.value = StationStatus()
+        app.queuePageStatus.value = QueuePageStatus()
         stations = null
         val current = session
         session = null

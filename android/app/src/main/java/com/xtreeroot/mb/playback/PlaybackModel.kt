@@ -53,6 +53,7 @@ internal data class PlaybackState(
     val connectionIssue: PlaybackConnectionIssue? = null,
     val audioFocusBlocked: Boolean = false,
     val selectionRevision: Long = 0,
+    val queuePages: QueuePageStatus = QueuePageStatus(),
 ) {
     val current: Track? get() = tracks.getOrNull(index)
 }
@@ -85,6 +86,7 @@ internal class PlaybackModel(application: Application) : AndroidViewModel(applic
             app.installedPlugins.collect { publish() }
         }
         viewModelScope.launch { app.stationStatus.collect { publish() } }
+        viewModelScope.launch { app.queuePageStatus.collect { publish() } }
         viewModelScope.launch { app.trackPlaybackIssues.values.collect { publish() } }
         viewModelScope.launch { app.audioFocusBlockedTrack.collect { publish() } }
         viewModelScope.launch {
@@ -378,6 +380,9 @@ internal class PlaybackModel(application: Application) : AndroidViewModel(applic
     }
     fun previous() = step(forward = false)
     fun next() = step(forward = true)
+    fun loadNextQueuePage() {
+        controller?.sendCustomCommand(loadQueuePage, Bundle.EMPTY)
+    }
 
     /** 与手动切歌共用 Media3 的实际随机顺序；预览不会改变播放状态。 */
     fun neighboringTrack(forward: Boolean): Track? {
@@ -462,7 +467,7 @@ internal class PlaybackModel(application: Application) : AndroidViewModel(applic
             error, connected = true, playing = player.isPlaying,
             videoAvailable = capability == true, presentation = presentation, station = app.stationStatus.value.station,
             seekable = player.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM) || player.canPositionUnpreparedItem,
-            audioFocusBlocked = audioFocusBlocked(player), selectionRevision = selectionRevision)
+            audioFocusBlocked = audioFocusBlocked(player), selectionRevision = selectionRevision, queuePages = app.queuePageStatus.value)
     }
 }
 

@@ -14,9 +14,11 @@ import com.xtreeroot.mb.ui.components.MBDropdownMenu as DropdownMenu
 import com.xtreeroot.mb.ui.components.MBMenuItem as DropdownMenuItem
 import com.xtreeroot.mb.ui.components.MBIconButton as IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,7 +42,9 @@ internal fun QueueTracks(model: PlaybackModel, state: PlaybackState, modifier: M
     val tracks = state.tracks
     if (tracks.isEmpty()) return EmptyMessage(mb("队列为空", "Your queue is empty"))
     ReorderList(tracks, Track::id, state.connected, { from, to -> model.move(from, to, tracks) },
-        modifier.padding(horizontal = 8.dp)) { index, placement, lifted, dragging ->
+        modifier.padding(horizontal = 8.dp), footer = if (state.queuePages.more) {
+            { QueuePageFooter(model, state) }
+        } else null) { index, placement, lifted, dragging ->
         val track = tracks[index]
         val current = index == state.index
         var menu by remember { mutableStateOf(false) }
@@ -61,6 +65,18 @@ internal fun QueueTracks(model: PlaybackModel, state: PlaybackState, modifier: M
                         onClick = { menu = false; model.remove(index, tracks) })
                 }
             }
+        }
+    }
+}
+
+@Composable
+internal fun QueuePageFooter(model: PlaybackModel, state: PlaybackState) {
+    Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+        if (state.queuePages.failed) {
+            androidx.compose.material3.TextButton(onClick = model::loadNextQueuePage) { Text(mb("重试", "Retry")) }
+        } else {
+            LaunchedEffect(state.tracks.size) { model.loadNextQueuePage() }
+            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
         }
     }
 }

@@ -863,13 +863,40 @@ class StreamingDeviceTest {
             withContext(Dispatchers.Main) {
                 val pages = PagedPlayback(audio, scope, { true }, {})
                 audio.setMediaItems(listOf(current.mediaItem()), 0, 11_800)
-                pages.set(PlaybackPages { calls.incrementAndGet(); batch.await() })
+                pages.set(PlaybackPages { PlaybackPage(listOf(current), PlaybackPages { calls.incrementAndGet(); batch.await() }) })
                 audio.prepare()
                 audio.play()
             }
             eventually { calls.get() == 1 && audio.playbackState == Player.STATE_ENDED }
             batch.complete(PlaybackPage(listOf(current, next), null))
             eventually { audio.mediaItemCount == 2 && audio.currentMediaItem?.mediaId == next.id && audio.isPlaying }
+            assertEquals(1, calls.get())
+        } finally {
+            withContext(Dispatchers.Main) { scope.cancel(); audio.release() }
+        }
+    }
+
+    @Test fun reachingTheVisibleQueueEndLoadsThePageWhileTheCurrentTrackStaysPaused() = runBlocking {
+        val tracks = (1..4).map { Track("fixture", "track-$it", "Track $it", "") }
+        val calls = AtomicInteger()
+        val client = stationFixture()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val audio = withContext(Dispatchers.Main) { player(client, stationMedia(client)) }
+        try {
+            withContext(Dispatchers.Main) {
+                val pages = PagedPlayback(audio, scope, { true }, {})
+                audio.setMediaItems(tracks.take(3).map { it.mediaItem() }, 0, 0)
+                pages.set(PlaybackPages { calls.incrementAndGet(); PlaybackPage(tracks.takeLast(2), null) })
+                assertEquals(0, calls.get())
+                pages.loadNextPage()
+                pages.loadNextPage()
+            }
+            eventually { audio.mediaItemCount == 4 }
+            withContext(Dispatchers.Main) {
+                assertEquals(tracks.first().id, audio.currentMediaItem?.mediaId)
+                assertEquals(tracks.last().id, audio.getMediaItemAt(3).mediaId)
+                assertEquals(false, audio.playWhenReady)
+            }
             assertEquals(1, calls.get())
         } finally {
             withContext(Dispatchers.Main) { scope.cancel(); audio.release() }
