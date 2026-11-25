@@ -283,7 +283,10 @@ func (a *app) playlistPage(c *ui.Context) {
 		a.trackSkeleton(c, s, true, func(c *ui.Context) { a.playlistHeaderSkeleton(c, s) })
 		return
 	}
-	header := func(c *ui.Context) { a.playlistHeader(c, pl) }
+	header := func(c *ui.Context) {
+		a.playlistResumeRow(c, a.library, id, pl)
+		a.playlistHeader(c, pl)
+	}
 	if !pl.More {
 		a.trackRows(c, pl.Tracks, true, header)
 		return
@@ -345,14 +348,14 @@ func (a *app) playButtons(c *ui.Context, tracks []music.Track) {
 		if a.pl.Shuffle() {
 			a.pl.ToggleShuffle()
 		}
-		if a.route.page == pageLiked {
+		if a.route.page == pageLiked || a.route.page == pagePlaylist {
 			a.playCatalogTrack(tracks, firstPlayable(tracks))
 		} else {
 			a.pl.PlayQueue(tracks, firstPlayable(tracks))
 		}
 	}
 	if pillButton(c.Key("shuffle"), iconShuffle, T("Shuffle"), p.hover.Over(p.bg), p.text).Clicked() {
-		if a.route.page == pageLiked {
+		if a.route.page == pageLiked || a.route.page == pagePlaylist {
 			a.playCatalogTrack(tracks, -1)
 		} else {
 			a.pl.PlayShuffled(tracks)

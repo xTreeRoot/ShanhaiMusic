@@ -196,13 +196,16 @@ type desktopBackupResult struct {
 	discovery   discoveryprefs.Document
 }
 
-func restoreDesktopArchive(ctx context.Context, stage string, manifest devicebackup.Manifest, input desktopBackupInput, values map[string]string) (result desktopBackupResult, err error) {
+func restoreDesktopArchive(ctx context.Context, stage string, manifest devicebackup.Manifest, input desktopBackupInput, values map[string]string, overwrite bool) (result desktopBackupResult, err error) {
 	result.settings = input.settings
 	if manifest.Platform == "desktop" {
 		if bytes, readErr := os.ReadFile(filepath.Join(stage, "native/desktop/settings.json")); readErr == nil {
-			if json.Unmarshal(bytes, &result.settings) != nil {
+			native := defaultSettings()
+			native.path = input.settings.path
+			if json.Unmarshal(bytes, &native) != nil {
 				return result, errors.New("invalid backup app settings")
 			}
+			result.settings = native
 		}
 	}
 	result.settings, _, _ = restorePortableAppSettings(result.settings, values)
@@ -255,7 +258,36 @@ func restoreDesktopArchive(ctx context.Context, stage string, manifest devicebac
 		}
 		result.ids = append(result.ids, record.ID)
 		data := userDataDir("plugin-data/" + record.ID)
-		if err := plugin.RestoreBackupData(filepath.Join(stage, "plugins", record.ID, "data"), data); err != nil {
+		source := filepath.Join(stage, "plugins", record.ID, "data")
+		if overwrite {
+			values := map[string]string{}
+			fields := pending[i].Manifest.Settings
+			// Existing code stays installed and provides the accepted settings.
+			if existingErr == nil {
+				current, err := plugin.Load(filepath.Join(pluginsDir(), record.ID), userDataDir("plugin-data"))
+				if err != nil {
+					return result, err
+				}
+				fields = current.Info().Settings
+				current.Close()
+			}
+			for _, field := range fields {
+				if value, ok := record.Settings[field.Key]; ok {
+					values[field.Key] = value
+				}
+			}
+			for _, installed := range input.plugins {
+				if installed.info.ID == record.ID {
+					installed.source.RetireForDataRestore()
+					break
+				}
+			}
+			if err := plugin.ReplaceBackupData(ctx, source, data, values); err != nil {
+				return result, err
+			}
+			continue
+		}
+		if err := plugin.RestoreBackupData(source, data); err != nil {
 			return result, err
 		}
 		settingsFile := filepath.Join(data, "settings.json")
@@ -296,7 +328,7 @@ func restoreDesktopArchive(ctx context.Context, stage string, manifest devicebac
 
 	}
 	if input.local != nil {
-		if err := input.local.RestoreDeviceBackup(ctx, manifest.Library, stage); err != nil {
+		if err := input.local.RestoreDeviceBackup(ctx, manifest.Library, stage, overwrite); err != nil {
 			return result, err
 		}
 	}
@@ -375,30 +407,18 @@ func (a *app) restoreCompleteDeviceBackup(doc edge.DeviceSettings) {
 	ctx, key, input := a.edge.profileContext, a.edge.previewKey, a.captureDeviceBackup()
 	var restored desktopBackupResult
 	a.runEdge("Restoring device backup…", func(service *edge.Sync) error {
-		root, err := newDeviceBackupDirectory()
-		if err != nil {
+		err := withDeviceArchive(ctx, service, key, *doc.Backup, func(stage string, manifest devicebackup.Manifest) error {
+			var err error
+			restored, err = restoreDesktopArchive(ctx, stage, manifest, input, doc.App, true)
 			return err
+		})
+		if err != nil && len(restored.ids) > 0 {
+			a.post(func() {
+				for _, id := range restored.ids {
+					_ = a.pluginInstalled(id)
+				}
+			})
 		}
-		defer os.RemoveAll(root)
-		archive := filepath.Join(root, "device.zip")
-		file, err := os.OpenFile(archive, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err != nil {
-			return err
-		}
-		err = service.DownloadDeviceBackup(ctx, key, *doc.Backup, file)
-		closeErr := file.Close()
-		if err != nil {
-			return err
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-		stage := filepath.Join(root, "content")
-		manifest, err := devicebackup.Extract(ctx, archive, stage)
-		if err != nil {
-			return err
-		}
-		restored, err = restoreDesktopArchive(ctx, stage, manifest, input, doc.App)
 		return err
 	}, func() {
 		a.settings = restored.settings
@@ -416,12 +436,20 @@ func (a *app) restoreCompleteDeviceBackup(doc edge.DeviceSettings) {
 		if restored.discovery.Version == 1 {
 			a.applyDiscoveryPreferences(restored.discovery)
 		}
-		if restored.session != nil && a.pl != nil {
-			if _, exists := a.pl.Session(); !exists {
+		if a.pl != nil {
+			a.pl.ClearSession()
+			if restored.session != nil {
 				a.pl.Restore(*restored.session)
 				a.saveSession()
+			} else if path, err := sessionPath(); err == nil {
+				if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+					a.edge.message = err.Error()
+					return
+				}
+				a.savedSession = ""
 			}
 		}
+		a.edge.confirmDeviceRestore = false
 		a.edge.message = Tf("Device restored · %d plugins", doc.Backup.Plugins)
 	})
 }

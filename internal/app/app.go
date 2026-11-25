@@ -72,6 +72,8 @@ type app struct {
 	trayVideo  menuBarVideoState
 	trayTip    string
 
+	playlistResume playlistResumeState
+
 	// libs are the sources, the built-in one first, and what the app has of
 	// each. The active one's is embedded: a.mine is what the active source
 	// lists, and what comes back from a goroutine goes to the library it asked.
@@ -407,6 +409,11 @@ func Run() error {
 		// made, and the view asks the player what plays.
 		a.art = newArtCache(a.post)
 		a.pl = player.New(a.post)
+		a.loadPlaylistResumes()
+		a.pl.QueueReplacing = func() {
+			a.recordPlaylistResume()
+			a.playlistResume.active = ""
+		}
 		a.pl.Quiet = func(fn func()) { mygo.RunOnMain(fn) }
 		a.pl.Source = a.sourceByID
 		a.pl.Failed = a.sourceFailed
@@ -415,6 +422,7 @@ func Run() error {
 		a.pl.Cache = newSongCache(a.settings.CacheMB)
 		a.pl.Picked = a.playbackPicked
 		a.pl.Changed = func() {
+			a.recordPlaylistResume()
 			a.keepSession()
 			a.syncCaptions()
 			a.syncPlaybackExtras()

@@ -75,7 +75,7 @@ func (s *Source) DeviceBackup(ctx context.Context) (devicebackup.Library, []devi
 
 // RestoreDeviceBackup copies managed media before publishing merged metadata.
 // Old IDs are mapped to this device's local paths so playlist references work.
-func (s *Source) RestoreDeviceBackup(ctx context.Context, state devicebackup.Library, stage string) error {
+func (s *Source) RestoreDeviceBackup(ctx context.Context, state devicebackup.Library, stage string, overwrite bool) error {
 	directory := filepath.Join(s.dir, "restored")
 	mapping := map[string]string{}
 	if err := devicebackup.EnsureDirectory(directory, ""); err != nil {
@@ -160,6 +160,9 @@ func (s *Source) RestoreDeviceBackup(ctx context.Context, state devicebackup.Lib
 	err := s.change(func() error {
 		if !slices.Contains(s.lib.Folders, directory) {
 			s.lib.Folders = append(s.lib.Folders, directory)
+		}
+		if overwrite {
+			s.lib.Likes, s.lib.Recent, s.lib.Playlists = nil, nil, nil
 		}
 		for _, id := range resolve(state.Favorites) {
 			if !slices.Contains(s.lib.Likes, id) {

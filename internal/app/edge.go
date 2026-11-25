@@ -22,6 +22,7 @@ type edgePanel struct {
 	backupPlugins                           []devicebackup.Plugin
 	pluginsLoaded                           bool
 	confirmPlugin                           string
+	confirmDeviceRestore                    bool
 	window                                  *mygo.Window
 	passwordVisible                         bool
 	nodes                                   *edge.Nodes
@@ -75,6 +76,7 @@ func (a *app) activateNode(node *edge.Node) {
 	panel.devices, panel.devicesError, panel.previewKey, panel.preview = nil, "", "", nil
 	panel.settingsGroup = ""
 	panel.deviceName, panel.confirmPlugin = "", ""
+	panel.confirmDeviceRestore = false
 	panel.backupPlugins, panel.pluginsLoaded = nil, false
 	panel.node = node
 	panel.owner, panel.choices, panel.deleteFor = nil, nil, ""

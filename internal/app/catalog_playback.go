@@ -109,6 +109,9 @@ func (a *app) playCatalog(lib *library, tracks []music.Track, index int, next ca
 }
 
 func (a *app) playPlaylist(lib *library, id string, playlist *music.Playlist, index int) {
+	if len(playlist.Tracks) == 0 {
+		return
+	}
 	if pager, ok := lib.src.(music.PlaylistPager); ok && playlist.More {
 		offset := continuationOffset(0, playlist.NextOffset, len(playlist.Tracks))
 		a.playCatalog(lib, playlist.Tracks, index, offsetTrackPages(offset, func(offset int) ([]music.Track, bool, int, error) {
@@ -118,16 +121,20 @@ func (a *app) playPlaylist(lib *library, id string, playlist *music.Playlist, in
 			}
 			return page.Tracks, page.More, page.NextOffset, nil
 		}))
-		return
+	} else if index < 0 {
+		a.pl.PlayShuffled(playlist.Tracks)
+	} else {
+		a.pl.PlayTrack(playlist.Tracks, index)
 	}
-	a.pl.PlayQueue(playlist.Tracks, index)
+	a.playlistResume.active = playlistResumeKey(lib, id)
+	a.recordPlaylistResume()
 }
 
 func (a *app) playCatalogTrack(tracks []music.Track, index int) {
 	lib, route := a.library, a.route
 	switch route.page {
 	case pagePlaylist:
-		if list := lib.playlists[route.id]; list != nil && list.More && sameList(list.Tracks, tracks) {
+		if list := lib.playlists[route.id]; list != nil && sameList(list.Tracks, tracks) {
 			a.playPlaylist(lib, route.id, list, index)
 			return
 		}

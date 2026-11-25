@@ -58,6 +58,7 @@ func (a *app) edgeDevicesView(c *ui.Context, p palette) {
 				if panel.previewKey == dev.Key {
 					panel.previewKey = ""
 					panel.preview = nil
+					panel.confirmDeviceRestore = false
 					return
 				}
 				active := panel.profileContext
@@ -70,6 +71,7 @@ func (a *app) edgeDevicesView(c *ui.Context, p palette) {
 					panel.previewKey = dev.Key
 					panel.preview = &snapshot
 					panel.backupPlugins, panel.pluginsLoaded, panel.confirmPlugin = nil, false, ""
+					panel.confirmDeviceRestore = false
 					panel.settingsGroup = ""
 					panel.message = ""
 				})
@@ -77,6 +79,14 @@ func (a *app) edgeDevicesView(c *ui.Context, p palette) {
 			if doc := panel.preview; doc != nil && panel.previewKey == dev.Key {
 				if doc.Backup != nil {
 					ui.Text(c, Tf("Complete backup · %d plugins", doc.Backup.Plugins)).TextColor(p.muted)
+					ui.Button(c.Key("replace-device"), T("Replace from complete backup")).Disabled(panel.busy).OnClick(func() { panel.confirmDeviceRestore = true; panel.confirmPlugin = "" })
+					if panel.confirmDeviceRestore {
+						ui.Text(c, Tf("Replace this device’s backed-up settings, library and plugin sign-ins with the backup from %s?", dev.Name)).TextColor(p.muted)
+						ui.Row(c.Key("confirm-device")).Gap(8).Children(func() {
+							ui.Button(c.Key("confirm"), T("Confirm complete replacement")).Disabled(panel.busy).OnClick(func() { a.restoreCompleteDeviceBackup(*doc) })
+							ui.Button(c.Key("cancel"), T("Cancel")).OnClick(func() { panel.confirmDeviceRestore = false })
+						})
+					}
 					ui.Button(c.Key("plugin-choices"), T("Choose plugin information to restore")).Disabled(panel.busy).OnClick(a.loadBackupPluginChoices)
 					if panel.pluginsLoaded && len(panel.backupPlugins) == 0 {
 						ui.Text(c, T("No plugins in this backup")).TextColor(p.muted)
@@ -86,7 +96,7 @@ func (a *app) edgeDevicesView(c *ui.Context, p palette) {
 						if name == "" {
 							name = a.settingsSourceName(record.ID)
 						}
-						ui.Button(c.Key("choose-"+record.ID), name+" · "+T("Restore plugin information")).Disabled(panel.busy).OnClick(func() { panel.confirmPlugin = record.ID })
+						ui.Button(c.Key("choose-"+record.ID), name+" · "+T("Restore plugin information")).Disabled(panel.busy).OnClick(func() { panel.confirmPlugin = record.ID; panel.confirmDeviceRestore = false })
 						if panel.confirmPlugin == record.ID {
 							ui.Text(c, Tf("Replace %s settings and sign-in data from %s?", name, dev.Name)).TextColor(p.muted)
 							ui.Row(c.Key("confirm-" + record.ID)).Children(func() {
@@ -118,11 +128,11 @@ func (a *app) edgeDevicesView(c *ui.Context, p palette) {
 						ui.Button(c.Key("login-"+id), Tf("Open %s account", lib.name())).OnClick(func() { a.promptSignIn(lib) })
 					}
 				}
-				label := T("Restore these settings")
-				if doc.Backup != nil {
-					label = T("Restore this device")
+				label := T("Restore settings only")
+				if doc.Backup == nil {
+					label = T("Restore these settings")
 				}
-				ui.Button(c.Key("apply"), label).Disabled(panel.busy).OnClick(func() { a.restoreDeviceSettings(*doc) })
+				ui.Button(c.Key("apply"), label).Disabled(panel.busy || len(doc.App)+len(doc.Plugins) == 0).OnClick(func() { a.restoreDeviceSettings(*doc) })
 			}
 		}
 		if panel.restoreDevices && available == 0 {
@@ -181,6 +191,15 @@ func (a *app) deviceSettingRows(c *ui.Context, p palette, source, title string, 
 		}
 		edgeRecordRow(c, p, label, value)
 	}
+	if len(values) > 0 {
+		ui.Button(c.Key("restore-"+group), T("Restore this settings group")).Disabled(a.edge.busy).OnClick(func() {
+			doc := edge.DeviceSettings{App: values}
+			if source != "" {
+				doc = edge.DeviceSettings{Plugins: map[string]map[string]string{source: values}}
+			}
+			a.restoreDeviceSettings(doc)
+		})
+	}
 }
 
 func deviceLabel(d edge.SettingsDevice) string {
@@ -200,6 +219,9 @@ func (a *app) settingsSourceName(id string) string {
 }
 
 func (a *app) backupDeviceSettings() {
+	if a.edge.service == nil || a.edge.busy {
+		return
+	}
 	s := a.settings
 	doc := edge.DeviceSettings{Version: 1, App: map[string]string{"appearance": s.Appearance, "language": s.Language, "quality": s.Quality, "smoke": strconv.FormatBool(s.Smoke), "fog": strconv.FormatBool(s.Fog), "growFromCover": strconv.FormatBool(s.GrowFromCover), "lyricsStage": strconv.FormatBool(s.LyricsStage), "hotComments": strconv.FormatBool(s.HotComments), "stageSparks": strconv.FormatBool(s.StageSparks)}, Plugins: map[string]map[string]string{}, Accounts: map[string]string{}}
 	libs := append([]*library(nil), a.allLibs...)
@@ -209,7 +231,19 @@ func (a *app) backupDeviceSettings() {
 	}
 	ctx := a.edge.profileContext
 	input := a.captureDeviceBackup()
+	type signInBackup struct {
+		migrator edge.Migrator
+		ticket   edge.Ticket
+	}
+	candidates := map[string]signInBackup{}
+	for _, record := range input.plugins {
+		if migrator := record.source.VerifiedSessionMigrator(ctx, a.edge.catalog); migrator != nil {
+			candidates[record.info.ID] = signInBackup{migrator, a.edge.service.Ticket(record.info.ID)}
+		}
+	}
+	synced, failed := 0, 0
 	a.runEdge("Backing up this device…", func(s *edge.Sync) error {
+		accounts := map[string]string{}
 		for _, l := range libs {
 			src := pluginOf(l)
 			if src == nil {
@@ -218,6 +252,7 @@ func (a *app) backupDeviceSettings() {
 			if enabled[l] && src.Can("account") {
 				if acc, err := src.Account(); err == nil && acc != nil {
 					doc.Accounts[l.id] = acc.Name
+					accounts[l.id] = acc.ID
 				}
 			}
 			values := map[string]string{}
@@ -230,15 +265,36 @@ func (a *app) backupDeviceSettings() {
 				doc.Plugins[l.id] = values
 			}
 		}
-		return uploadDesktopBackup(ctx, s, input, &doc)
-	}, func() { a.edge.preview = nil; a.edge.message = T("Device backed up, including plugins and their data") })
+		if err := uploadDesktopBackup(ctx, s, input, &doc); err != nil {
+			return err
+		}
+		queued := 0
+		for id, account := range accounts {
+			candidate, ok := candidates[id]
+			if !ok {
+				continue
+			}
+			if err := s.PublishCurrent(ctx, id, account, candidate.ticket, candidate.migrator); err != nil {
+				failed++
+				continue
+			}
+			queued++
+		}
+		if queued > 0 {
+			if err := s.Flush(ctx); err != nil || !s.Authorized() {
+				failed += queued
+			} else {
+				synced = queued
+			}
+		}
+		return nil
+	}, func() {
+		a.edge.preview = nil
+		a.edge.message = Tf("Device backed up with plugin sign-in files · %d cloud sign-ins synced · %d could not be confirmed", synced, failed)
+	})
 }
 
 func (a *app) restoreDeviceSettings(doc edge.DeviceSettings) {
-	if doc.Backup != nil {
-		a.restoreCompleteDeviceBackup(doc)
-		return
-	}
 	ctx := a.edge.profileContext
 	libs := append([]*library(nil), a.allLibs...)
 	applied := 0

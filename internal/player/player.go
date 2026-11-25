@@ -49,6 +49,8 @@ type Player struct {
 	// Picked hears a new queue or an explicitly selected queue item. Restore,
 	// transport controls and automatic advancement do not call it.
 	Picked func()
+	// QueueReplacing runs while the outgoing queue and position are still readable.
+	QueueReplacing func()
 
 	queue   []music.Track
 	order   []int // the queue's indices in play order: shuffled or not
@@ -232,6 +234,7 @@ func (p *Player) playQueue(tracks []music.Track, start, dir int) {
 	if len(tracks) == 0 {
 		return
 	}
+	p.beforeQueueReplace()
 	p.endRadio()
 	start = min(start, len(tracks)-1)
 	p.queue = append([]music.Track(nil), tracks...)
@@ -1127,6 +1130,18 @@ func (p *Player) Session() (Session, bool) {
 	}, true
 }
 
+// ClearSession stops playback and removes the queue, invalidating old loads.
+func (p *Player) ClearSession() {
+	p.beforeQueueReplace()
+	p.stopForFeed()
+	p.endRadio()
+	p.gen++
+	p.track, p.queue, p.order, p.at = nil, nil, nil, -1
+	p.playing, p.loading, p.pending = false, false, 0
+	p.err, p.lyrics, p.lyricsLoaded = "", nil, false
+	p.sync()
+}
+
 // Restore picks up a session where it was left, paused, with its cover and
 // lyrics. Audio is opened once Play is asked, so network streams stay fresh.
 func (p *Player) Restore(s Session) {
@@ -1141,10 +1156,17 @@ func (p *Player) Restore(s Session) {
 		}
 		seen[i] = true
 	}
+	p.beforeQueueReplace()
 	p.queue, p.order = s.Queue, s.Order
 	p.shuffle, p.repeat = s.Shuffle, s.Repeat%3
 	p.prepare(s.At, false, time.Duration(s.Position)*time.Millisecond)
 	p.sync()
+}
+
+func (p *Player) beforeQueueReplace() {
+	if p.QueueReplacing != nil {
+		p.QueueReplacing()
+	}
 }
 
 // Audio is the current track's sound, opened apart from what plays by OpenAudio:

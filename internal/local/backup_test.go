@@ -15,7 +15,7 @@ func TestDeviceRestoreMapsReferencesAndKeepsPortableMetadata(t *testing.T) {
 	}
 	incoming := devicebackup.Library{Tracks: []devicebackup.Track{{Source: "local", ID: "other-device", Asset: "media/digest.mp3", Title: "原来的歌名", Artist: "原来的艺人", Album: "原来的专辑", Duration: 5000}}, Favorites: []string{"local:other-device"}, Recent: []string{"local:other-device"}, Playlists: []devicebackup.Playlist{{ID: "playlist", Name: "歌单", Tracks: []string{"local:other-device"}}}}
 	source := New(t.TempDir())
-	if err := source.RestoreDeviceBackup(t.Context(), incoming, stage); err != nil {
+	if err := source.RestoreDeviceBackup(t.Context(), incoming, stage, false); err != nil {
 		t.Fatal(err)
 	}
 	wait(t, source)

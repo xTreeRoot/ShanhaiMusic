@@ -53,7 +53,7 @@ func TestCompleteDeviceArchiveRestoresBlankPluginHostAndKeepsExistingStorage(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := restoreDesktopArchive(t.Context(), stage, manifest, input, nil)
+	result, err := restoreDesktopArchive(t.Context(), stage, manifest, input, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,11 +73,18 @@ func TestCompleteDeviceArchiveRestoresBlankPluginHostAndKeepsExistingStorage(t *
 		t.Fatal("full settings lost")
 	}
 	write(privateFile, `{"session":"current"}`)
-	if _, err := restoreDesktopArchive(t.Context(), stage, manifest, input, nil); err != nil {
+	if _, err := restoreDesktopArchive(t.Context(), stage, manifest, input, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	bytes, _ = os.ReadFile(privateFile)
 	if string(bytes) != `{"session":"current"}` {
 		t.Fatal("existing account replaced")
+	}
+	if _, err := restoreDesktopArchive(t.Context(), stage, manifest, input, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	bytes, err = os.ReadFile(privateFile)
+	if err != nil || string(bytes) != `{"session":"synthetic"}` {
+		t.Fatal("explicit overwrite did not replace the saved session")
 	}
 }

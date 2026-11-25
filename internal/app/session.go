@@ -25,6 +25,8 @@ func sessionPath() (string, error) {
 
 // saveSession keeps where playback is, if it moved on since last kept.
 func (a *app) saveSession() {
+	a.recordPlaylistResume()
+	a.savePlaylistResumes()
 	s, ok := a.pl.Session()
 	if !ok {
 		return
