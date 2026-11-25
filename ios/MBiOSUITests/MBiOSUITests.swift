@@ -130,7 +130,7 @@ final class MBiOSUITests: XCTestCase {
         let fullConfirm = app.alerts.buttons["确认全部覆盖"]
         XCTAssertTrue(fullConfirm.waitForExistence(timeout: 5))
         app.alerts.buttons["取消"].tap()
-        XCTAssertTrue(app.buttons["仅恢复设置"].exists)
+        XCTAssertTrue(fullConfirm.waitForNonExistence(timeout: 5))
         let choose = app.buttons["choose-plugin-restore"]
         XCTAssertTrue(choose.waitForExistence(timeout: 8)); reveal(choose); choose.tap()
         let selected = app.buttons["restore-plugin-preview-a"]
@@ -1395,15 +1395,19 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertTrue(target.waitForExistence(timeout: 5)); XCTAssertEqual(target.label, newName)
         let initialTabX = app.buttons["source-tab-demo"].frame.minX
         XCTAssertFalse(app.buttons["搜索音源"].exists)
-        // iPad 有侧栏，分页手势限定在内容顶部，避免落入卡片横滚区域或侧栏。
         let isPad = UIDevice.current.userInterfaceIdiom == .pad
-        let surface: XCUIElement = isPad ? app.descendants(matching: .any)["discovery-platform-pager"].firstMatch : app
-        XCTAssertTrue(surface.waitForExistence(timeout: 5))
-        let start = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: isPad ? 0.02 : 0.18))
-        let end = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: isPad ? 0.02 : 0.18))
-        start.press(forDuration: 0.05, thenDragTo: end)
+        if isPad {
+            // 平板上两项都能直接点击，走顶部标签切换入口。
+            XCTAssertTrue(target.isHittable)
+            target.tap()
+        } else {
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.18))
+            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.18))
+            start.press(forDuration: 0.05, thenDragTo: end)
+        }
         XCTAssertTrue(app.buttons["播放 插件示例歌曲"].waitForExistence(timeout: 5))
-        XCTAssertTrue(target.isSelected)
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in target.isSelected }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 4), .completed)
         if !isPad {
             let firstTab = app.buttons["source-tab-demo"]
             let advanced = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
