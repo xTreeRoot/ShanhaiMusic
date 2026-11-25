@@ -103,7 +103,7 @@ xcodebuild -project MBiOS.xcodeproj -scheme MBiOS -configuration Debug \
 bash scripts/package-ipa.sh
 ```
 
-`package-ipa.sh` 按 Xcode 工程中的 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION` 输出 `.build/artifacts/MB-iOS-<版本>-<构建号>-unsigned.ipa` 及源码 SHA-256 清单。iOS 使用独立的 `mb-ios-v<版本>` 标签在 [GitHub Releases](https://github.com/xTreeRoot/MB/releases) 发布；公开包不带开发者签名，须自行签名后安装。
+`package-ipa.sh` 按 Xcode 工程中的 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION` 输出 `.build/artifacts/MB-iOS-<版本>-<构建号>-unsigned.ipa` 及源码 SHA-256 清单。公开 IPA 随四端正式版一起发布，须自行签名后安装。现有客户端从 `mb-ios-v<版本>-build<构建号>` 平台更新源识别 `MB-iOS-v<版本>-build<构建号>-unsigned.ipa`，发布时为该更新源提供符合命名规则且与正式 IPA 的 SHA-256 一致的附件。[GitHub Latest](https://github.com/xTreeRoot/ShanhaiMusic/releases/latest)
 
 ### 0.1.0 (17) - 2026-11-19
 
