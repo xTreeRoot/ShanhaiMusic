@@ -11,7 +11,6 @@ private enum MBTab: String, Hashable { case discover, search, library, account, 
 /// 手机使用系统标签栏；平板使用居中的横向导航。所有页面共用同一播放会话。
 public struct MBRootView: View {
     @State private var selectedTab = MBTab.discover
-    @State private var discoveryPagePosition: CGFloat?
     @Namespace private var playerTransition
     @State private var trackSearch: SearchModel
     @State private var showingSearchPlatforms = false
@@ -558,13 +557,13 @@ public struct MBRootView: View {
         GeometryReader { geometry in
         NavigationStack(path: $path) {
             DiscoveryPager(sources: sourceTabs, providers: discoveryProviders, selected: selectedSourceID,
-                           switchSource: switchSource, pageProgress: { discoveryPagePosition = $0 }, videoMode: video.mode == .video, select: select, menu: trackMenu, openPlugins: { showingPlugins = true })
+                           switchSource: switchSource, videoMode: video.mode == .video, select: select, menu: trackMenu, openPlugins: { showingPlugins = true })
                 // 分页容器会隔开子页面的 toolbar preference，导航栏皮肤需设置在实际导航根内容上。
                 .modifier(SkinSurface(defaultColor: MBTheme.background))
                 .navigationTitle("")
                 .modifier(CompactRootNavigation())
                 .toolbar {
-                    ToolbarItem(placement: .principal) { SourceTabs(sources: sourceTabs, selected: selectedSourceID, select: switchSource, pagePosition: discoveryPagePosition).frame(width: max(100, geometry.size.width - 110)) }.discoveryBackground
+                    ToolbarItem(placement: .principal) { SourceTabs(sources: sourceTabs, selected: selectedSourceID, select: switchSource).frame(width: max(100, geometry.size.width - 110)) }.discoveryBackground
                     toolbar
                 }
                 .navigationDestination(for: MBPage.self) { destination($0) }
@@ -712,6 +711,9 @@ public struct MBRootView: View {
         else {
             List {
                 Group {
+                    if search.tracks.contains(where: { $0.resourceURL == nil }) {
+                        PlaylistResumeRow(resume: playback.playlistResume(searchResumeKey), action: resumeSearch).id(searchResumeKey)
+                    }
                     ForEach(search.warnings, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
                     ForEach(Array(search.tracks.enumerated()), id: \.element.id) { index, track in
                         HStack(spacing: 4) {
@@ -881,11 +883,31 @@ public struct MBRootView: View {
         trackSearch.cancel()
         trackSearch = SearchModel(source: UnifiedSearchSource(providers: providers))
     }
-    private func selectSearch(_ tracks: [Track], _ index: Int, pages: PlaybackPageLoader?) {
+    private var searchResumeKey: String { "//search/" + (searchTarget ?? selectedSourceID) + "/" + search.query }
+
+    private func resumeSearch() async -> Bool {
+        let key = searchResumeKey
+        guard let saved = playback.playlistResume(key) else { return false }
+        while !Task.isCancelled && searchResumeKey == key {
+            if let index = search.tracks.firstIndex(where: { $0.id == saved.trackID && $0.resourceURL == nil }) {
+                selectSearch(search.tracks, index, pages: search.playbackPages(), from: saved.position)
+                return true
+            }
+            guard search.hasMore, !search.isLoading else { return false }
+            let cursor = search.cursor
+            await search.loadMore()
+            if search.cursor == cursor || search.errorMessage != nil { return false }
+        }
+        return false
+    }
+
+    private func selectSearch(_ tracks: [Track], _ index: Int, pages: PlaybackPageLoader?, from position: Int64 = 0) {
         if tracks[index].resourceURL != nil { resourceDetail = tracks[index]; return }
+        let key = searchResumeKey
         Task {
             await video.choose(tracks[index].resourceType == "video" ? .video : .music)
             select(tracks, index)
+            playback.rememberPlaylist(key, startingAt: position)
             if let pages { playback.attachPages(pages) }
         }
     }

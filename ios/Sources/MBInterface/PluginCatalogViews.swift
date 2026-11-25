@@ -109,7 +109,7 @@ struct PluginCatalogPage: View {
         List {
             Group {
                 if let content {
-                    if let playlistKey, let playback {
+                    if let playlistKey, let playback, content.sections.contains(where: { !$0.tracks.isEmpty }) {
                         PlaylistResumeRow(resume: playback.playlistResume(playlistKey), action: resumePlaylist).id(playlistKey)
                     }
                     if !content.subtitle.isEmpty { Text(content.subtitle).font(.subheadline).foregroundStyle(.secondary) }
@@ -213,8 +213,17 @@ struct PluginCatalogPage: View {
         switch request { case .home: return source.displayName; case .browse(let page): return page; case .collection(_, let title): return title; case .entity(let item): return item.title; case .search(let query, _): return query }
     }
     private var playlistKey: String? {
-        guard case .entity(let item) = request, item.kind == .playlist else { return nil }
-        return source.manifest.id + "/" + item.sourceID
+        let base = source.manifest.id + "/"
+        if let filterPage { return base + "/browse/" + filterPage }
+        switch request {
+        case .home: return nil
+        case .entity(let item) where item.kind == .playlist: return base + item.sourceID
+        case .entity(let item) where item.kind == .station: return nil
+        case .entity(let item): return base + "/entity/" + String(describing: item.kind) + "/" + item.sourceID
+        case .browse(let page): return base + "/browse/" + page
+        case .collection(let method, _): return base + "/collection/" + method
+        case .search(let query, let kind): return base + "/search/" + kind + "/" + query
+        }
     }
 
     private func resumePlaylist() async -> Bool {

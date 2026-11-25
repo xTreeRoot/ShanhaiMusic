@@ -7,7 +7,6 @@ struct DiscoveryPager: View {
     let providers: [String: any MusicSource]
     let selected: String
     let switchSource: (String) -> Void
-    var pageProgress: (CGFloat) -> Void = { _ in }
     @State private var pageID: String?
     let videoMode: Bool
     let select: ([Track], Int) -> Void
@@ -22,7 +21,6 @@ struct DiscoveryPager: View {
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
         #if os(iOS)
-        GeometryReader { viewport in
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 0) {
                     ForEach(sources) { tab in
@@ -32,22 +30,15 @@ struct DiscoveryPager: View {
                         }
                     }
                 }.scrollTargetLayout()
-                    .background(GeometryReader { page in
-                        Color.clear.preference(key: DiscoveryOffsetKey.self, value: page.frame(in: .named("discovery-pages")).minX)
-                    })
-            }.coordinateSpace(name: "discovery-pages")
+            }
                 .scrollIndicators(.hidden).scrollTargetBehavior(.paging)
                 .scrollPosition(id: $pageID).scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-                .onPreferenceChange(DiscoveryOffsetKey.self) { x in
-                    guard viewport.size.width > 0 else { return }
-                    pageProgress(min(CGFloat(max(0, sources.count - 1)), max(0, -x / viewport.size.width)))
-                }
                 .onChange(of: pageID) { _, id in if let id, id != selected { switchSource(id) } }
                 .onChange(of: selected) { _, id in
                     if pageID != id { withAnimation(.easeInOut(duration: 0.25)) { pageID = id } }
                 }
                 .onChange(of: sources.map(\.id), initial: true) { _, _ in pageID = selected }
-        }.accessibilityIdentifier("discovery-platform-pager")
+                .accessibilityIdentifier("discovery-platform-pager")
         #else
         if let source = providers[selected] { DiscoveryPlatformPage(source: source, videoMode: videoMode, select: select, menu: menu) }
         #endif
@@ -73,9 +64,4 @@ private struct DiscoveryPlatformPage: View {
             } else { ContentUnavailableView("暂无内容", systemImage: "music.note") }
         }.task { if let discovery, discovery.sections.isEmpty { await discovery.refresh() } }
     }
-}
-
-private struct DiscoveryOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat { 0 }
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

@@ -10,9 +10,13 @@ struct PluginNavigationShelf: View {
     var refreshed: PluginNavigationPreview? = nil
     @State private var content: PluginBrowse?
     @State private var error: String?
+    @Environment(\.stationPlayback) private var playback
     @ScaledMetric(relativeTo: .subheadline) private var cardHeight = 246.0
     private var title: String { item.title ?? item.page ?? item.builtin ?? "" }
     private var request: PluginPageRequest { item.page.map(PluginPageRequest.browse) ?? .collection(item.builtin ?? "", title) }
+    private var resumeKey: String {
+        source.manifest.id + "//" + (item.page.map { "browse/" + $0 } ?? "collection/" + (item.builtin ?? ""))
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             NavigationLink { PluginCatalogPage(source: source, request: request, select: select, menu: menu) } label: {
@@ -25,6 +29,15 @@ struct PluginNavigationShelf: View {
                 let tracks = Array(content.sections.flatMap(\.tracks).prefix(6))
                 let entities = Array(content.sections.flatMap(\.entities).prefix(6))
                 let links = Array(content.sections.flatMap(\.links).prefix(6))
+                if let playback, !tracks.isEmpty {
+                    PlaylistResumeRow(resume: playback.playlistResume(resumeKey)) {
+                        guard let saved = playback.playlistResume(resumeKey),
+                              let index = tracks.firstIndex(where: { $0.id == saved.trackID }) else { return false }
+                        select(tracks, index)
+                        playback.rememberPlaylist(resumeKey, startingAt: saved.position)
+                        return true
+                    }.padding(.horizontal, 20)
+                }
                 if tracks.isEmpty && entities.isEmpty && links.isEmpty {
                     Text(content.sections.first.map { $0.empty.isEmpty ? "暂无内容" : $0.empty } ?? "暂无内容")
                         .font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 20)
@@ -32,7 +45,10 @@ struct PluginNavigationShelf: View {
                     DiscoveryShelf(count: tracks.count + entities.count + links.count, rowHeight: cardHeight) { index in
                         if index < tracks.count {
                             let track = tracks[index]
-                            Button { select(tracks, index) } label: { PluginDiscoveryTile(track: track, subtitle: track.artist) }
+                            Button {
+                                select(tracks, index)
+                                playback?.rememberPlaylist(resumeKey)
+                            } label: { PluginDiscoveryTile(track: track, subtitle: track.artist) }
                                 .buttonStyle(.plain).contextMenu { menu(track) }
                         } else if index < tracks.count + entities.count {
                             let entity = entities[index - tracks.count]

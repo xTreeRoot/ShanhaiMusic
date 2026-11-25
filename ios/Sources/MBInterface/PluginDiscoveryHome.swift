@@ -17,6 +17,7 @@ struct PluginDiscoveryHome: View {
     var nextOffset: Int? = nil
     var loadMore: () async -> Void = {}
     @ScaledMetric(relativeTo: .subheadline) private var cardHeight = 246.0
+    @Environment(\.stationPlayback) private var playback
 
     var body: some View {
         ScrollView {
@@ -24,6 +25,7 @@ struct PluginDiscoveryHome: View {
                 if let error { MusicErrorRow(message: error, retry: retry).padding(.horizontal, 20) }
                 if let content {
                     ForEach(content.sections) { section in
+                        let resumeKey = key(for: section)
                         VStack(alignment: .leading, spacing: 14) {
                             HStack {
                                 MusicSectionHeading(title: section.title)
@@ -41,6 +43,15 @@ struct PluginDiscoveryHome: View {
                                     .accessibilityLabel("查看更多\(section.title)")
                                 }
                             }.padding(.horizontal, 20)
+                            if let playback, !section.tracks.isEmpty {
+                                PlaylistResumeRow(resume: playback.playlistResume(resumeKey)) {
+                                    guard let saved = playback.playlistResume(resumeKey),
+                                          let index = section.tracks.firstIndex(where: { $0.id == saved.trackID }) else { return false }
+                                    select(section.tracks, index)
+                                    playback.rememberPlaylist(resumeKey, startingAt: saved.position)
+                                    return true
+                                }.padding(.horizontal, 20)
+                            }
                             let count = section.tracks.count + section.entities.count + section.links.count
                             if count == 0 {
                                 if !section.empty.isEmpty { Text(section.empty).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 20) }
@@ -48,7 +59,10 @@ struct PluginDiscoveryHome: View {
                                 DiscoveryShelf(count: count, rowHeight: cardHeight) { index in
                                     if index < section.tracks.count {
                                         let track = section.tracks[index]
-                                        Button { select(section.tracks, index) } label: {
+                                        Button {
+                                            select(section.tracks, index)
+                                            playback?.rememberPlaylist(resumeKey)
+                                        } label: {
                                             PluginDiscoveryTile(track: track, subtitle: track.artist)
                                         }.buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
                                             .accessibilityIdentifier("plugin-card-\(section.id)-\(index)")
@@ -93,6 +107,17 @@ struct PluginDiscoveryHome: View {
             }.padding(.top, 12).padding(.bottom, 24)
                 .background(ScrollRefreshControl(action: refresh))
         }.accessibilityIdentifier("plugin-discovery-scroll")
+    }
+
+    private func key(for section: PluginBrowse.Section) -> String {
+        let base = source.manifest.id + "//"
+        if let collection = section.moreCollection { return base + "collection/" + collection }
+        if let page = section.morePage { return base + "browse/" + page }
+        if let item = (source.manifest.navigation ?? []).first(where: { $0.title == section.title }) {
+            if let page = item.page { return base + "browse/" + page }
+            if let collection = item.builtin, collection != "home", collection != "search" { return base + "collection/" + collection }
+        }
+        return base + "discovery/" + section.id
     }
 
     private func artworkTrack(id: String, title: String, url: URL?, headers: [String: String]) -> Track {

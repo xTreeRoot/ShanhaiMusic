@@ -1415,6 +1415,7 @@ final class MBiOSUITests: XCTestCase {
             }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [advanced], timeout: 4), .completed)
         }
+        capture("发现-切换后选中标签与下划线", app: app)
         chooseMode("视频模式", app: app)
         capture("发现-顶部平台与点击切换模式", app: app)
         chooseMode("听歌模式", app: app)
@@ -1422,6 +1423,7 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: "查看更多示例曲目").count, 1)
         more.press(forDuration: 0.15)
         XCTAssertTrue(app.navigationBars["相同导航完整内容"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["playlist-resume"].waitForExistence(timeout: 5))
         app.navigationBars.buttons.element(boundBy: 0).press(forDuration: 0.15)
         selectTab("搜索", app: app)
         XCTAssertTrue(app.buttons["search-platform-picker"].label.contains("My Platform"))

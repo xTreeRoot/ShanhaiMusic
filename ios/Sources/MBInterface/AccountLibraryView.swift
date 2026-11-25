@@ -142,14 +142,19 @@ struct LibraryPageView: View {
     @State private var model: LibraryModel
     let select: ([Track], Int) -> Void
     let menu: (Track) -> AnyView
+    private let route: LibraryRoute
     @State private var artworkPrefetch: Task<Void, Never>?
     init(source: any LibrarySource, route: LibraryRoute, select: @escaping ([Track], Int) -> Void, menu: @escaping (Track) -> AnyView = { _ in AnyView(EmptyView()) }) {
         _model = State(initialValue: LibraryModel(source: source, route: route)); self.select = select
+        self.route = route
         self.menu = menu
     }
     var body: some View {
         List {
             Group {
+                if let playback, !model.tracks.isEmpty {
+                    PlaylistResumeRow(resume: playback.playlistResume(resumeKey), action: resume).id(resumeKey)
+                }
                 ForEach(model.links) { link in
                     NavigationLink(value: link.route) {
                         HStack {
@@ -196,9 +201,26 @@ struct LibraryPageView: View {
         .onDisappear { artworkPrefetch?.cancel() }
         .refreshable { await model.refresh(); prefetchArtwork() }
     }
-    private func play(_ index: Int) {
+    private var resumeKey: String { model.sourceID + "//library/" + String(describing: route) }
+
+    private func resume() async -> Bool {
+        guard let saved = playback?.playlistResume(resumeKey) else { return false }
+        while !Task.isCancelled {
+            if let index = model.tracks.firstIndex(where: { $0.id == saved.trackID }) {
+                play(index, from: saved.position)
+                return true
+            }
+            guard let cursor = model.nextCursor, !model.isLoading else { return false }
+            await model.loadMore()
+            if model.nextCursor == cursor || model.errorMessage != nil { return false }
+        }
+        return false
+    }
+
+    private func play(_ index: Int, from position: Int64 = 0) {
         let pages = model.playbackPages()
         select(model.tracks, index)
+        playback?.rememberPlaylist(resumeKey, startingAt: position)
         if let pages { playback?.attachPages(pages) }
     }
     private func prefetchArtwork() {

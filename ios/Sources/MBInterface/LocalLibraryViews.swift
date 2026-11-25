@@ -18,8 +18,7 @@ struct LocalLibraryPage: View {
                     }
                     if collections.isEmpty { ContentUnavailableView(LocalizedStringKey(page == .albums ? "暂无专辑" : "暂无作者"), systemImage: page == .albums ? "square.stack" : "person", description: Text("导入带标签的音频后会自动整理")) }
                 } else {
-                    if let playlistID {
-                        let key = "local/" + playlistID
+                    if let key = resumeKey, !tracks.isEmpty {
                         let resume = playback.playlistResume(key)
                         PlaylistResumeRow(resume: resume) {
                             guard let resume, let index = tracks.firstIndex(where: { $0.id == resume.trackID }) else { return false }
@@ -46,7 +45,7 @@ struct LocalLibraryPage: View {
                         }.listRowSeparator(.hidden)
                     }
                     Section {
-                        LocalTrackRows(tracks: filtered, playback: playback, downloads: downloads, playlistID: playlistID, library: library)
+                        LocalTrackRows(tracks: filtered, playback: playback, downloads: downloads, playlistID: playlistID, library: library, resumeKey: resumeKey)
                             .onDelete { offsets in
                                 let selected = offsets.compactMap { filtered.indices.contains($0) ? filtered[$0] : nil }
                                 Task {
@@ -78,7 +77,14 @@ struct LocalLibraryPage: View {
     }
     private func playPlaylist() {
         playback.select(filtered, index: 0)
-        if let playlistID { playback.rememberPlaylist("local/" + playlistID) }
+        if let resumeKey { playback.rememberPlaylist(resumeKey) }
+    }
+    private var resumeKey: String? {
+        switch page {
+        case .albums, .artists: return nil
+        case .playlist(let id): return "local/" + id
+        default: return "local//" + String(describing: page)
+        }
     }
     private var filtered: [Track] { tracks.filter { LocalCatalog.matches($0.title + "\n" + $0.artist + "\n" + ($0.localMetadata?.album ?? ""), query: query) } }
     private var playlistID: String? { if case .playlist(let id) = page { id } else { nil } }
@@ -114,6 +120,7 @@ struct LocalTrackRows: DynamicViewContent {
     let downloads: DownloadModel
     var playlistID: String?
     var library: LocalLibraryModel?
+    var resumeKey: String?
     @State private var lyricsTrack: Track?
     @State private var importingLyrics = false
     @State private var deletion: SavedMedia?
@@ -124,7 +131,7 @@ struct LocalTrackRows: DynamicViewContent {
             HStack {
                 Button {
                     playback.select(tracks, index: index)
-                    if let playlistID { playback.rememberPlaylist("local/" + playlistID) }
+                    if let resumeKey { playback.rememberPlaylist(resumeKey) }
                 } label: { TrackRow(track: track, selected: playback.queue.current?.id == track.id) }
                     .buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
                     .contextMenu { actions(track) }
