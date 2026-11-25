@@ -109,6 +109,7 @@ internal class PlaybackService : MediaLibraryService() {
     private var stations: StationPlayback? = null
     private var sequentialAudioFile: SequentialAudioFile? = null
     private var lastPortableQueueNotification = 0L
+    private var activePlaylist: String? = null
     private val checkpoint = object : Runnable {
         override fun run() {
             if (session?.player?.isPlaying == true) persist(periodic = true)
@@ -376,6 +377,8 @@ internal class PlaybackService : MediaLibraryService() {
                     }
                     return Futures.transform(onAddMediaItems(mediaSession, controller, mediaItems), { canonical ->
                         val safe = checkNotNull(canonical)
+                        recordPlaylistResume(player)
+                        activePlaylist = mediaItems.getOrNull(startIndex)?.playlistResumeKey().takeIf { controller.uid == applicationInfo.uid }
                         val station = mediaItems.getOrNull(startIndex)?.station()?.takeIf { candidate ->
                             app.playbackSource(candidate.sourceId) is StationPlaybackSource &&
                                 safe.all { it.track()?.sourceId == candidate.sourceId }
@@ -449,7 +452,7 @@ internal class PlaybackService : MediaLibraryService() {
                 if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_PLAYBACK_STATE_CHANGED)) {
                     refreshLoudness(events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION))
                 }
-                if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_POSITION_DISCONTINUITY,
+                if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_MEDIA_ITEM_TRANSITION,
                         Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED,
                         Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED)) {
                     persist()
@@ -634,6 +637,8 @@ internal class PlaybackService : MediaLibraryService() {
     }
 
     private fun applySnapshot(player: ExoPlayer, snapshot: QueueSnapshot) {
+        recordPlaylistResume(player)
+        activePlaylist = null
         player.pause()
         player.setMediaItems(snapshot.tracks.map { it.mediaItem() }, snapshot.index, snapshot.positionMs)
         player.repeatMode = snapshot.repeatMode
@@ -645,6 +650,7 @@ internal class PlaybackService : MediaLibraryService() {
 
     private fun persist(periodic: Boolean = false) {
         val player = player ?: return
+        recordPlaylistResume(player)
         val tracks = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).track() ?: return }
         if (tracks.isEmpty()) storage.edit().remove("queue").apply()
         else storage.edit().putString("queue", QueueSnapshot(tracks, player.currentMediaItemIndex,
@@ -654,5 +660,11 @@ internal class PlaybackService : MediaLibraryService() {
             lastPortableQueueNotification = now
             (application as MBApplication).portableLibrary.userStateChanged()
         }
+    }
+
+    private fun recordPlaylistResume(player: Player) {
+        val key = activePlaylist ?: return
+        val track = player.currentMediaItem?.track() ?: return
+        (application as MBApplication).playlistHistory.save(key, PlaylistResume(track.id, track.title, player.currentPosition.coerceAtLeast(0)))
     }
 }

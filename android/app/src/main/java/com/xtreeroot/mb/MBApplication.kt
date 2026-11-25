@@ -67,6 +67,7 @@ internal class MBApplication : Application(), ImageLoaderFactory {
     val videoPlayback = MutableStateFlow<VideoPlayback?>(null)
     val stationStatus = MutableStateFlow(StationStatus())
     val pendingPlaybackPages = PendingPlaybackPages()
+    val playlistHistory by lazy { com.xtreeroot.mb.playback.PlaylistResumeStore(getSharedPreferences("playlist-resume", MODE_PRIVATE)) }
     val queuePageStatus = MutableStateFlow(QueuePageStatus())
     val settings by lazy { SettingsStore(this) }
     val appearanceBackground by lazy { AppearanceBackgroundStore(this) }

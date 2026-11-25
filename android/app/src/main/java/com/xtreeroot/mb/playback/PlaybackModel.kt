@@ -61,7 +61,8 @@ internal data class PlaybackState(
 internal class PlaybackModel(application: Application) : AndroidViewModel(application) {
     private sealed interface PlaybackRequest
     private data class Selection(val tracks: List<Track>, val track: Track, val station: PlaybackStation?,
-                                 val shuffle: Boolean, val mode: PlaybackMode, val pages: PlaybackPages?) : PlaybackRequest
+                                 val shuffle: Boolean, val mode: PlaybackMode, val pages: PlaybackPages?,
+                                 val playlist: String?, val startPositionMs: Long) : PlaybackRequest
     private data class QueueQuery(val query: String) : PlaybackRequest
 
     private val app = application as MBApplication
@@ -167,9 +168,10 @@ internal class PlaybackModel(application: Application) : AndroidViewModel(applic
 
     override fun onCleared() = releaseController()
 
-    fun play(tracks: List<Track>, selected: Track, station: PlaybackStation? = null, enableShuffle: Boolean = false, pages: PlaybackPages? = null) {
+    fun play(tracks: List<Track>, selected: Track, station: PlaybackStation? = null, enableShuffle: Boolean = false, pages: PlaybackPages? = null,
+             playlist: String? = null, startPositionMs: Long = 0) {
         if (selected.isUnavailable) return
-        val selection = Selection(tracks, selected, station, enableShuffle, app.settings.values.value.playbackMode, pages)
+        val selection = Selection(tracks, selected, station, enableShuffle, app.settings.values.value.playbackMode, pages, playlist, startPositionMs)
         val player = controller
         if (player == null) {
             pendingRequest = selection.copy(tracks = tracks.toList())
@@ -213,13 +215,14 @@ internal class PlaybackModel(application: Application) : AndroidViewModel(applic
         val pages = selection.pages?.let(app.pendingPlaybackPages::offer)
         player.setMediaItems(playable.mapIndexed { position, track ->
             val item = track.mediaItem()
-            when {
-                position != index -> item
+            if (position != index) return@mapIndexed item
+            val configured = when {
                 selection.station != null -> item.withStation(selection.station)
                 pages != null -> item.withPages(pages)
                 else -> item
             }
-        }, index, 0)
+            selection.playlist?.let(configured::withPlaylistResume) ?: configured
+        }, index, selection.startPositionMs.coerceAtLeast(0))
         if (selection.shuffle) player.shuffleModeEnabled = true
         player.prepare()
         player.play()

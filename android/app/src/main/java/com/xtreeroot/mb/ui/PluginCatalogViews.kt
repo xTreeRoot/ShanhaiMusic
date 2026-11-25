@@ -173,8 +173,12 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
     val station = entity?.takeIf { it.kind == PluginEntityKind.Station }?.let { PlaybackStation(source.id, it.id, it.title) }
     val playPages = LocalPlayCatalogPages.current
     val continuation = if (station == null && page != null) catalogPlaybackPages(source, request, page) else null
+    val playlistKey = entity?.takeIf { it.kind == PluginEntityKind.Playlist }?.let { source.id + "/" + it.id }
+    val playPlaylist = LocalPlaylistPlayback.current
     val select: (List<Track>, Track) -> Unit = if (station != null && playStation != null) {
         { batch, track -> playStation(batch, track, station) }
+    } else if (playlistKey != null && playPlaylist != null) {
+        { _, track -> playPlaylist(playlistKey, tracks, track, continuation, 0, false) }
     } else if (continuation != null && playPages != null) {
         { _, track -> playPages(tracks, track, continuation) }
     } else play
@@ -182,6 +186,21 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
     val saveMethod = entity?.saveMethod
     val content: LazyGridScope.() -> Unit = {
         if (page != null) {
+            if (playlistKey != null && playPlaylist != null) item(span = { GridItemSpan(maxLineSpan) }, key = "playlist-resume") {
+                PlaylistResumeRow(playlistKey) { saved ->
+                    val queue = tracks.toMutableList()
+                    val known = tracks.map(Track::id).toMutableSet()
+                    var next = continuation
+                    while (queue.none { it.id == saved.trackID } && next != null) {
+                        val batch = next.load()
+                        queue += batch.tracks.filter { known.add(it.id) }
+                        next = batch.next
+                    }
+                    val track = queue.firstOrNull { it.id == saved.trackID && !it.isUnavailable } ?: return@PlaylistResumeRow false
+                    playPlaylist(playlistKey, queue, track, next, saved.position, false)
+                    true
+                }
+            }
             if (request != PluginCatalogRequest.Home && (page.subtitle.isNotBlank() || page.description.isNotBlank())) item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     if (page.subtitle.isNotBlank()) Text(page.subtitle, style = MaterialTheme.typography.titleMedium)

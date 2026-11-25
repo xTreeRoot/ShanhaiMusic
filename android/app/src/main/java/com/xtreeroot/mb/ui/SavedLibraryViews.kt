@@ -238,6 +238,8 @@ internal fun PlaylistsPage(saved: SavedLibraryModel, library: LocalMusicIndex,
         }
     } else {
         val tracks = current.trackIds.mapNotNull(available::get)
+        val resumeKey = "local/" + current.id
+        val playlistPlayback = LocalPlaylistPlayback.current
         val matching = library.filter(tracks, trackQuery)
         val canSort = trackQuery.isBlank() && tracks.size > 1
         val editing = canSort && sorting
@@ -250,9 +252,19 @@ internal fun PlaylistsPage(saved: SavedLibraryModel, library: LocalMusicIndex,
                         }
                         PlaylistMenu(current, { rename = true }, { delete = true })
                     }
+                    PlaylistResumeRow(resumeKey) { saved ->
+                        val track = tracks.firstOrNull { it.id == saved.trackID && !it.isUnavailable } ?: return@PlaylistResumeRow false
+                        if (playlistPlayback == null) return@PlaylistResumeRow false
+                        playlistPlayback(resumeKey, tracks, track, null, saved.position, false)
+                        true
+                    }
                     LocalCollectionHero(current.name, "", tracks)
                     LocalMusicSearch(trackQuery, { trackQuery = it; sorting = false }, mb("在此页面搜索", "Search This Page"))
-                    if (tracks.isNotEmpty()) LocalPlaybackButtons(matching, playGroup)
+                    if (tracks.isNotEmpty()) LocalPlaybackButtons(matching) { batch, shuffle ->
+                        val track = batch.firstOrNull { !it.isUnavailable } ?: return@LocalPlaybackButtons
+                        if (playlistPlayback == null) playGroup(batch, shuffle)
+                        else playlistPlayback(resumeKey, batch, track, null, 0, shuffle)
+                    }
                     TextButton(onClick = { chooseTracks = true }) { Text(mb("添加歌曲", "Add Songs")) }
                     if (tracks.isEmpty()) EmptyMessage(mb("歌单暂无歌曲", "This Playlist Is Empty"))
                     else if (matching.isEmpty()) EmptyMessage(mb("没有匹配的歌曲", "No Matching Songs"))
@@ -274,7 +286,10 @@ internal fun PlaylistsPage(saved: SavedLibraryModel, library: LocalMusicIndex,
                         })
                         DropdownMenuItem(text = { Text(mb("移出歌单", "Remove from Playlist")) }, onClick = { close(); saved.remove(current.id, track.id) })
                     }
-                }) { play(matching, track) }
+                }) {
+                    if (playlistPlayback == null) play(matching, track)
+                    else playlistPlayback(resumeKey, matching, track, null, 0, false)
+                }
             }
         }
     }

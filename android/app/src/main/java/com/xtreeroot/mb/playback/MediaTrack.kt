@@ -16,6 +16,13 @@ internal val leaveStation = SessionCommand("com.xtreeroot.mb.LEAVE_STATION", Bun
 internal val loadQueuePage = SessionCommand("com.xtreeroot.mb.LOAD_QUEUE_PAGE", Bundle.EMPTY)
 private const val stationKey = "mb.station"
 private const val pagesKey = "mb.queuePages"
+private const val playlistKey = "mb.playlistResume"
+
+internal fun MediaItem.withPlaylistResume(key: String): MediaItem = buildUpon().setRequestMetadata(
+    requestMetadata.buildUpon().setExtras(Bundle(requestMetadata.extras ?: Bundle.EMPTY).apply { putString(playlistKey, key) }).build(),
+).build()
+
+internal fun MediaItem.playlistResumeKey(): String? = requestMetadata.extras?.getString(playlistKey)?.takeIf { it.length in 1..1024 }
 
 internal fun MediaItem.withPages(token: String): MediaItem = buildUpon().setRequestMetadata(
     MediaItem.RequestMetadata.Builder().setExtras(Bundle().apply { putString(pagesKey, token) }).build(),

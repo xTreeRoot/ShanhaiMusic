@@ -157,6 +157,9 @@ internal fun MBRoot(browser: BrowseModel = viewModel(), player: PlaybackModel = 
     val english = preferences.language.usesEnglish()
     CompositionLocalProvider(LocalMBEnglish provides english, LocalVideoBrowse provides (preferences.playbackMode == PlaybackMode.Video),
         LocalTrackPlaybackIssues provides trackPlaybackIssues,
+        LocalPlaylistPlayback provides { key, tracks, track, pages, position, shuffle ->
+            player.play(tracks, track, enableShuffle = shuffle, pages = pages, playlist = key, startPositionMs = position)
+        },
         LocalPlayCatalogPages provides { tracks, track, pages -> player.play(tracks, track, pages = pages) }) {
     val skinStyle = if (backgroundState.preview != null) backgroundState.previewStyle else preferences.backgroundStyle
     val skinImage = backgroundState.preview ?: backgroundState.image

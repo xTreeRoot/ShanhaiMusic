@@ -131,7 +131,10 @@ class LocalLibrarySearchDeviceTest {
     @Test fun libraryHomeCreatesOpensRenamesAndDeletesAPlaylistWithoutRemovingAudio() = runBlocking {
         val initial = "Rain Room Fixture"
         val renamed = "Rain Room Renamed"
-        val track = addTrack("Rain Room Intro", "Fixture Artist", "", "", artwork = albumArt())
+        val track = addTrack("Rain Room Intro", "Fixture Artist", "", "", seconds = 12, artwork = albumArt())
+        val future = withContext(Dispatchers.Main) {
+            MediaController.Builder(app, SessionToken(app, ComponentName(app, PlaybackService::class.java))).buildAsync()
+        }
         var activity: MainActivity? = null
         var playlistId: String? = null
         try {
@@ -158,6 +161,25 @@ class LocalLibrarySearchDeviceTest {
             withTimeout(5_000) {
                 while (app.playlists.playlists.value.single { it.id == id }.trackIds != listOf(track.id)) delay(50)
             }
+            node("还没播放过", "No playback history")
+            tap(track.title)
+            val player = withContext(Dispatchers.IO) { future.get(10, TimeUnit.SECONDS) }
+            withTimeout(8_000) {
+                while (!withContext(Dispatchers.Main) { player.currentMediaItem?.mediaId == track.id && player.isPlaying }) delay(50)
+            }
+            withContext(Dispatchers.Main) { player.pause(); player.seekTo(2_000) }
+            withTimeout(5_000) {
+                while (app.playlistHistory.values.value["local/$id"]?.position != 2_000L) delay(50)
+            }
+            withContext(Dispatchers.Main) { player.clearMediaItems() }
+            tap("上次播放", "Last played")
+            withTimeout(8_000) {
+                while (!withContext(Dispatchers.Main) {
+                    player.currentMediaItem?.mediaId == track.id && player.isPlaying && player.currentPosition >= 2_000
+                }) delay(50)
+            }
+            capture("playlistResumeScreenshot", "android-playlist-resume.png")
+            withContext(Dispatchers.Main) { player.pause(); player.clearMediaItems() }
             tap("返回资料库", "Back to Library")
             node("我的歌单", "My Playlists")
             tap("操作歌单 $initial", "Playlist Actions $initial")
@@ -183,7 +205,13 @@ class LocalLibrarySearchDeviceTest {
             capture("libraryHomeScreenshot", "android-library-home-failed.png")
             throw failure
         } finally {
-            withContext(Dispatchers.Main) { activity?.finish() }
+            withContext(Dispatchers.Main) {
+                if (future.isDone) runCatching { future.get() }.getOrNull()?.let { player ->
+                    if (player.currentMediaItem?.mediaId == track.id) { player.pause(); player.clearMediaItems() }
+                }
+                MediaController.releaseFuture(future)
+                activity?.finish()
+            }
             app.playlists.playlists.value.filter { it.id == playlistId || it.name == initial || it.name == renamed }
                 .forEach { app.playlists.delete(it.id) }
             app.local.delete(track.sourceTrackId)
