@@ -77,7 +77,6 @@ button { font: inherit; color: inherit; border: 0; background: transparent; curs
 .download-grid, .plugin-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 28px; }
 .card { min-width: 0; border: 1px solid var(--line); border-radius: 17px; background: var(--card); padding: clamp(17px, 3vw, 32px); display: grid; justify-items: start; align-content: start; }
 .card > p:not(.eyebrow) { color: var(--muted); margin-bottom: 15px; }
-.desktop-card { grid-column: 1 / -1; background: transparent; }
 .plugin-card h2 { font-size: clamp(20px, 3vw, 26px); }
 .lost { margin: 0 auto; width: min(720px, calc(100% - 40px)); padding-block: 100px; }
 .footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }

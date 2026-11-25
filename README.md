@@ -4,7 +4,7 @@
 
 提供桌面、iOS / iPadOS 和 Android 原生客户端。桌面使用 Go + [MyGo](https://github.com/egoist/mygo)，iOS 使用 SwiftUI，Android 使用 Kotlin + Jetpack Compose。
 
-[山海官网](https://shanhai.treeroot.top/) · [下载发布版本](https://github.com/xTreeRoot/ShanhaiMusic/releases) · [山海插件库](https://shanhai.treeroot.top/zh/plugins/) · [插件开发](plugins/README.md) · [桌面打包](RELEASING.md)
+[山海官网](https://shanhai.treeroot.top/) · [下载最新版本](https://github.com/xTreeRoot/ShanhaiMusic/releases/latest) · [山海插件库](https://shanhai.treeroot.top/zh/plugins/) · [插件开发](plugins/README.md) · [打包与发布](RELEASING.md)
 
 ## 源码分支
 
@@ -67,9 +67,9 @@ npm run build -- -sign - -skip-notarize
 
 ### 桌面更新
 
-- 旧版没有内置更新源，需要先从 [GitHub Releases](https://github.com/xTreeRoot/ShanhaiMusic/releases) 手动覆盖安装一次支持更新的正式包。安装到当前用户有写入权限的应用目录；应用标识和数据目录保持不变。
+- 旧版没有内置更新源，需要先从 [GitHub Latest](https://github.com/xTreeRoot/ShanhaiMusic/releases/latest) 手动覆盖安装一次支持更新的正式包。安装到当前用户有写入权限的应用目录；应用标识和数据目录保持不变。
 - 设置 → 更新支持手动检查、每日自动检查和自动下载并安装。开启自动安装后不强制重启，更新在下次打开山海时生效。
-- 维护者在 `mygo.config.ts` 更新桌面版本、在 `CHANGELOG.md` 补充相应版本记录，然后从 `main` 运行 `Package Shanhai` 并开启 `stage_release`。工作流使用仓库 Actions Secret `MYGO_UPDATER_PRIVATE_KEY` 生成 macOS arm64 安装 ZIP、签名更新包及 `update-darwin-arm64.json`，创建 `mb-desktop-v<版本>` 草稿。验收后手动发布为正式版，不设为全仓库的最新发布。其他平台产物不进入桌面更新源。
+- 从 `main` 运行 `Package Shanhai` 并开启 `stage_release`，可以准备 macOS 安装 ZIP、签名更新包和桌面更新源。正式发布将这批产物和 iOS、Android、Server 安装包收进同一条 GitHub Release。桌面更新源的兼容要求见 [打包与发布](RELEASING.md)。
 - 仓库只存更新公钥；签名私钥需安全备份，不能写进源码或日志。正式包目前覆盖 macOS Apple 芯片，其他桌面架构需要单独发布对应的更新产物。
 
 ## 自托管节点
