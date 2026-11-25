@@ -109,6 +109,9 @@ struct PluginCatalogPage: View {
         List {
             Group {
                 if let content {
+                    if let playlistKey, let playback {
+                        PlaylistResumeRow(resume: playback.playlistResume(playlistKey), action: resumePlaylist).id(playlistKey)
+                    }
                     if !content.subtitle.isEmpty { Text(content.subtitle).font(.subheadline).foregroundStyle(.secondary) }
                     if !content.description.isEmpty { Text(content.description).font(.callout).foregroundStyle(.secondary) }
                     ForEach(content.sections) { section in
@@ -209,7 +212,28 @@ struct PluginCatalogPage: View {
         if let content, !content.title.isEmpty { return content.title }
         switch request { case .home: return source.displayName; case .browse(let page): return page; case .collection(_, let title): return title; case .entity(let item): return item.title; case .search(let query, _): return query }
     }
-    private func play(_ tracks: [Track], index: Int) {
+    private var playlistKey: String? {
+        guard case .entity(let item) = request, item.kind == .playlist else { return nil }
+        return source.manifest.id + "/" + item.sourceID
+    }
+
+    private func resumePlaylist() async -> Bool {
+        guard let playlistKey, let resume = playback?.playlistResume(playlistKey) else { return false }
+        while !Task.isCancelled {
+            let tracks = content?.sections.flatMap(\.tracks) ?? []
+            if let index = tracks.firstIndex(where: { $0.id == resume.trackID }) {
+                play(tracks, index: index, startingAt: resume.position)
+                return true
+            }
+            guard more, !loading else { return false }
+            let oldOffset = offset, oldCursor = nextBrowse
+            await load(append: true)
+            if error != nil || (offset == oldOffset && nextBrowse == oldCursor) { return false }
+        }
+        return false
+    }
+
+    private func play(_ tracks: [Track], index: Int, startingAt position: Int64 = 0) {
         let queue: [Track]
         let selected: Int
         let paged = more || visitedBrowse.count > 1 || (content?.sections.count ?? 0) > 1 && !request.isHome
@@ -224,6 +248,7 @@ struct PluginCatalogPage: View {
         } else {
             let pages = playbackPages()
             select(queue, selected)
+            if let playlistKey { playback?.rememberPlaylist(playlistKey, startingAt: position) }
             if let pages { playback?.attachPages(pages) }
         }
     }

@@ -18,6 +18,16 @@ struct LocalLibraryPage: View {
                     }
                     if collections.isEmpty { ContentUnavailableView(LocalizedStringKey(page == .albums ? "暂无专辑" : "暂无作者"), systemImage: page == .albums ? "square.stack" : "person", description: Text("导入带标签的音频后会自动整理")) }
                 } else {
+                    if let playlistID {
+                        let key = "local/" + playlistID
+                        let resume = playback.playlistResume(key)
+                        PlaylistResumeRow(resume: resume) {
+                            guard let resume, let index = tracks.firstIndex(where: { $0.id == resume.trackID }) else { return false }
+                            playback.select(tracks, index: index)
+                            playback.rememberPlaylist(key, startingAt: resume.position)
+                            return true
+                        }.id(key)
+                    }
                     if !tracks.isEmpty {
                         Section {
                             if let track = tracks.first {
@@ -30,8 +40,8 @@ struct LocalLibraryPage: View {
                                 }.padding(.vertical, 12)
                             }
                             HStack(spacing: 12) {
-                                Button { playback.select(filtered, index: 0) } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
-                                Button { playback.select(filtered, index: 0); if !playback.queue.shuffled { playback.toggleShuffle() } } label: { MusicActionLabel(title: "随机播放", symbol: "shuffle") }.buttonStyle(.bordered)
+                                Button { playPlaylist() } label: { MusicActionLabel(title: "播放全部", symbol: "play.fill") }.buttonStyle(.borderedProminent)
+                                Button { playPlaylist(); if !playback.queue.shuffled { playback.toggleShuffle() } } label: { MusicActionLabel(title: "随机播放", symbol: "shuffle") }.buttonStyle(.bordered)
                             }.disabled(filtered.isEmpty)
                         }.listRowSeparator(.hidden)
                     }
@@ -65,6 +75,10 @@ struct LocalLibraryPage: View {
         .toolbar { if playlistID != nil { ToolbarItem(placement: .primaryAction) { EditButton() } } }
         #endif
         .sheet(isPresented: $adding) { if let playlistID { LocalPlaylistAddView(playlistID: playlistID, library: library) } }
+    }
+    private func playPlaylist() {
+        playback.select(filtered, index: 0)
+        if let playlistID { playback.rememberPlaylist("local/" + playlistID) }
     }
     private var filtered: [Track] { tracks.filter { LocalCatalog.matches($0.title + "\n" + $0.artist + "\n" + ($0.localMetadata?.album ?? ""), query: query) } }
     private var playlistID: String? { if case .playlist(let id) = page { id } else { nil } }
@@ -108,7 +122,10 @@ struct LocalTrackRows: DynamicViewContent {
     var body: some View {
         ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
             HStack {
-                Button { playback.select(tracks, index: index) } label: { TrackRow(track: track, selected: playback.queue.current?.id == track.id) }
+                Button {
+                    playback.select(tracks, index: index)
+                    if let playlistID { playback.rememberPlaylist("local/" + playlistID) }
+                } label: { TrackRow(track: track, selected: playback.queue.current?.id == track.id) }
                     .buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
                     .contextMenu { actions(track) }
                 Menu { actions(track) } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }

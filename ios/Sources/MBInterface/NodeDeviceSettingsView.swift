@@ -21,7 +21,8 @@ struct NodeDeviceSettingsView: View {
     @State private var pluginChoices: [BackupPluginChoice] = []
     @State private var pluginsLoaded = false
     @State private var confirmPlugin: BackupPluginChoice?
-    private enum Action: Equatable { case initial, refresh, rename, backup, preview(String), apply, plugins, plugin(String) }
+    @State private var confirmFullRestore = false
+    private enum Action: Equatable { case initial, refresh, rename, backup, preview(String), settings(String?), full, plugins, plugin(String) }
 
     private static let fieldNames = [
         "appearance": "外观",
@@ -62,6 +63,9 @@ struct NodeDeviceSettingsView: View {
                 let display = option ?? ((plugin == nil || field?.type == "boolean") ? Self.valueNames[value] : nil) ?? value
                 LabeledContent(label, value: display)
             }
+            if !values.isEmpty {
+                Button("恢复这组设置") { work = .settings(plugin ?? "") }.buttonStyle(.borderless)
+            }
         } label: {
             LabeledContent(title, value: "\(values.count) 项")
         }
@@ -87,6 +91,14 @@ struct NodeDeviceSettingsView: View {
                     if let backup = preview.backup { Text("完整备份 · \(backup.plugins) 个插件").foregroundStyle(.secondary) }
                     else { Text("旧备份 · 仅设置").foregroundStyle(.secondary) }
                     if preview.backup != nil {
+                        Button("全部覆盖恢复", role: .destructive) { confirmFullRestore = true }
+                            .accessibilityIdentifier("restore-complete-device")
+                            .alert("全部覆盖恢复", isPresented: $confirmFullRestore) {
+                                Button("确认全部覆盖", role: .destructive) { work = .full }
+                                Button("取消", role: .cancel) {}
+                            } message: {
+                                Text("用“\(item.name)”的备份覆盖本机设置、资料库记录、播放队列和备份中插件的登录信息。")
+                            }
                         Button("选择插件信息恢复") { work = .plugins }.accessibilityIdentifier("choose-plugin-restore")
                         if pluginsLoaded && pluginChoices.isEmpty { Text("此备份中没有插件").foregroundStyle(.secondary) }
                         ForEach(pluginChoices) { plugin in
@@ -110,7 +122,8 @@ struct NodeDeviceSettingsView: View {
                             if plugins.sources[id] != nil { Button("打开账号") { openAccount(id) }.buttonStyle(.borderless) }
                         }
                     }
-                    Button(preview.backup == nil ? "恢复这些设置" : "恢复到本机") { work = .apply }
+                    Button(preview.backup == nil ? "恢复这些设置" : "仅恢复设置") { work = .settings(nil) }
+                        .disabled(preview.app.isEmpty && preview.plugins.isEmpty)
                 }
             }
             if work != nil { ProgressView() }
@@ -153,16 +166,20 @@ struct NodeDeviceSettingsView: View {
                     selected = id; preview = doc
                     pluginChoices = []; pluginsLoaded = false; confirmPlugin = nil
                 case .backup:
-                    try await model.backupCurrentDevice(preferences: preferences, plugins: plugins, downloads: downloads, library: library, accounts: accounts)
-                    selected = nil; preview = nil; message = "已备份本机，包含插件和插件信息"
+                    let result = try await model.backupCurrentDevice(preferences: preferences, plugins: plugins, downloads: downloads, library: library, accounts: accounts)
+                    selected = nil; preview = nil
+                    message = "已备份本机和插件登录文件 · 已同步 \(result.synced) 个云端会话 · \(result.unconfirmed) 个未确认"
                     do { devices = try await model.settingsDevices() }
                     catch { message = "本机已备份 · 刷新失败" }
-                case .apply:
-                    guard let doc = preview else { return }
-                    if preview?.backup != nil, let selected {
-                        try await model.restoreCurrentDevice(key: selected, settings: doc, preferences: preferences, plugins: plugins, downloads: downloads, library: library, playback: playback)
-                        message = "已从其他机器恢复本机"
-                        return
+                case .full:
+                    guard let doc = preview, let selected else { return }
+                    try await model.restoreCurrentDevice(key: selected, settings: doc, preferences: preferences, plugins: plugins, downloads: downloads, library: library, playback: playback)
+                    message = "已从其他机器覆盖恢复本机"
+                case .settings(let group):
+                    guard var doc = preview else { return }
+                    if let group {
+                        if !group.isEmpty { doc.app = [:] }
+                        doc.plugins = doc.plugins.filter { $0.key == group }
                     }
                     var applied = 0
                     for plugin in plugins.installed {

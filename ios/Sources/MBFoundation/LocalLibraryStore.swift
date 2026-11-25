@@ -44,8 +44,9 @@ public actor LocalLibraryStore {
             if on { state.favorites.insert(trackID, at: 0) }
         }
     }
-    func restoreDeviceBackup(_ incoming: DeviceArchiveLibrary, tracks: [String: Track]) throws -> LocalLibrarySnapshot {
+    func restoreDeviceBackup(_ incoming: DeviceArchiveLibrary, tracks: [String: Track], overwrite: Bool = false) throws -> LocalLibrarySnapshot {
         try change { state in
+            if overwrite { state.favorites = []; state.recent = []; state.playlists = []; state.resources = [] }
             func mapped(_ key: String) -> String { tracks[key]?.id ?? key }
             for id in incoming.favorites.map(mapped) where !state.favorites.contains(id) { state.favorites.append(id) }
             for id in incoming.recent.map(mapped) where !state.recent.contains(id) { state.recent.append(id) }

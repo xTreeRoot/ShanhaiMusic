@@ -125,6 +125,12 @@ final class MBiOSUITests: XCTestCase {
         let others = app.buttons["restore-other-device"]; reveal(others); others.tap()
         let source = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "书房 Mac")).firstMatch
         XCTAssertTrue(source.waitForExistence(timeout: 5)); reveal(source); source.tap()
+        let replace = app.buttons["restore-complete-device"]
+        XCTAssertTrue(replace.waitForExistence(timeout: 8)); reveal(replace); replace.tap()
+        let fullConfirm = app.alerts.buttons["确认全部覆盖"]
+        XCTAssertTrue(fullConfirm.waitForExistence(timeout: 5))
+        app.alerts.buttons["取消"].tap()
+        XCTAssertTrue(app.buttons["仅恢复设置"].exists)
         let choose = app.buttons["choose-plugin-restore"]
         XCTAssertTrue(choose.waitForExistence(timeout: 8)); reveal(choose); choose.tap()
         let selected = app.buttons["restore-plugin-preview-a"]
@@ -1271,6 +1277,26 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertTrue(renamed.waitForNonExistence(timeout: 5))
     }
 
+    @MainActor func testLocalPlaylistResumesLastTrack() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        selectTab("资料库", app: app)
+        let playlist = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "晚间散步 · 示例")).firstMatch
+        XCTAssertTrue(playlist.waitForExistence(timeout: 10))
+        playlist.tap()
+        let resume = app.buttons["playlist-resume"]
+        let row = app.buttons["播放 晚风里的片刻"]
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        XCTAssertTrue(resume.isEnabled)
+        resume.tap()
+        XCTAssertTrue(app.buttons["打开播放页，晚风里的片刻"].waitForExistence(timeout: 5))
+        capture("歌单上次播放-演示数据", app: app)
+    }
+
     @MainActor func testPluginCheckPresentationRequiresConfirmationAndRecoversFromFailure() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -1361,11 +1387,13 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertTrue(plugin.waitForExistence(timeout: 5)); plugin.press(forDuration: 0.15)
         app.buttons["plugin-local-name"].press(forDuration: 0.15)
         let name = app.alerts.textFields.firstMatch
-        XCTAssertTrue(name.waitForExistence(timeout: 3)); name.tap(); name.typeText("My Platform")
+        let newName = "My Platform With a Long Title for Horizontal Scrolling"
+        XCTAssertTrue(name.waitForExistence(timeout: 3)); name.tap(); name.typeText(newName)
         app.alerts.buttons["保存"].press(forDuration: 0.15)
         selectTab("发现", app: app)
         let target = app.buttons["source-tab-fixture"]
-        XCTAssertTrue(target.waitForExistence(timeout: 5)); XCTAssertEqual(target.label, "My Platform")
+        XCTAssertTrue(target.waitForExistence(timeout: 5)); XCTAssertEqual(target.label, newName)
+        let initialTabX = app.buttons["source-tab-demo"].frame.minX
         XCTAssertFalse(app.buttons["搜索音源"].exists)
         // iPad 有侧栏，分页手势限定在内容顶部，避免落入卡片横滚区域或侧栏。
         let isPad = UIDevice.current.userInterfaceIdiom == .pad
@@ -1376,6 +1404,13 @@ final class MBiOSUITests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: end)
         XCTAssertTrue(app.buttons["播放 插件示例歌曲"].waitForExistence(timeout: 5))
         XCTAssertTrue(target.isSelected)
+        if !isPad {
+            let firstTab = app.buttons["source-tab-demo"]
+            let advanced = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                firstTab.frame.minX < initialTabX - 8 && target.isHittable
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [advanced], timeout: 4), .completed)
+        }
         chooseMode("视频模式", app: app)
         capture("发现-顶部平台与点击切换模式", app: app)
         chooseMode("听歌模式", app: app)

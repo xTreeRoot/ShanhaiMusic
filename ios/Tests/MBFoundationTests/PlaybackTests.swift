@@ -77,6 +77,25 @@ private let fakeDownload: @Sendable (MediaResource) async throws -> URL = { _ in
     FileManager.default.temporaryDirectory.appendingPathComponent("mb-fake-\(UUID()).m4a")
 }
 
+@Test @MainActor func playlistResumeKeepsItsOwnTrackAndPositionAfterReopening() {
+    let key = "test-playlist/" + UUID().uuidString
+    let model = PlaybackModel(source: AudioSourceFixture(), engine: TestAudio(), download: fakeDownload)
+    model.select(audioTracks, index: 1, autoplay: false)
+    model.rememberPlaylist(key, startingAt: 23_000)
+    model.select(audioTracks, index: 0, autoplay: false)
+    model.seek(to: 2_000)
+
+    let reopened = PlaybackModel(source: AudioSourceFixture(), engine: TestAudio(), download: fakeDownload)
+    let resume = reopened.playlistResume(key)
+    #expect(resume?.trackID == audioTracks[1].id)
+    #expect(resume?.position == 23_000)
+    if let resume {
+        reopened.select(audioTracks, index: 1, autoplay: false)
+        reopened.rememberPlaylist(key, startingAt: resume.position)
+        #expect(reopened.positionMilliseconds == 23_000)
+    }
+}
+
 @Test @MainActor func previewUsesRealQueueOrderWithoutSelectingOrResolvingAnotherTrack() async {
     let source = AudioSourceFixture()
     let model = PlaybackModel(source: source, engine: TestAudio(), download: fakeDownload)

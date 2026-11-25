@@ -12,6 +12,7 @@ struct SourceTabs: View {
     var namespace = "source"
     var pagePosition: CGFloat? = nil
     @Environment(\.skinAccent) private var skinAccent
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let selectedIndex = sources.firstIndex(where: { $0.id == selected }) ?? 0
@@ -57,9 +58,11 @@ struct SourceTabs: View {
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             .accessibilityIdentifier("\(namespace)-tabs")
-            .onChange(of: [selected] + sources.map(\.id), initial: true) { _, _ in proxy.scrollTo(selected) }
-            .onChange(of: Int(position.rounded())) { _, index in
-                if sources.indices.contains(index) { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(sources[index].id) } }
+            .onChange(of: [selected] + sources.map(\.id), initial: true) { previous, current in
+                guard sources.contains(where: { $0.id == selected }) else { return }
+                withAnimation(reduceMotion || previous == current ? nil : .easeOut(duration: 0.2)) {
+                    proxy.scrollTo(selected, anchor: .center)
+                }
             }
         }
         .frame(maxWidth: .infinity)

@@ -78,7 +78,7 @@ actor NodeDeviceBackupCoordinator {
         }
         try Task.checkCancellation()
         guard await stillCurrent() else { throw CancellationError() }
-        try await plugins.restoreDevicePlugins(manifest, from: stage)
+        try await plugins.restoreDevicePlugins(manifest, from: stage, overwrite: true)
         var tracks: [String: Track] = [:]
         for item in manifest.library.tracks {
             try Task.checkCancellation()
@@ -92,7 +92,7 @@ actor NodeDeviceBackupCoordinator {
             tracks[item.key] = track
         }
         guard await stillCurrent() else { throw CancellationError() }
-        _ = try await library.restoreDeviceBackup(manifest.library, tracks: tracks)
+        _ = try await library.restoreDeviceBackup(manifest.library, tracks: tracks, overwrite: true)
         var session: PlaybackSession?
         if let queue = manifest.library.queue, !queue.tracks.isEmpty {
             let values = queue.tracks.map { tracks[$0.key] ?? $0.metadata() }
@@ -105,7 +105,7 @@ actor NodeDeviceBackupCoordinator {
 
 extension PlatformDataModel {
     public func backupCurrentDevice(preferences: PreferencesModel, plugins: PluginModel, downloads: DownloadModel,
-                                    library: LocalLibraryModel, accounts: [String: String]) async throws {
+                                    library: LocalLibraryModel, accounts: [String: String]) async throws -> (synced: Int, unconfirmed: Int) {
         guard let node, node.active else { throw PlatformDataFailure.http(401, nil) }
         await preferences.flush()
         let coordinator = NodeDeviceBackupCoordinator()
@@ -116,6 +116,13 @@ extension PlatformDataModel {
             var previous: NodeDeviceSettings?
             if let current = devices.first(where: { $0.current && $0.updated_at > 0 }) { previous = try await readDeviceSettings(key: current.key) }
             var doc = NodeDeviceSettings(); doc.app = preferences.values.deviceSettings; doc.accounts = accounts
+            for plugin in plugins.installed {
+                let fields = plugin.manifest.settings ?? []
+                let values = try await plugins.settings(for: plugin).filter { key, value in
+                    fields.contains { $0.key == key && $0.acceptsPortableValue(value) }
+                }
+                if !values.isEmpty { doc.plugins[plugin.id] = values }
+            }
             doc.backup = try await transfer.upload(file: operation.archive, platform: "ios", plugins: operation.plugins)
             doc.previousBackup = previous?.backup
             try Task.checkCancellation()
@@ -125,6 +132,26 @@ extension PlatformDataModel {
             try await saveDeviceSettings(doc)
             if let obsolete = previous?.previousBackup { try? await transfer.delete(reference: obsolete) }
             await coordinator.remove(operation.directory)
+            var synced = 0, unconfirmed = 0
+            for (id, source) in plugins.sources {
+                guard self.node == node, !Task.isCancelled else { break }
+                let account = AccountModel(source: source, platformID: id)
+                await account.restore()
+                guard account.canUseCloud, account.account != nil else { continue }
+                let revision = account.revision
+                let stillCurrent: @MainActor @Sendable () -> Bool = {
+                    self.node == node && plugins.sources[id] === source && account.revision == revision && !Task.isCancelled
+                }
+                do {
+                    let digest = try await account.verifyCloudPlugin(client: client, node: node)
+                    guard stillCurrent(), let payload = try await account.exportCloudSignIn(digest: digest), stillCurrent()
+                    else { unconfirmed += 1; continue }
+                    try await client.publishSession(node, platform: id, payload: payload, stillCurrent: stillCurrent)
+                    if stillCurrent() { synced += 1 } else { unconfirmed += 1 }
+                } catch { unconfirmed += 1 }
+            }
+            await refreshCloudStatus()
+            return (synced, unconfirmed)
         } catch { await coordinator.remove(operation.directory); throw error }
     }
 
@@ -133,11 +160,14 @@ extension PlatformDataModel {
         guard let node, node.active, let reference = settings.backup else { throw PlatformDataFailure.invalid }
         let coordinator = NodeDeviceBackupCoordinator(), transfer = NodeDeviceBackupTransfer(node: node, client: client)
         let directory = try await coordinator.operationDirectory()
+        var retired = false
         do {
             let file = directory.appendingPathComponent("device.zip")
             try await transfer.download(owner: key, reference: reference, to: file)
             try Task.checkCancellation()
             guard self.node == node else { throw CancellationError() }
+            for id in Array(plugins.sources.keys) { await plugins.retireBackupPlugin(id) }
+            retired = true
             let restored = try await coordinator.apply(archive: file, in: directory, plugins: plugins.installer,
                 media: downloads.library, library: library.store, stillCurrent: { @MainActor [weak self] in self?.node == node })
             guard self.node == node else { throw CancellationError() }
@@ -147,8 +177,13 @@ extension PlatformDataModel {
             await preferences.flush()
             try await plugins.reloadRestoredDevicePlugins()
             await downloads.refresh(); await library.restore(); library.updateTracks(downloads.items)
+            playback.clear()
             if let session = restored.session { await playback.restoreDeviceBackup(session) }
             await coordinator.remove(directory)
-        } catch { await coordinator.remove(directory); throw error }
+        } catch {
+            if retired { try? await plugins.reloadRestoredDevicePlugins() }
+            await coordinator.remove(directory)
+            throw error
+        }
     }
 }

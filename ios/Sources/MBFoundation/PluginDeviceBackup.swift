@@ -59,7 +59,7 @@ extension PluginInstaller {
         return (records, entries)
     }
 
-    func restoreDevicePlugins(_ manifest: DeviceArchiveManifest, from stage: URL) throws {
+    func restoreDevicePlugins(_ manifest: DeviceArchiveManifest, from stage: URL, overwrite: Bool = false) throws {
         var candidates: [PendingPlugin] = []
         defer { for candidate in candidates { discard(candidate) } }
         // Validate all packages before installing any of them.
@@ -78,10 +78,15 @@ extension PluginInstaller {
         for (index, item) in manifest.plugins.enumerated() {
             try Task.checkCancellation()
             let installed = try current.first(where: { $0.id == item.id }) ?? install(candidates[index])
-            try Self.copyMissingBackupData(stage.appendingPathComponent("plugins/\(item.id)/data"), to: installed.dataDirectory)
-            var values = try settings(for: installed)
+            let source = stage.appendingPathComponent("plugins/\(item.id)/data")
+            var values = overwrite ? [:] : try settings(for: installed)
             for field in installed.manifest.settings ?? [] { if let value = item.settings[field.key] { values[field.key] = value } }
-            try saveSettings(values, for: installed)
+            if overwrite {
+                try Self.replaceBackupData(source, to: installed.dataDirectory, settings: values)
+            } else {
+                try Self.copyMissingBackupData(source, to: installed.dataDirectory)
+                try saveSettings(values, for: installed)
+            }
         }
         if let preferences = manifest.pluginPreferences { _ = try mergePluginPreferences(preferences) }
         if let preferences = manifest.discoveryPreferences { _ = try mergeDiscoveryPreferences(preferences) }

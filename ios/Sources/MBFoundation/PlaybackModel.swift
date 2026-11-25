@@ -14,6 +14,12 @@ public final class PlaybackModel {
     }
 
     public let queue = PlaybackQueue()
+    private static let playlistHistoryKey = "playlist-resume"
+    private var activePlaylist: String?
+    private var playlistHistory: [String: PlaylistResume] = {
+        guard let data = UserDefaults.standard.data(forKey: playlistHistoryKey) else { return [:] }
+        return (try? JSONDecoder().decode([String: PlaylistResume].self, from: data)) ?? [:]
+    }()
     private var trackProblems: [TrackKey: TrackProblem] = [:]
     public private(set) var selectionRevision = 0
     public private(set) var selectionIntent: PlaybackSelectionIntent = .content
@@ -109,6 +115,8 @@ public final class PlaybackModel {
 
     public func select(_ tracks: [Track], index: Int, intent: PlaybackSelectionIntent = .content, autoplay: Bool = true) {
         guard tracks.indices.contains(index) else { return }
+        savePlaylistResume(force: true)
+        activePlaylist = nil
         endStation()
         endPages()
         queue.replace(with: tracks, selecting: index)
@@ -124,6 +132,7 @@ public final class PlaybackModel {
 
     public func jump(to index: Int, intent: PlaybackSelectionIntent = .content, autoplay: Bool = true) {
         guard queue.tracks.indices.contains(index) else { return }
+        savePlaylistResume(force: true)
         stationAdvance = false
         pageAdvance = nil
         defer { stateDidChange?() }
@@ -271,6 +280,8 @@ public final class PlaybackModel {
     public func moveQueue(_ offsets: IndexSet, to destination: Int) { preloader.cancel(); queue.move(offsets, to: destination); persistSoon(); stateDidChange?() }
     /// 清除播放会话并取消所有旧请求，切换音源后迟到的恢复与加载不能重新选中旧曲目。
     public func clear() {
+        savePlaylistResume(force: true)
+        activePlaylist = nil
         restored = true
         queue.remove(IndexSet(queue.tracks.indices))
         endStation()
@@ -508,6 +519,7 @@ public final class PlaybackModel {
     }
 
     private func writeSession() async {
+        savePlaylistResume(force: true)
         guard let store else { return }
         let session = PlaybackSession(queue: queue.tracks, index: queue.index ?? 0, positionMilliseconds: positionMilliseconds, captions: timeline.lines,
             shuffled: queue.shuffled, repeatMode: queue.repeatMode, playOrder: queue.playOrder, station: station)
@@ -570,6 +582,7 @@ public final class PlaybackModel {
     }
 
     private func persistSoon() {
+        savePlaylistResume(force: false)
         guard store != nil else { return }
         saveRevision += 1
         guard saveTask == nil else { return }
@@ -585,8 +598,35 @@ public final class PlaybackModel {
         }
     }
 
+    public func playlistResume(_ key: String) -> PlaylistResume? { playlistHistory[key] }
+
+    /// 将刚选中的播放队列关联到歌单，打开其他队列时保存并解除关联。
+    public func rememberPlaylist(_ key: String, startingAt position: Int64 = 0) {
+        guard queue.current != nil else { return }
+        activePlaylist = key
+        if position > 0 { seek(to: position) }
+        savePlaylistResume(force: true)
+    }
+
+    private func savePlaylistResume(force: Bool) {
+        guard let activePlaylist, let track = queue.current else { return }
+        let record = PlaylistResume(trackID: track.id, title: track.title, position: positionMilliseconds)
+        if let previous = playlistHistory[activePlaylist], previous == record ||
+            (!force && previous.trackID == record.trackID && abs(previous.position - record.position) < 5_000) { return }
+        playlistHistory[activePlaylist] = record
+        if let data = try? JSONEncoder().encode(playlistHistory) {
+            UserDefaults.standard.set(data, forKey: Self.playlistHistoryKey)
+        }
+    }
+
     private static func loadCaptions(_ source: any PlaybackSource, track: Track) async -> (CaptionTimeline, String?) {
         do { return (try await source.captions(track: track), nil) }
         catch { return (CaptionTimeline(lines: []), error.localizedDescription) }
     }
+}
+
+public struct PlaylistResume: Codable, Equatable, Sendable {
+    public let trackID: String
+    public let title: String
+    public let position: Int64
 }
