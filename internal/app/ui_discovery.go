@@ -3,6 +3,7 @@ package app
 import (
 	"github.com/egoist/mygo/ui"
 	"mygo-music/internal/discoveryprefs"
+	"strconv"
 
 	"slices"
 )
@@ -122,12 +123,22 @@ func (a *app) discoveryPage(c *ui.Context) {
 		for index, section := range a.home.Sections {
 			c := c.Key(index)
 			a.browseTitle(c, &section, index == 0, 0)
+			resumeKey := homeTrackListKey(a.library, section, index)
+			if len(section.Tracks) > 0 {
+				lib := a.library
+				ui.Column(c.Key([2]string{"section-resume", strconv.Itoa(index)})).Children(func() {
+					a.playlistResumeRow(c, resumeKey, func(mark playlistResume) {
+						a.resumeTrackedList(lib, resumeKey, section.Tracks, nil, mark)
+					})
+				})
+			}
 			var cards []func(*ui.Context)
 			for i := range section.Tracks {
 				track := &section.Tracks[i]
 				cards = append(cards, func(c *ui.Context) {
 					if a.coverCard(c, track.Name, track.Album.ImageURL, artistNames(track.Artists), nil) {
 						a.pl.PlayQueue(section.Tracks, i)
+						a.rememberTrackList(resumeKey)
 					}
 				})
 			}

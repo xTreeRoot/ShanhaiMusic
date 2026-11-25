@@ -59,19 +59,20 @@ func (a *app) loadEpisodes(lib *library, id string) {
 
 // playEpisodes plays the episodes loaded, from the first that can play.
 func (a *app) playEpisodes(lib *library, id string, d *showData, index int) {
-	if len(d.episodes) > 0 {
-		if d.page.more {
-			a.playCatalog(lib, d.episodes, index, offsetTrackPages(len(d.episodes), func(offset int) ([]music.Track, bool, int, error) {
-				page, err := answered(lib.src.Show(id, offset))
-				if err != nil {
-					return nil, false, 0, err
-				}
-				return page.Episodes, page.More, 0, nil
-			}))
-		} else {
-			a.pl.PlayTrack(d.episodes, index)
-		}
+	a.playResumableList(lib, trackListResumeKey(lib, route{page: pageShow, id: id}), d.episodes, index, episodePages(lib, id, d))
+}
+
+func episodePages(lib *library, id string, d *showData) catalogNext {
+	if !d.page.more {
+		return nil
 	}
+	return offsetTrackPages(len(d.episodes), func(offset int) ([]music.Track, bool, int, error) {
+		page, err := answered(lib.src.Show(id, offset))
+		if err != nil {
+			return nil, false, 0, err
+		}
+		return page.Episodes, page.More, 0, nil
+	})
 }
 
 // playShow plays a show's episodes from its first, from its card, once it and
@@ -146,6 +147,12 @@ func (a *app) showPage(c *ui.Context) {
 	show := d.show
 	cur := a.pl.Current()
 	a.scrollPage(c, func() {
+		if len(d.episodes) > 0 {
+			key := trackListResumeKey(lib, route{page: pageShow, id: id})
+			a.playlistResumeRow(c, key, func(mark playlistResume) {
+				a.resumeTrackedList(lib, key, d.episodes, episodePages(lib, id, d), mark)
+			})
+		}
 		ui.Row(c).Gap(28).AlignItems(ui.End).Padding(0, 0, 8, 0).Children(func() {
 			ui.Box(c).Size(212, 212).Radius(14).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
 				a.coverFill(c, show.ImageURL, 600, 14)

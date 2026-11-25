@@ -25,6 +25,7 @@ func (a *app) featureCard(c *ui.Context, sec *music.Section, pageID string, at i
 	if len(songs) == 0 {
 		return
 	}
+	resumeKey := homeTrackListKey(a.library, *sec, at)
 	w, _ := c.Size()
 	inner := w - sidebarWidth - 2*pagePad
 	still := c.Preferences().ReduceMotion
@@ -94,14 +95,14 @@ func (a *app) featureCard(c *ui.Context, sec *music.Section, pageID string, at i
 				ui.Text(c, sec.Title).FontSize(32).FontWeight(800).LetterSpacing(-0.8).LineHeight(1.15)
 				ui.Text(c, dailyArtists(songs)).FontSize(13).TextColor(white.Alpha(0.8)).MaxLines(1)
 				ui.Row(c).Gap(10).Margin(12, 0, 0, 0).Children(func() {
-					a.dailyPlayButton(c.Key("play"), songs, ours, playing)
+					a.dailyPlayButton(c.Key("play"), songs, resumeKey, ours, playing)
 					if a.library.signedOut() && pillButton(c.Key("login"), iconUser, T("Sign In"), white.Alpha(0.16), white).Clicked() {
 						a.promptSignIn(a.library)
 					}
 				})
 			})
 			if showPicks {
-				a.dailyPicks(c, songs, ours)
+				a.dailyPicks(c, songs, resumeKey, ours)
 			}
 			if showStack {
 				a.dailyStack(c, songs, hovered && !still, out)
@@ -312,7 +313,7 @@ func dailyArtists(songs []music.Track) string {
 
 // dailyPlayButton plays the songs; while they play it says so, its
 // bars dancing, and pauses them; paused, it goes on.
-func (a *app) dailyPlayButton(c *ui.Context, songs []music.Track, ours, playing bool) {
+func (a *app) dailyPlayButton(c *ui.Context, songs []music.Track, resumeKey string, ours, playing bool) {
 	ink := ui.Hex("#1d1d1f")
 	// As wide hovered as not: narrower, it would leave the pointer, and flicker
 	// between the two.
@@ -363,13 +364,14 @@ func (a *app) dailyPlayButton(c *ui.Context, songs []music.Track, ours, playing 
 			a.pl.TogglePlay()
 		} else {
 			a.pl.PlayQueue(songs, firstPlayable(songs))
+			a.rememberTrackList(resumeKey)
 		}
 	}
 }
 
 // dailyPicks lists the first songs, numbered, the one playing with
 // its bars; each plays the songs from it.
-func (a *app) dailyPicks(c *ui.Context, songs []music.Track, ours bool) {
+func (a *app) dailyPicks(c *ui.Context, songs []music.Track, resumeKey string, ours bool) {
 	cur := a.pl.Current()
 	ui.Column(c.Key("picks")).Width(236).Shrink(0).Gap(2).Children(func() {
 		for i := range min(3, len(songs)) {
@@ -396,7 +398,7 @@ func (a *app) dailyPicks(c *ui.Context, songs []music.Track, ours bool) {
 				})
 			})
 			if row.Clicked() {
-				a.pl.PlayTrack(songs, i)
+				a.playResumableList(a.library, resumeKey, songs, i, nil)
 			}
 		}
 	})

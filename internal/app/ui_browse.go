@@ -186,7 +186,15 @@ func (a *app) browsePage(c *ui.Context) {
 		a.trackSkeleton(c, a.pageShimmer(c), true, func(c *ui.Context) {})
 		return
 	}
-	a.browseRows(c, d.page, id, func(c *ui.Context) { a.browseHeader(c, d.page) }, func(c *ui.Context) {
+	a.browseRows(c, d.page, id, func(c *ui.Context) {
+		if tracks := resumableBrowseTracks(d); len(tracks) > 0 {
+			resumeKey := browseResumeKey(lib, key)
+			a.playlistResumeRow(c, resumeKey, func(mark playlistResume) {
+				a.resumeTrackedList(lib, resumeKey, tracks, browseTrackPages(lib, d), mark)
+			})
+		}
+		a.browseHeader(c, d.page)
+	}, func(c *ui.Context) {
 		if d.err != "" {
 			ui.Text(c, d.err).TextColor(a.pal.muted)
 			ui.Button(c, T("Retry")).OnClick(func() { a.loadBrowseNext(lib, d) })
@@ -261,6 +269,7 @@ type rowKind int
 const (
 	rowFeature rowKind = iota
 	rowTitle
+	rowResume
 	rowTrack
 	rowVideos
 	rowAlbums
@@ -288,6 +297,9 @@ func browseLayout(page *music.Browse, pageID string, cols, videoCols int) []brow
 	for s := range page.Sections {
 		sec := &page.Sections[s]
 		feature := s == 0 && pageID == "" && len(sec.Tracks) > 0 && sec.TrackLayout != music.TrackLayoutVideos
+		if pageID == "" && len(sec.Tracks) > 0 {
+			rows = append(rows, browseRow{rowResume, s, 0, 0})
+		}
 		if feature {
 			rows = append(rows, browseRow{rowFeature, s, 0, 0})
 			if len(sec.Albums)+len(sec.Artists)+len(sec.Playlists)+len(sec.Shows)+len(sec.Stations)+len(sec.Links) == 0 {
@@ -359,6 +371,12 @@ func (a *app) browseRows(c *ui.Context, page *music.Browse, pageID string, heade
 			ui.Box(c).Padding(0, 12, below, 12).Children(func() { a.featureCard(c, sec, pageID, r.section, now) })
 		case rowTitle:
 			a.browseTitle(c, sec, r.section == 0, 12)
+		case rowResume:
+			lib := a.library
+			key := homeTrackListKey(lib, *sec, r.section)
+			ui.Column(c).PaddingX(12).Children(func() {
+				a.playlistResumeRow(c, key, func(mark playlistResume) { a.resumeTrackedList(lib, key, sec.Tracks, nil, mark) })
+			})
 		case rowTrack:
 			a.trackRow(c, sec.Tracks, r.from, true, "")
 		case rowVideos:

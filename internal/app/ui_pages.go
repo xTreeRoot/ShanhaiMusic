@@ -91,6 +91,10 @@ func (a *app) homePage(c *ui.Context) {
 		if len(lib.recent) > 0 {
 			ui.Box(c).PaddingX(12).Children(func() { a.section(c, T("Recently Played")).Margin(0, 0, 8, 0) })
 			recent := lib.recent[:min(len(lib.recent), 8)]
+			key := browseResumeKey(lib, "\x00recent")
+			ui.Column(c).PaddingX(12).Children(func() {
+				a.playlistResumeRow(c, key, func(mark playlistResume) { a.resumeTrackedList(lib, key, recent, nil, mark) })
+			})
 			for i := range recent {
 				a.trackRow(c, recent, i, true, "")
 			}
@@ -283,10 +287,7 @@ func (a *app) playlistPage(c *ui.Context) {
 		a.trackSkeleton(c, s, true, func(c *ui.Context) { a.playlistHeaderSkeleton(c, s) })
 		return
 	}
-	header := func(c *ui.Context) {
-		a.playlistResumeRow(c, a.library, id, pl)
-		a.playlistHeader(c, pl)
-	}
+	header := func(c *ui.Context) { a.playlistHeader(c, pl) }
 	if !pl.More {
 		a.trackRows(c, pl.Tracks, true, header)
 		return
@@ -348,14 +349,14 @@ func (a *app) playButtons(c *ui.Context, tracks []music.Track) {
 		if a.pl.Shuffle() {
 			a.pl.ToggleShuffle()
 		}
-		if a.route.page == pageLiked || a.route.page == pagePlaylist {
+		if trackListResumeKey(a.library, a.route) != "" {
 			a.playCatalogTrack(tracks, firstPlayable(tracks))
 		} else {
 			a.pl.PlayQueue(tracks, firstPlayable(tracks))
 		}
 	}
 	if pillButton(c.Key("shuffle"), iconShuffle, T("Shuffle"), p.hover.Over(p.bg), p.text).Clicked() {
-		if a.route.page == pageLiked || a.route.page == pagePlaylist {
+		if trackListResumeKey(a.library, a.route) != "" {
 			a.playCatalogTrack(tracks, -1)
 		} else {
 			a.pl.PlayShuffled(tracks)
@@ -471,6 +472,7 @@ func (a *app) freshenLiked(lib *library) {
 // trackRows lists tracks under a header, which scrolls with them; a click
 // plays the list from the track clicked.
 func (a *app) trackRows(c *ui.Context, tracks []music.Track, covers bool, header func(c *ui.Context), footer ...func(c *ui.Context)) {
+	lib, route := a.library, a.route
 	// A song's menu can take it out of the playlist it is listed in.
 	var pid string
 	if a.route.page == pagePlaylist {
@@ -485,6 +487,11 @@ func (a *app) trackRows(c *ui.Context, tracks []music.Track, covers bool, header
 		if i == 0 {
 			ui.Column(c).Children(func() {
 				a.startMark(c)
+				if key := trackListResumeKey(lib, route); key != "" && len(tracks) > 0 {
+					a.playlistResumeRow(c, key, func(mark playlistResume) {
+						a.resumeTrackedList(lib, key, tracks, trackListPages(lib, route, tracks), mark)
+					})
+				}
 				header(c)
 			})
 			return

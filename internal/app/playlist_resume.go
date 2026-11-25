@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -31,6 +32,46 @@ func playlistResumeKey(lib *library, id string) string {
 		account = lib.account.ID
 	}
 	return lib.id + "\x00" + account + "\x00" + id
+}
+
+func browseResumeKey(lib *library, id string) string {
+	return playlistResumeKey(lib, "\x00browse\x00"+id)
+}
+
+func homeTrackListKey(lib *library, section music.Section, index int) string {
+	if section.MorePage != "" {
+		return browseResumeKey(lib, section.MorePage)
+	}
+	if section.MoreBuiltin != "" {
+		return browseResumeKey(lib, discoveryCollectionKey(section.MoreBuiltin))
+	}
+	return trackListResumeKey(lib, route{page: pageSection, query: fmt.Sprint(index)})
+}
+
+// A standalone plugin page can expose a song list without a playlist entity.
+func resumableBrowseTracks(data *browseData) []music.Track {
+	if data == nil || data.page == nil {
+		return nil
+	}
+	if len(data.page.Sections) == 1 {
+		return data.page.Sections[0].Tracks
+	}
+	var tracks []music.Track
+	for _, section := range data.page.Sections {
+		tracks = append(tracks, section.Tracks...)
+	}
+	return tracks
+}
+
+func trackListResumeKey(lib *library, r route) string {
+	switch r.page {
+	case pagePlaylist:
+		return playlistResumeKey(lib, r.id)
+	case pageAlbum, pageArtist, pageLiked, pageSection, pageSearch, pageShow:
+		id, _ := json.Marshal([3]string{r.id, r.query, fmt.Sprint(r.kind)})
+		return playlistResumeKey(lib, fmt.Sprintf("\x00page:%d\x00%s", r.page, id))
+	}
+	return ""
 }
 
 func (a *app) loadPlaylistResumes() {
@@ -73,8 +114,7 @@ func (a *app) recordPlaylistResume() {
 	}
 }
 
-func (a *app) playlistResumeRow(c *ui.Context, lib *library, id string, pl *music.Playlist) {
-	key := playlistResumeKey(lib, id)
+func (a *app) playlistResumeRow(c *ui.Context, key string, resume func(playlistResume)) {
 	state := &a.playlistResume
 	mark, found := state.items[key]
 	subtitle := T("No playback history")
@@ -87,67 +127,91 @@ func (a *app) playlistResumeRow(c *ui.Context, lib *library, id string, pl *musi
 		subtitle = T("Last played track unavailable · Retry")
 	}
 	p := a.pal
-	row := ui.ButtonBase(c.Key("playlist-resume")).Label(T("Last played")).Disabled(!found || state.loading == key).
+	row := ui.ButtonBase(c.Key("playlist-resume:"+key)).Label(T("Last played")).Disabled(!found || state.loading == key).
 		Grow(1).Padding(8, 12).Gap(10).AlignItems(ui.Center).Radius(8).Background(p.hover).Margin(0, 0, 14, 0)
 	row.Children(func() {
 		ui.Icon(c, iconPlay).Size(14, 14).TextColor(p.accent)
 		ui.Text(c, T("Last played")).FontWeight(600).Shrink(0)
 		ui.Text(c, subtitle).TextColor(p.muted).MaxLines(1).Grow(1).MinWidth(0)
 	})
-	row.OnClick(func() { a.resumePlaylist(lib, id, pl, key, mark) })
+	row.OnClick(func() { resume(mark) })
 }
 
-func (a *app) resumePlaylist(lib *library, id string, pl *music.Playlist, key string, mark playlistResume) {
-	match := func(t music.Track) bool { return t.Source == mark.Source && t.ID == mark.Track }
-	start := func(list *music.Playlist, at int) {
-		a.playlistResume.failed = ""
-		a.playPlaylist(lib, id, list, at)
-		a.pl.Seek(time.Duration(max(0, mark.Position)) * time.Millisecond)
-	}
-	if i := slices.IndexFunc(pl.Tracks, match); i >= 0 {
-		start(pl, i)
+func (a *app) playResumableList(lib *library, key string, tracks []music.Track, index int, next catalogNext) {
+	if len(tracks) == 0 {
 		return
 	}
-	pager, ok := lib.src.(music.PlaylistPager)
-	if !ok || !pl.More {
+	if next != nil {
+		a.playCatalog(lib, tracks, index, next)
+	} else if index < 0 {
+		a.pl.PlayShuffled(tracks)
+	} else {
+		a.pl.PlayTrack(tracks, index)
+	}
+	a.rememberTrackList(key)
+}
+
+func (a *app) rememberTrackList(key string) {
+	if key != "" {
+		a.playlistResume.active = key
+		a.recordPlaylistResume()
+	}
+}
+
+func (a *app) resumeTrackedList(lib *library, key string, tracks []music.Track, next catalogNext, mark playlistResume) {
+	match := func(t music.Track) bool { return t.Source == mark.Source && t.ID == mark.Track }
+	start := func(queue []music.Track, at int, continuation catalogNext) {
+		a.playlistResume.failed = ""
+		a.playResumableList(lib, key, queue, at, continuation)
+		a.pl.Seek(time.Duration(max(0, mark.Position)) * time.Millisecond)
+		a.recordPlaylistResume()
+	}
+	if i := slices.IndexFunc(tracks, match); i >= 0 {
+		start(tracks, i, next)
+		return
+	}
+	if next == nil {
 		a.playlistResume.failed = key
 		return
 	}
 	a.playlistResume.loading = key
-	from, gen := *pl, lib.accountGen
-	from.Tracks = slices.Clone(pl.Tracks)
+	queue, gen, currentRoute := slices.Clone(tracks), lib.accountGen, a.route
 	go func() {
 		known := map[[2]string]bool{}
-		newCatalogTracks(known, from.Tracks)
-		offset := continuationOffset(0, from.NextOffset, len(from.Tracks))
-		i := -1
-		for from.More && offset > 0 && i < 0 {
-			page, err := answered(pager.PlaylistPage(id, offset))
+		newCatalogTracks(known, queue)
+		i, empty := -1, 0
+		for next != nil && i < 0 && empty < 8 {
+			batch, more, err := next()
 			if err != nil {
 				break
 			}
-			fresh := newCatalogTracks(known, page.Tracks)
-			if at := slices.IndexFunc(fresh, match); at >= 0 {
-				i = len(from.Tracks) + at
+			if !more {
+				next = nil
 			}
-			from.Tracks = append(from.Tracks, fresh...)
-			from.NextOffset = continuationOffset(offset, page.NextOffset, len(page.Tracks))
-			from.More = page.More && from.NextOffset > offset
-			offset = from.NextOffset
+			fresh := newCatalogTracks(known, batch)
+			if len(fresh) == 0 {
+				empty++
+			} else {
+				empty = 0
+			}
+			if at := slices.IndexFunc(fresh, match); at >= 0 {
+				i = len(queue) + at
+			}
+			queue = append(queue, fresh...)
 		}
 		a.post(func() {
 			if a.playlistResume.loading != key {
 				return
 			}
 			a.playlistResume.loading = ""
-			if a.library != lib || lib.accountGen != gen || a.route.page != pagePlaylist || a.route.id != id {
+			if a.library != lib || lib.accountGen != gen || a.route != currentRoute {
 				return
 			}
 			if i < 0 {
 				a.playlistResume.failed = key
 				return
 			}
-			start(&from, i)
+			start(queue, i, next)
 		})
 	}()
 }

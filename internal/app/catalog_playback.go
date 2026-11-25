@@ -1,6 +1,8 @@
 package app
 
 import (
+	"maps"
+
 	"mygo-music/internal/music"
 )
 
@@ -108,57 +110,96 @@ func (a *app) playCatalog(lib *library, tracks []music.Track, index int, next ca
 	})
 }
 
-func (a *app) playPlaylist(lib *library, id string, playlist *music.Playlist, index int) {
-	if len(playlist.Tracks) == 0 {
-		return
-	}
+func playlistTrackPages(lib *library, id string, playlist *music.Playlist) catalogNext {
 	if pager, ok := lib.src.(music.PlaylistPager); ok && playlist.More {
 		offset := continuationOffset(0, playlist.NextOffset, len(playlist.Tracks))
-		a.playCatalog(lib, playlist.Tracks, index, offsetTrackPages(offset, func(offset int) ([]music.Track, bool, int, error) {
+		return offsetTrackPages(offset, func(offset int) ([]music.Track, bool, int, error) {
 			page, err := answered(pager.PlaylistPage(id, offset))
 			if err != nil {
 				return nil, false, 0, err
 			}
 			return page.Tracks, page.More, page.NextOffset, nil
-		}))
-	} else if index < 0 {
-		a.pl.PlayShuffled(playlist.Tracks)
-	} else {
-		a.pl.PlayTrack(playlist.Tracks, index)
+		})
 	}
-	a.playlistResume.active = playlistResumeKey(lib, id)
-	a.recordPlaylistResume()
+	return nil
 }
 
-func (a *app) playCatalogTrack(tracks []music.Track, index int) {
-	lib, route := a.library, a.route
-	switch route.page {
+func (a *app) playPlaylist(lib *library, id string, playlist *music.Playlist, index int) {
+	a.playResumableList(lib, playlistResumeKey(lib, id), playlist.Tracks, index, playlistTrackPages(lib, id, playlist))
+}
+
+func browseTrackPages(lib *library, data *browseData) catalogNext {
+	if data.next == "" {
+		return nil
+	}
+	next, visited := data.next, maps.Clone(data.visited)
+	if visited == nil {
+		visited = map[string]bool{}
+	}
+	return func() ([]music.Track, bool, error) {
+		page, err := answered(lib.src.Browse(next))
+		if err != nil {
+			return nil, false, err
+		}
+		visited[next] = true
+		next = browseContinuation(page, visited)
+		var batch []music.Track
+		for _, section := range page.Sections {
+			batch = append(batch, section.Tracks...)
+		}
+		return batch, next != "", nil
+	}
+}
+
+func trackListPages(lib *library, r route, tracks []music.Track) catalogNext {
+	switch r.page {
 	case pagePlaylist:
-		if list := lib.playlists[route.id]; list != nil && sameList(list.Tracks, tracks) {
-			a.playPlaylist(lib, route.id, list, index)
-			return
+		if list := lib.playlists[r.id]; list != nil && sameList(list.Tracks, tracks) {
+			return playlistTrackPages(lib, r.id, list)
 		}
 	case pageSearch:
-		if data := lib.searches[route]; data != nil && data.page.more && sameList(data.res.Tracks, tracks) {
+		if data := lib.searches[r]; data != nil && data.page.more && sameList(data.res.Tracks, tracks) {
 			offset := continuationOffset(0, data.page.offset, data.res.Len())
-			a.playCatalog(lib, tracks, index, offsetTrackPages(offset, func(offset int) ([]music.Track, bool, int, error) {
-				page, err := answered(lib.src.Search(route.query, route.kind, offset))
+			return offsetTrackPages(offset, func(offset int) ([]music.Track, bool, int, error) {
+				page, err := answered(lib.src.Search(r.query, r.kind, offset))
 				if err != nil {
 					return nil, false, 0, err
 				}
 				return page.Tracks, page.More, page.NextOffset, nil
-			}))
-			return
+			})
 		}
 	case pageLiked:
 		if lib.likedPaged.more && sameList(lib.likedList, tracks) {
-			a.playCatalog(lib, tracks, index, offsetTrackPages(len(tracks), func(offset int) ([]music.Track, bool, int, error) {
+			return offsetTrackPages(len(tracks), func(offset int) ([]music.Track, bool, int, error) {
 				page, err := answered(lib.src.Liked(offset))
 				if err != nil {
 					return nil, false, 0, err
 				}
 				return page.Tracks, page.More, 0, nil
-			}))
+			})
+		}
+	}
+	return nil
+}
+
+func (a *app) playCatalogTrack(tracks []music.Track, index int) {
+	lib, route := a.library, a.route
+	if key := trackListResumeKey(lib, route); key != "" {
+		a.playResumableList(lib, key, tracks, index, trackListPages(lib, route, tracks))
+		return
+	}
+	switch route.page {
+	case pageHome:
+		if lib.home != nil {
+			for sectionIndex, section := range lib.home.Sections {
+				if sameList(section.Tracks, tracks) {
+					a.playResumableList(lib, homeTrackListKey(lib, section, sectionIndex), tracks, index, nil)
+					return
+				}
+			}
+		}
+		if sameList(lib.recent[:min(len(lib.recent), 8)], tracks) {
+			a.playResumableList(lib, browseResumeKey(lib, "\x00recent"), tracks, index, nil)
 			return
 		}
 	case pageBrowse, pageDiscoveryCollection:
@@ -166,7 +207,12 @@ func (a *app) playCatalogTrack(tracks []music.Track, index int) {
 		if route.page == pageDiscoveryCollection {
 			key = discoveryCollectionKey(key)
 		}
-		if data := lib.browses[key]; data != nil && data.visited != nil && (data.next != "" || len(data.visited) > 1) {
+		data := lib.browses[key]
+		if listed := resumableBrowseTracks(data); len(listed) > 0 && sameList(listed, tracks) {
+			a.playResumableList(lib, browseResumeKey(lib, key), tracks, index, browseTrackPages(lib, data))
+			return
+		}
+		if data != nil && data.page != nil && data.visited != nil && (data.next != "" || len(data.visited) > 1) {
 			var queue []music.Track
 			selected := -1
 			for _, section := range data.page.Sections {
@@ -176,30 +222,18 @@ func (a *app) playCatalogTrack(tracks []music.Track, index int) {
 				queue = append(queue, section.Tracks...)
 			}
 			if selected >= 0 {
-				if data.next != "" {
-					next := data.next
-					visited := map[string]bool{}
-					for id := range data.visited {
-						visited[id] = true
-					}
-					a.playCatalog(lib, queue, selected, func() ([]music.Track, bool, error) {
-						page, err := answered(lib.src.Browse(next))
-						if err != nil {
-							return nil, false, err
-						}
-						visited[next] = true
-						next = browseContinuation(page, visited)
-						var batch []music.Track
-						for _, section := range page.Sections {
-							batch = append(batch, section.Tracks...)
-						}
-						return batch, next != "", nil
-					})
+				if next := browseTrackPages(lib, data); next != nil {
+					a.playCatalog(lib, queue, selected, next)
 				} else {
 					a.pl.PlayTrack(queue, selected)
 				}
+				a.rememberTrackList(browseResumeKey(lib, key))
 				return
 			}
+		}
+		if len(resumableBrowseTracks(data)) > 0 {
+			a.playResumableList(lib, browseResumeKey(lib, key), tracks, index, nil)
+			return
 		}
 	}
 	if index < 0 {
