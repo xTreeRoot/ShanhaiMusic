@@ -33,6 +33,27 @@ import kotlinx.coroutines.launch
 
 internal val LocalPlaylistPlayback = staticCompositionLocalOf<((String, List<Track>, Track, PlaybackPages?, Long, Boolean) -> Unit)?> { null }
 
+/** 从列表及其续页找回原曲目，保留后续播放分页。 */
+internal suspend fun resumeFromTrackList(
+    tracks: List<Track>, pages: PlaybackPages?, saved: PlaylistResume,
+    play: (List<Track>, Track, PlaybackPages?, Long) -> Unit,
+): Boolean {
+    val queue = tracks.toMutableList()
+    val known = tracks.map(Track::id).toMutableSet()
+    var next = pages
+    var empty = 0
+    while (queue.none { it.id == saved.trackID } && next != null && empty < 8) {
+        val batch = next.load()
+        val fresh = batch.tracks.filter { known.add(it.id) }
+        empty = if (fresh.isEmpty()) empty + 1 else 0
+        queue += fresh
+        next = batch.next
+    }
+    val track = queue.firstOrNull { it.id == saved.trackID && !it.isUnavailable } ?: return false
+    play(queue, track, next, saved.position)
+    return true
+}
+
 @Composable
 internal fun PlaylistResumeRow(key: String, resume: suspend (PlaylistResume) -> Boolean) {
     val app = LocalContext.current.applicationContext as MBApplication

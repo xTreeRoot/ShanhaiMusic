@@ -38,9 +38,17 @@ internal fun MusicCoverCard(track: Track, play: () -> Unit) {
 
 @Composable
 internal fun PluginDiscoverySection(section: PluginCatalogSection, open: (PluginCatalogRequest) -> Unit,
-                                    play: (List<Track>, Track) -> Unit) {
+                                    play: (List<Track>, Track) -> Unit, resumeKey: String? = null) {
+    val playList = LocalPlaylistPlayback.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         DiscoverySectionHeading(section.title, open = section.more?.let { more -> { open(more.destination) } })
+        if (resumeKey != null && playList != null && section.tracks.isNotEmpty()) {
+            PlaylistResumeRow(resumeKey) { saved ->
+                resumeFromTrackList(section.tracks, null, saved) { queue, track, next, position ->
+                    playList(resumeKey, queue, track, next, position, false)
+                }
+            }
+        }
         val count = section.tracks.size + section.entities.size + section.links.size
         DiscoveryShelf(count, itemKey = { index -> when {
             index < section.tracks.size -> "track-${section.tracks[index].id}"
@@ -50,7 +58,10 @@ internal fun PluginDiscoverySection(section: PluginCatalogSection, open: (Plugin
             when {
             index < section.tracks.size -> {
                 val track = section.tracks[index]
-                MusicCoverCard(track) { play(section.tracks, track) }
+                MusicCoverCard(track) {
+                    if (resumeKey == null || playList == null) play(section.tracks, track)
+                    else playList(resumeKey, section.tracks, track, null, 0, false)
+                }
             }
             index < section.tracks.size + section.entities.size -> {
                 val entity = section.entities[index - section.tracks.size]

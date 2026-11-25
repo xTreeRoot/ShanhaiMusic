@@ -173,7 +173,17 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
     val station = entity?.takeIf { it.kind == PluginEntityKind.Station }?.let { PlaybackStation(source.id, it.id, it.title) }
     val playPages = LocalPlayCatalogPages.current
     val continuation = if (station == null && page != null) catalogPlaybackPages(source, request, page) else null
-    val playlistKey = entity?.takeIf { it.kind == PluginEntityKind.Playlist }?.let { source.id + "/" + it.id }
+    val playlistKey = when (request) {
+        PluginCatalogRequest.Home -> null
+        is PluginCatalogRequest.Browse -> source.id + "//browse/" + request.page
+        is PluginCatalogRequest.Collection -> source.id + "//collection/" + request.collection.method
+        is PluginCatalogRequest.Search -> source.id + "//search/" + request.kind.name + "/" + request.query
+        is PluginCatalogRequest.Entity -> when (request.entity.kind) {
+            PluginEntityKind.Station -> null
+            PluginEntityKind.Playlist -> source.id + "/" + request.entity.id
+            else -> source.id + "//entity/" + request.entity.kind.name + "/" + request.entity.id
+        }
+    }
     val playPlaylist = LocalPlaylistPlayback.current
     val select: (List<Track>, Track) -> Unit = if (station != null && playStation != null) {
         { batch, track -> playStation(batch, track, station) }
@@ -186,19 +196,11 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
     val saveMethod = entity?.saveMethod
     val content: LazyGridScope.() -> Unit = {
         if (page != null) {
-            if (playlistKey != null && playPlaylist != null) item(span = { GridItemSpan(maxLineSpan) }, key = "playlist-resume") {
+            if (playlistKey != null && playPlaylist != null && tracks.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "playlist-resume") {
                 PlaylistResumeRow(playlistKey) { saved ->
-                    val queue = tracks.toMutableList()
-                    val known = tracks.map(Track::id).toMutableSet()
-                    var next = continuation
-                    while (queue.none { it.id == saved.trackID } && next != null) {
-                        val batch = next.load()
-                        queue += batch.tracks.filter { known.add(it.id) }
-                        next = batch.next
+                    resumeFromTrackList(tracks, continuation, saved) { queue, track, next, position ->
+                        playPlaylist(playlistKey, queue, track, next, position, false)
                     }
-                    val track = queue.firstOrNull { it.id == saved.trackID && !it.isUnavailable } ?: return@PlaylistResumeRow false
-                    playPlaylist(playlistKey, queue, track, next, saved.position, false)
-                    true
                 }
             }
             if (request != PluginCatalogRequest.Home && (page.subtitle.isNotBlank() || page.description.isNotBlank())) item(span = { GridItemSpan(maxLineSpan) }) {
@@ -208,13 +210,18 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                 }
             }
             var trackIndex = 0
-            page.sections.forEach { section ->
+            page.sections.forEachIndexed { sectionIndex, section ->
                 if (destination.request == PluginCatalogRequest.Home) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         val more = section.more ?: links.firstOrNull { it.title.isNotBlank() && it.title == section.title }
-                        PluginDiscoverySection(section.copy(more = more), navigator::open, select)
+                        val key = when (val target = more?.destination) {
+                            is PluginCatalogRequest.Browse -> source.id + "//browse/" + target.page
+                            is PluginCatalogRequest.Collection -> source.id + "//collection/" + target.collection.method
+                            else -> source.id + "//discovery/" + sectionIndex + "/" + section.title
+                        }
+                        PluginDiscoverySection(section.copy(more = more), navigator::open, select, key)
                     }
-                    return@forEach
+                    return@forEachIndexed
                 }
                 if (section.title.isNotBlank()) item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(section.title, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium)

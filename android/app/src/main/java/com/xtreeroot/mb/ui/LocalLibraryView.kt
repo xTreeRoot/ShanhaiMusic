@@ -199,6 +199,8 @@ internal fun LocalLibraryView(play: (List<Track>, Track) -> Unit, playGroup: (Li
     val home = category == null && collectionId == null
     val searching = home && query.isNotBlank()
     val activeCategory = collectionCategory ?: category ?: Category.Songs
+    val resumeKey = if (searching) "local//search/" + query.trim() else "local//category/" + activeCategory.name + "/" + collectionId.orEmpty()
+    val playList = LocalPlaylistPlayback.current
     val collections = when (activeCategory) {
         Category.Albums -> index.albums
         Category.Artists -> index.artists
@@ -302,8 +304,20 @@ internal fun LocalLibraryView(play: (List<Track>, Track) -> Unit, playGroup: (Li
                 LocalGroupRow(group.title, group.artist, group.tracks, group.artwork) { openCollection(activeCategory, group.id) }
             }
         } else if (!home || searching) {
+            if (playList != null && matching.isNotEmpty()) item("playlist-resume") {
+                PlaylistResumeRow(resumeKey) { savedTrack ->
+                    resumeFromTrackList(matching, null, savedTrack) { queue, track, next, position ->
+                        playList(resumeKey, queue, track, next, position, false)
+                    }
+                }
+            }
             if (searching && matching.isNotEmpty()) item { LibrarySearchHeading(mb("歌曲", "Songs")) }
-            if (if (searching) matching.isNotEmpty() else entries.isNotEmpty()) item { LocalPlaybackButtons(matching, playGroup) }
+            if (if (searching) matching.isNotEmpty() else entries.isNotEmpty()) item {
+                LocalPlaybackButtons(matching) { tracks, shuffle ->
+                    val track = tracks.firstOrNull { !it.isUnavailable } ?: return@LocalPlaybackButtons
+                    if (playList == null) playGroup(tracks, shuffle) else playList(resumeKey, tracks, track, null, 0, shuffle)
+                }
+            }
             if (!searching && !state.loading && matching.isEmpty()) item {
                 EmptyMessage(if (entries.isNotEmpty()) mb("没有匹配的歌曲", "No Matching Songs") else mb("暂无本地曲目", "No Local Tracks"))
             }
@@ -330,7 +344,9 @@ internal fun LocalLibraryView(play: (List<Track>, Track) -> Unit, playGroup: (Li
                             DropdownMenuItem(text = { Text(mb("播放、歌单与导出", "Playback, Playlists & Export")) }, onClick = { menu = false; trackActions(track) })
                         }
                     }
-                }) { play(matching, track) }
+                }) {
+                    if (playList == null) play(matching, track) else playList(resumeKey, matching, track, null, 0, false)
+                }
             }
             if (matchedAlbums.isNotEmpty()) item { LibrarySearchHeading(mb("专辑", "Albums")) }
             items(matchedAlbums, key = { "album:${it.id}" }) { group ->

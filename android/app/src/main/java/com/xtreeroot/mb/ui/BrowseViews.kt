@@ -143,7 +143,16 @@ internal fun CategoryView(model: BrowseModel, category: DiscoveryCategory,
     val tracks = details.value?.takeIf { it.category == category }?.tracks.orEmpty()
     val refresh = { model.refreshCategory(category) }
     val video = LocalVideoBrowse.current
+    val playList = LocalPlaylistPlayback.current
+    val resumeKey = "//category/" + category.name
     RefreshableDiscoveryGrid(video, refreshing = details.loading && tracks.isNotEmpty(), refresh = refresh) {
+        if (playList != null && tracks.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+            PlaylistResumeRow(resumeKey) { saved ->
+                resumeFromTrackList(tracks, null, saved) { queue, track, next, position ->
+                    playList(resumeKey, queue, track, next, position, false)
+                }
+            }
+        }
         when {
             details.error != null -> item(span = { GridItemSpan(maxLineSpan) }) { Retry(checkNotNull(details.error), refresh) }
             details.loading && tracks.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) { Loading() }
@@ -151,12 +160,13 @@ internal fun CategoryView(model: BrowseModel, category: DiscoveryCategory,
         }
         val first = tracks.firstOrNull { !it.isUnavailable }
         if (first != null) item(span = { GridItemSpan(maxLineSpan) }) {
-            TextButton(onClick = { play(tracks, first) },
+            TextButton(onClick = { if (playList == null) play(tracks, first) else playList(resumeKey, tracks, first, null, 0, false) },
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) { Text(mb("播放全部", "Play All")) }
         }
         gridItems(tracks, key = Track::id) { track ->
-            if (video) VideoCoverCard(track) { play(tracks, track) }
-            else TrackRow(track) { play(tracks, track) }
+            val select = { if (playList == null) play(tracks, track) else playList(resumeKey, tracks, track, null, 0, false) }
+            if (video) VideoCoverCard(track, select)
+            else TrackRow(track, play = select)
         }
     }
 }
@@ -170,6 +180,9 @@ internal fun Search(model: BrowseModel, activeSource: String, plugin: PluginSour
     val pages = model.searchPages(SearchScope.Music)
     val result by pages.state.collectAsStateWithLifecycle()
     val history by model.history.collectAsStateWithLifecycle()
+    val playList = LocalPlaylistPlayback.current
+    val resumeKey = "//search/" + target + "/" + result.value.query
+    val queue = result.value.tracks.filter { it.resourceUrl == null }
     var query by rememberSaveable { mutableStateOf(result.value.query) }
     var focused by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
@@ -196,12 +209,19 @@ internal fun Search(model: BrowseModel, activeSource: String, plugin: PluginSour
                         if (history.isNotEmpty()) item("recent-searches") { RecentSearches(history, model::clearHistory, model::removeHistory, submit) }
                         if (openCategory != null) item("browse-music") { BrowseMusicCategories(openCategory) }
                     }
+                    if (playList != null && queue.isNotEmpty()) item("playlist-resume") {
+                        PlaylistResumeRow(resumeKey) { savedTrack ->
+                            resumeFromTrackList(queue, model.searchPlaybackPages(result.value), savedTrack) { tracks, track, next, position ->
+                                playList(resumeKey, tracks, track, next, position, false)
+                            }
+                        }
+                    }
                     items(result.value.warnings) { Text(it, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall) }
                     items(result.value.tracks, key = Track::id) { track ->
                         ResourceRow(track, saved) {
-                            val queue = result.value.tracks.filter { it.resourceUrl == null }
                             val continuation = model.searchPlaybackPages(result.value)
-                            if (continuation != null && playPages != null) playPages(queue, track, continuation) else play(queue, track)
+                            if (playList != null) playList(resumeKey, queue, track, continuation, 0, false)
+                            else if (continuation != null && playPages != null) playPages(queue, track, continuation) else play(queue, track)
                         }
                     }
                     when {
