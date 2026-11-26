@@ -1,5 +1,10 @@
 package com.xtreeroot.mb.ui
 
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import com.xtreeroot.mb.plugin.iconAddress
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -34,7 +39,7 @@ import kotlin.math.roundToInt
 internal fun PluginsOverview(state: PluginManagerState, reordering: Boolean, open: (InstalledPlugin) -> Unit,
                               rename: (InstalledPlugin) -> Unit, remove: (InstalledPlugin) -> Unit,
                               move: (InstalledPlugin, Int) -> Unit, import: () -> Unit, update: () -> Unit,
-                              zip: () -> Unit, folder: () -> Unit, github: () -> Unit, modifier: Modifier = Modifier, display: (InstalledPlugin) -> Unit = {}) {
+                              zip: () -> Unit, folder: () -> Unit, github: () -> Unit, modifier: Modifier = Modifier, display: (InstalledPlugin) -> Unit = {}, marked: String? = null) {
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
             MBGroupedSection {
@@ -56,7 +61,7 @@ internal fun PluginsOverview(state: PluginManagerState, reordering: Boolean, ope
                 state.installed.forEachIndexed { index, plugin ->
                     if (index > 0) MBFormDivider()
                     key(plugin.id) { PluginManagerRow(plugin, reordering, state.busy, index, state.installed.lastIndex,
-                        { open(plugin) }, { rename(plugin) }, { remove(plugin) }, { move(plugin, it) }, { display(plugin) }) }
+                        { open(plugin) }, { rename(plugin) }, { remove(plugin) }, { move(plugin, it) }, { display(plugin) }, marked == plugin.id) }
                 }
             }
         }
@@ -77,7 +82,9 @@ internal fun PluginsOverview(state: PluginManagerState, reordering: Boolean, ope
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun PluginManagerRow(plugin: InstalledPlugin, editing: Boolean, busy: Boolean, index: Int, last: Int,
-                              open: () -> Unit, rename: () -> Unit, remove: () -> Unit, move: (Int) -> Unit, display: () -> Unit) {
+                              open: () -> Unit, rename: () -> Unit, remove: () -> Unit, move: (Int) -> Unit, display: () -> Unit, marked: Boolean) {
+    val reveal = remember { BringIntoViewRequester() }
+    LaunchedEffect(marked) { if (marked) { withFrameNanos { }; reveal.bringIntoView() } }
     var height by remember(plugin.id) { mutableIntStateOf(1) }
     var drag by remember(plugin.id) { mutableFloatStateOf(0f) }
     val latestMove by rememberUpdatedState(move)
@@ -96,7 +103,9 @@ private fun PluginManagerRow(plugin: InstalledPlugin, editing: Boolean, busy: Bo
                 }
             }
         }) {
-        Row(Modifier.fillMaxWidth().onSizeChanged { height = it.height }
+        Row(Modifier.fillMaxWidth().bringIntoViewRequester(reveal)
+            .background(if (marked) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+            .onSizeChanged { height = it.height }
             .combinedClickable(enabled = !busy && !editing, onClick = open, onLongClick = rename)
             .semantics {
                 customActions = buildList {
@@ -109,7 +118,8 @@ private fun PluginManagerRow(plugin: InstalledPlugin, editing: Boolean, busy: Bo
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             if (editing) IconButton(remove, enabled = !busy) { Icon(Icons.Default.Delete, mb("删除", "Delete"), tint = MaterialTheme.colorScheme.error) }
             Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = .08f)), contentAlignment = Alignment.Center) {
-                Icon(painterResource(R.drawable.ic_plugin), null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
+                AsyncImage(plugin.iconAddress(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                    error = painterResource(R.drawable.ic_plugin), placeholder = painterResource(R.drawable.ic_plugin))
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(plugin.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import com.xtreeroot.mb.ui.components.MBAlertDialog as AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.xtreeroot.mb.ui.components.MBListItem as ListItem
@@ -48,6 +49,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PluginsView(model: PluginManagerModel, state: PluginManagerState, removed: (String) -> Unit, close: () -> Unit) {
+    var community by rememberSaveable { mutableStateOf(false) }
     var displaySettings by remember { mutableStateOf<InstalledPlugin?>(null) }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var showZip by rememberSaveable { mutableStateOf(false) }
@@ -59,6 +61,7 @@ internal fun PluginsView(model: PluginManagerModel, state: PluginManagerState, r
     var rename by remember { mutableStateOf<InstalledPlugin?>(null) }
     var localName by remember { mutableStateOf("") }
     var remove by remember { mutableStateOf<InstalledPlugin?>(null) }
+    LaunchedEffect(state.lastInstalledID) { if (state.lastInstalledID != null) { community = false; selected = null; reordering = false } }
     val zipPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) model.prepareZip(uri)
     }
@@ -74,10 +77,10 @@ internal fun PluginsView(model: PluginManagerModel, state: PluginManagerState, r
         }
     }
     Scaffold(containerColor = if (LocalSkinEnabled.current) Color.Transparent else MaterialTheme.colorScheme.background, topBar = {
-        TopAppBar(title = { Text(state.installed.firstOrNull { it.id == selected }?.displayName.orEmpty()) }, navigationIcon = {
+        TopAppBar(title = { Text(state.installed.firstOrNull { it.id == selected }?.displayName ?: mb("插件", "Plugins")) }, navigationIcon = {
             TextButton(onClick = { if (selected != null) selected = null else close() }) { Text(mb("返回", "Back")) }
         }, actions = {
-            if (selected == null) TextButton(onClick = { reordering = !reordering }, enabled = !state.busy) {
+            if (selected == null) TextButton(onClick = { reordering = !reordering }, enabled = !state.busy && !community) {
                 Text(if (reordering) mb("完成", "Done") else mb("编辑", "Edit"))
             }
         })
@@ -88,10 +91,17 @@ internal fun PluginsView(model: PluginManagerModel, state: PluginManagerState, r
                 { localName = plugin.localName.orEmpty(); rename = plugin }, { remove = it })
             else selected = null
         }
-        if (selected == null) PluginsOverview(state, reordering, { selected = it.id },
+        if (selected == null) Column(Modifier.padding(padding)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !community, onClick = { community = false }, label = { Text(mb("已安装", "Installed")) })
+                FilterChip(selected = community, onClick = { community = true; model.clearInstalledMark() }, label = { Text(mb("社区", "Community")) })
+            }
+            if (community) PluginCommunityView(model.community, state.installed, state.busy, { model.prepareGitHub(it) })
+            else PluginsOverview(state, reordering, { selected = it.id },
             { localName = it.localName.orEmpty(); rename = it }, { remove = it }, model::move,
             { repository = ""; batchImport = true; showGitHub = true }, model::updateAll,
-            { showZip = true }, { showFolder = true }, { repository = ""; batchImport = false; showGitHub = true }, Modifier.padding(padding), display = { displaySettings = it })
+            { showZip = true }, { showFolder = true }, { repository = ""; batchImport = false; showGitHub = true }, Modifier.weight(1f), display = { displaySettings = it }, marked = state.lastInstalledID)
+        }
     }
     androidx.activity.compose.BackHandler(selected != null) { selected = null }
 

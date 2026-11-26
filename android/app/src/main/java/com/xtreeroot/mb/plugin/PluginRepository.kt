@@ -79,6 +79,9 @@ internal object PluginRepository {
 }
 
 internal class GitHubPluginPackages(private val transport: PluginHttpTransport, private val abis: List<String>) {
+    suspend fun community(query: String, page: Int): PluginCommunityPage =
+        PluginCommunity.decode(checkNotNull(metadata(PluginCommunity.address(query, page))), page)
+
     suspend fun repositories(input: String): List<String> {
         GitHubStarsList.repository(input)?.let { return listOf(it) }
         val initial = GitHubStarsList.address(input) ?: throw PluginException("Enter a plugin repository or catalog web address")

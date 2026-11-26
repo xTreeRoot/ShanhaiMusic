@@ -27,6 +27,7 @@ internal sealed interface PluginCheck {
 internal data class PluginManagerState(
     val installed: List<InstalledPlugin> = emptyList(),
     val pending: PendingPlugin? = null,
+    val lastInstalledID: String? = null,
     val requestedRepository: String? = null,
     val busy: Boolean = false,
     val error: String? = null,
@@ -39,6 +40,7 @@ internal data class PluginManagerState(
 
 internal class PluginManagerModel(application: Application) : AndroidViewModel(application) {
     private val app = application as MBApplication
+    val community = com.xtreeroot.mb.plugin.PluginCommunityPager(viewModelScope, app.pluginPackages::community)
     private val updates = PluginUpdates(app.plugins, app.pluginPackages::latestRevision, app.pluginPackages::download)
     private val mutable = MutableStateFlow(PluginManagerState())
     private var retryPreparation: (suspend () -> PendingPlugin)? = null
@@ -49,6 +51,8 @@ internal class PluginManagerModel(application: Application) : AndroidViewModel(a
         viewModelScope.launch { app.installedPlugins.collect { items -> mutable.update { it.copy(installed = items) } } }
         run { app.refreshPlugins() }
     }
+
+    fun clearInstalledMark() { mutable.update { it.copy(lastInstalledID = null) } }
 
     fun openRepository(repository: String) { mutable.update { it.copy(requestedRepository = repository) } }
 
@@ -103,8 +107,8 @@ internal class PluginManagerModel(application: Application) : AndroidViewModel(a
         run {
             val pending = mutable.value.pending ?: return@run
             app.plugins.install(pending)
-            mutable.update { it.copy(pending = null) }
             app.refreshPlugins()
+            mutable.update { it.copy(pending = null, lastInstalledID = pending.manifest.id) }
         }
     }
 
