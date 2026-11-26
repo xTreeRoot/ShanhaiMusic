@@ -17,15 +17,15 @@ import org.junit.Test
 class PluginCommunityTest {
     private fun plugin(repo: String) = CommunityPlugin(repo, repo, "", null, 0)
 
-    @Test fun requestEncodesQueryAndStopsAtGitHubSearchLimit() {
-        val address = PluginCommunity.address(" 中文 & radio ", 0).toString().toHttpUrl()
-        assertEquals("中文 & radio topic:mygo-music-plugin archived:false", address.queryParameter("q"))
-        assertEquals("1", address.queryParameter("page"))
-        val item = JSONObject().put("full_name", "owner/radio").put("name", "mygo-music-plugin-radio").put("description", JSONObject.NULL)
-        val json = JSONObject().put("total_count", 5000).put("items", JSONArray(List(30) { item }))
-        assertTrue(PluginCommunity.decode(json, 33).more)
-        assertFalse(PluginCommunity.decode(json, 34).more)
-        assertEquals("radio", PluginCommunity.decode(json, 1).plugins.first().name)
+    @Test fun searchAndPaginationStayInsideMaintainedList() {
+        assertTrue(PluginCommunity.catalog.startsWith("https://github.com/stars/xTreeRoot/lists/"))
+        val catalog = List(32) { plugin("owner/plugin-$it") }
+        assertEquals(30, PluginCommunity.page(catalog, "", 1).plugins.size)
+        assertTrue(PluginCommunity.page(catalog, "", 1).more)
+        assertEquals(2, PluginCommunity.page(catalog, "", 2).plugins.size)
+        assertFalse(PluginCommunity.page(catalog, "", 2).more)
+        assertEquals(listOf("owner/plugin-31"), PluginCommunity.page(catalog, "PLUGIN-31", 1).plugins.map { it.repository })
+        assertTrue(PluginCommunity.page(catalog, "outside-directory", 1).plugins.isEmpty())
     }
 
     @Test fun paginationRetriesAndDeduplicatesWithoutLosingTheFirstPage() = runTest {

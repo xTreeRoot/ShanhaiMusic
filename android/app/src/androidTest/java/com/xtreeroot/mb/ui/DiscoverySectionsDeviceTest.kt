@@ -48,7 +48,7 @@ class DiscoverySectionsDeviceTest {
                 Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                     if (open.value) DiscoverySectionsEditor(manifest, installer) { open.value = false }
                     else if (detail.value) Text("插件详情已打开")
-                    else PluginsOverview(PluginManagerState(installed = listOf(plugin)), false, { detail.value = true }, {}, {}, { _, _ -> }, {}, {}, {}, {}, {}, display = { open.value = true })
+                    else PluginsOverview(PluginManagerState(installed = listOf(plugin)), false, { detail.value = true }, {}, {}, { _, _ -> }, {}, {}, {}, {}, display = { open.value = true })
 
                 }
             } } } }

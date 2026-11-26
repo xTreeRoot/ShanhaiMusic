@@ -1,5 +1,13 @@
 package com.xtreeroot.mb.plugin
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.URI
@@ -79,8 +87,29 @@ internal object PluginRepository {
 }
 
 internal class GitHubPluginPackages(private val transport: PluginHttpTransport, private val abis: List<String>) {
-    suspend fun community(query: String, page: Int): PluginCommunityPage =
-        PluginCommunity.decode(checkNotNull(metadata(PluginCommunity.address(query, page))), page)
+    private val communityGate = Mutex()
+    private var communityCache: List<CommunityPlugin> = emptyList()
+    private var communityAt = 0L
+
+    suspend fun community(query: String, page: Int): PluginCommunityPage = communityGate.withLock {
+        if (communityAt == 0L || System.nanoTime() - communityAt >= java.util.concurrent.TimeUnit.HOURS.toNanos(1)) {
+            val excluded = setOf("xtreeroot/mb", "xtreeroot/shanhaimusic", "xtreeroot/mb-plugin-template")
+            val repos = repositories(PluginCommunity.catalog).filterNot { it.lowercase() in excluded }
+            val gate = Semaphore(4)
+            communityCache = coroutineScope {
+                repos.map { repo -> async {
+                    gate.withPermit {
+                        val info = try { metadata(uri("https://api.github.com/repos/$repo")) }
+                        catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { null }
+                        PluginCommunity.repository(repo, info)
+                    }
+                } }.awaitAll()
+            }
+            communityAt = System.nanoTime()
+        }
+        PluginCommunity.page(communityCache, query, page)
+    }
 
     suspend fun repositories(input: String): List<String> {
         GitHubStarsList.repository(input)?.let { return listOf(it) }

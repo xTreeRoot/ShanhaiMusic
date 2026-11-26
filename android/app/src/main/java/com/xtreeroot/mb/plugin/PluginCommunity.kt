@@ -1,14 +1,12 @@
 package com.xtreeroot.mb.plugin
 
 import java.io.File
-import java.net.URI
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONObject
 
 internal data class CommunityPlugin(val repository: String, val name: String, val description: String,
@@ -18,21 +16,23 @@ internal data class CommunityPlugin(val repository: String, val name: String, va
 internal data class PluginCommunityPage(val plugins: List<CommunityPlugin>, val more: Boolean)
 
 internal object PluginCommunity {
-    fun address(query: String, page: Int): URI = "https://api.github.com/search/repositories".toHttpUrl().newBuilder()
-        .addQueryParameter("q", "${query.trim()} topic:mygo-music-plugin archived:false".trim())
-        .addQueryParameter("sort", "stars").addQueryParameter("per_page", "30")
-        .addQueryParameter("page", page.coerceAtLeast(1).toString()).build().toUri()
+    const val catalog = "https://github.com/stars/xTreeRoot/lists/fork-mygo-%E5%B1%B1%E6%B5%B7-%E8%87%AA%E8%A1%8C%E7%BB%B4%E6%8A%A4%E4%BB%93%E5%BA%93-%E5%A4%9A%E5%B9%B3%E5%8F%B0"
 
-    fun decode(json: JSONObject, page: Int): PluginCommunityPage {
-        val items = json.getJSONArray("items")
-        val plugins = List(items.length()) { index ->
-            val item = items.getJSONObject(index)
-            val name = item.getString("name").replace(Regex("(?i)^mygo-music-(plugin-)?"), "")
-            CommunityPlugin(PluginRepository.parse(item.getString("full_name")), name,
-                if (item.isNull("description")) "" else item.getString("description"),
-                item.optJSONObject("owner")?.optString("avatar_url")?.takeIf(String::isNotBlank), item.optInt("stargazers_count"))
-        }
-        return PluginCommunityPage(plugins, plugins.size == 30 && page.coerceAtLeast(1) * 30 < minOf(json.getInt("total_count"), 1000))
+    fun page(catalog: List<CommunityPlugin>, query: String, page: Int): PluginCommunityPage {
+        val search = query.trim().lowercase(java.util.Locale.ROOT)
+        val filtered = catalog.filter { search.isEmpty() || "${it.name}\n${it.repository}\n${it.description}".lowercase(java.util.Locale.ROOT).contains(search) }
+        val start = minOf((page.coerceAtLeast(1) - 1) * 30, filtered.size)
+        val end = minOf(start + 30, filtered.size)
+        return PluginCommunityPage(filtered.subList(start, end), end < filtered.size)
+    }
+
+    fun repository(repository: String, metadata: JSONObject?): CommunityPlugin {
+        val repo = PluginRepository.parse(repository)
+        val raw = repo.substringAfter('/')
+        return CommunityPlugin(repo, raw.replace(Regex("(?i)^mygo-music-(plugin-)?"), "").ifBlank { raw },
+            metadata?.optString("description")?.takeUnless { it.isBlank() || it == "null" } ?: repo,
+            metadata?.optJSONObject("owner")?.optString("avatar_url")?.takeIf(String::isNotBlank)
+                ?: "https://github.com/${repo.substringBefore('/')}.png?size=120", metadata?.optInt("stargazers_count") ?: 0)
     }
 }
 

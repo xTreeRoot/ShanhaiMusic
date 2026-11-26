@@ -38,16 +38,12 @@ import kotlin.math.roundToInt
 @Composable
 internal fun PluginsOverview(state: PluginManagerState, reordering: Boolean, open: (InstalledPlugin) -> Unit,
                               rename: (InstalledPlugin) -> Unit, remove: (InstalledPlugin) -> Unit,
-                              move: (InstalledPlugin, Int) -> Unit, import: () -> Unit, update: () -> Unit,
+                              move: (InstalledPlugin, Int) -> Unit, update: () -> Unit,
                               zip: () -> Unit, folder: () -> Unit, github: () -> Unit, modifier: Modifier = Modifier, display: (InstalledPlugin) -> Unit = {}, marked: String? = null) {
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
             MBGroupedSection {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    MBTextButton(import, enabled = !state.busy && state.pending == null) {
-                        Icon(painterResource(R.drawable.ic_download), null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
-                        Text(mb("一键导入/覆盖", "Import / Overwrite"))
-                    }
                     MBTextButton(update, enabled = !state.busy && state.installed.any { it.repository != null }) {
                         Icon(painterResource(R.drawable.ic_download), null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
                         Text(mb("全部更新", "Update All"))

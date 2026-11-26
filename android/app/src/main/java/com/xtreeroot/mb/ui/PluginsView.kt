@@ -56,7 +56,6 @@ internal fun PluginsView(model: PluginManagerModel, state: PluginManagerState, r
     var showFolder by rememberSaveable { mutableStateOf(false) }
     var repository by rememberSaveable { mutableStateOf("") }
     var showGitHub by rememberSaveable { mutableStateOf(false) }
-    var batchImport by rememberSaveable { mutableStateOf(false) }
     var reordering by rememberSaveable { mutableStateOf(false) }
     var rename by remember { mutableStateOf<InstalledPlugin?>(null) }
     var localName by remember { mutableStateOf("") }
@@ -99,8 +98,8 @@ internal fun PluginsView(model: PluginManagerModel, state: PluginManagerState, r
             if (community) PluginCommunityView(model.community, state.installed, state.busy, { model.prepareGitHub(it) })
             else PluginsOverview(state, reordering, { selected = it.id },
             { localName = it.localName.orEmpty(); rename = it }, { remove = it }, model::move,
-            { repository = ""; batchImport = true; showGitHub = true }, model::updateAll,
-            { showZip = true }, { showFolder = true }, { repository = ""; batchImport = false; showGitHub = true }, Modifier.weight(1f), display = { displaySettings = it }, marked = state.lastInstalledID)
+            model::updateAll,
+            { showZip = true }, { showFolder = true }, { repository = ""; showGitHub = true }, Modifier.weight(1f), display = { displaySettings = it }, marked = state.lastInstalledID)
         }
     }
     androidx.activity.compose.BackHandler(selected != null) { selected = null }
@@ -121,14 +120,14 @@ internal fun PluginsView(model: PluginManagerModel, state: PluginManagerState, r
     state.importReport?.let { PluginUpdateResultDialog(it, imported = true, model::dismissImportReport) }
     if (showGitHub) AlertDialog(
         onDismissRequest = { showGitHub = false }, title = {
-            Text(if (batchImport) mb("一键导入/覆盖", "Import / Overwrite") else mb("从 GitHub 安装", "Install from GitHub"))
+            Text(mb("从 GitHub 安装", "Install from GitHub"))
         },
         text = { OutlinedTextField(repository, { repository = it }, label = {
-            Text(if (batchImport) mb("插件仓库或列表网页地址", "Plugin repository or catalog web address") else "owner/repository")
+            Text("owner/repository")
         }, singleLine = true) },
         confirmButton = { TextButton(onClick = {
             showGitHub = false
-            if (batchImport) model.importGitHub(repository) else model.prepareGitHub(repository)
+            model.prepareGitHub(repository)
         }, enabled = repository.isNotBlank() && !state.busy) { Text(mb("检查", "Check")) } },
         dismissButton = { TextButton(onClick = { showGitHub = false }) { Text(mb("取消", "Cancel")) } },
     )

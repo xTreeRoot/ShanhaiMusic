@@ -1,5 +1,8 @@
 package com.xtreeroot.mb.ui
 
+import com.xtreeroot.mb.MBApplication
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.SystemClock
@@ -28,13 +31,21 @@ class PluginCenterDeviceTest {
         if (InstrumentationRegistry.getArguments().getString("communityLive") == "true") {
             val deadline = SystemClock.uptimeMillis() + 45_000
             while (SystemClock.uptimeMillis() < deadline && find("安装", "Install") == null) SystemClock.sleep(100)
+            if (find("安装", "Install") == null) screenshot("community-failure")
             assertTrue("GitHub community must expose installable repositories", find("安装", "Install") != null)
         }
         screenshot("community")
         click("已安装", "Installed")
         assertTrue(waitFor("从 GitHub 安装", "Install from GitHub") != null)
-        assertTrue(find("一键导入/覆盖", "Import / Overwrite") != null)
         screenshot("installed")
+    }
+
+    @Test fun maintainedCatalogLive() = runBlocking {
+        if (InstrumentationRegistry.getArguments().getString("communityLive") != "true") return@runBlocking
+        val app = instrumentation.targetContext.applicationContext as MBApplication
+        val page = withTimeout(90_000) { app.pluginPackages.community("", 1) }
+        assertTrue(page.plugins.isNotEmpty())
+        println("Maintained repositories: " + page.plugins.joinToString { it.repository })
     }
 
     private fun find(vararg labels: String): AccessibilityNodeInfo? {

@@ -42,7 +42,7 @@ internal fun PluginCommunityView(model: PluginCommunityPager, installed: List<In
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(plugin.name, style = MaterialTheme.typography.titleMedium)
                     Text(plugin.description.ifBlank { plugin.repository }, maxLines = 2, style = MaterialTheme.typography.bodySmall)
-                    Text("★ ${plugin.stars}", style = MaterialTheme.typography.labelSmall)
+                    if (plugin.stars > 0) Text("★ ${plugin.stars}", style = MaterialTheme.typography.labelSmall)
                 }
                 if (installed.any { it.repository.equals(plugin.repository, true) }) Text(mb("已安装", "Installed"), style = MaterialTheme.typography.labelMedium)
                 else OutlinedButton(onClick = { install(plugin.repository) }, enabled = !busy) { Text(mb("安装", "Install")) }
