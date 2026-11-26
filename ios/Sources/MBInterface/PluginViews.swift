@@ -43,6 +43,8 @@ struct PluginPreparationPresentation: ViewModifier {
 struct PluginsView: View {
     @Environment(\.skinAccent) private var skinAccent
     let model: PluginModel
+    @State private var community = false
+    @State private var communityModel = PluginCommunityModel()
     @State private var importing = false
     @State private var folder = false
     @State private var github = false
@@ -55,69 +57,19 @@ struct PluginsView: View {
     @State private var renaming: InstalledPlugin?
     @State private var localName = ""
     var body: some View {
-        List {
-            Group {
-                Section {
-                    HStack {
-                        Button("一键导入/覆盖", systemImage: "square.and.arrow.down.on.square") { stars = true }
-                            .disabled(model.busy || model.pending != nil)
-                            .accessibilityIdentifier("plugin-import-stars")
-                        Spacer(minLength: 12)
-                        Button("全部更新", systemImage: "arrow.down.circle") { Task { await model.updateAll() } }
-                            .accessibilityIdentifier("plugin-update-all")
-                            .disabled(model.busy || !model.installed.contains(where: { $0.repository != nil }))
-                    }.buttonStyle(.borderless)
-                }
-                if model.updatingAll || model.updateStatus != nil {
-                    Section {
-                        if model.updatingAll { ProgressView("正在更新插件") }
-                        if let status = model.updateStatus { Text(status).font(.caption).foregroundStyle(.secondary) }
-                        ForEach(model.installed.filter { model.updateNotes[$0.id] != nil }) { plugin in
-                            DisclosureGroup(model.displayName(plugin)) { Text(model.updateNotes[plugin.id] ?? "").font(.callout) }
-                        }
-                    }
-                }
-                Section {
-                  ForEach(model.installed) { plugin in
-                    HStack(spacing: 8) {
-                    NavigationLink {
-                        PluginSettingsView(model: model, plugin: plugin)
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "puzzlepiece.extension.fill").font(.title2).foregroundStyle(skinAccent).frame(width: 48, height: 48).background(skinAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                            VStack(alignment: .leading, spacing: 5) {
-                            Text(model.displayName(plugin)).font(.headline)
-                            Text(plugin.manifest.version ?? "").font(.caption).foregroundStyle(.secondary)
-                            if let version = model.updates[plugin.id] { Text("可更新至 \(version)").font(.caption).foregroundStyle(.tint) }
-                            if let issue = model.updateIssues[plugin.id] { Text(issue).font(.caption).foregroundStyle(.secondary) }
-                            Text(LocalizedStringKey(model.disabled.contains(plugin.id) ? "已停用" : "已启用")).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }.padding(.vertical, 5)
-                    }
-                    Button("设置显示") { displaySettings = plugin }
-                        .buttonStyle(.borderless).font(.subheadline).fixedSize()
-                        .accessibilityIdentifier("plugin-display-\(plugin.id)")
-                    }
-                    .swipeActions(allowsFullSwipe: false) { Button("删除", role: .destructive) { removing = plugin; confirmingRemoval = true }.disabled(model.busy) }
-                    .contextMenu {
-                        Button("本地名称", systemImage: "pencil") { localName = model.presentation.names[plugin.id] ?? ""; renaming = plugin }
-                    }
-                  }.onMove { offsets, destination in Task { await model.move(from: offsets, to: destination) } }
-                }
-                Section {
-                    Button("从 ZIP 安装", systemImage: "doc.zipper") { importing = true }
-                    Button("从文件夹安装", systemImage: "folder") { folder = true }
-                    Button("从 GitHub 安装", systemImage: "arrow.down.circle") { github = true }
-                        .accessibilityIdentifier("plugin-install-github")
-                }.disabled(model.busy)
-                if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
-
-            }.modifier(SkinRow())
+        VStack(spacing: 0) {
+            Picker("插件", selection: $community) { Text("已安装").tag(false); Text("社区").tag(true) }
+                .pickerStyle(.segmented).padding(.horizontal).padding(.bottom, 8).accessibilityIdentifier("plugin-manager-tabs")
+            if community {
+                PluginCommunityView(installed: model.installed, busy: model.busy, install: { repo in Task { await model.prepareGitHub(repo) } }, model: communityModel)
+            } else { installedList }
         }
         .modifier(MusicGroupedList())
-        .navigationTitle("")
+        .navigationTitle("插件")
+        .onChange(of: model.lastInstalledID) { _, id in if id != nil { community = false } }
+        .onChange(of: community) { _, selected in if selected { model.clearInstalledMark() } }
         #if os(iOS)
-        .toolbar { ToolbarItem(placement: .primaryAction) { EditButton().disabled(model.busy) } }
+        .toolbar { ToolbarItem(placement: .primaryAction) { EditButton().disabled(model.busy || community) } }
         #endif
         .alert("本地名称", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("留空恢复默认名称", text: $localName)
@@ -172,6 +124,77 @@ struct PluginsView: View {
             }
         }
     }
+    private var installedList: some View {
+        ScrollViewReader { proxy in
+            List {
+            Group {
+                Section {
+                    HStack {
+                        Button("一键导入/覆盖", systemImage: "square.and.arrow.down.on.square") { stars = true }
+                            .disabled(model.busy || model.pending != nil)
+                            .accessibilityIdentifier("plugin-import-stars")
+                        Spacer(minLength: 12)
+                        Button("全部更新", systemImage: "arrow.down.circle") { Task { await model.updateAll() } }
+                            .accessibilityIdentifier("plugin-update-all")
+                            .disabled(model.busy || !model.installed.contains(where: { $0.repository != nil }))
+                    }.buttonStyle(.borderless)
+                }
+                if model.updatingAll || model.updateStatus != nil {
+                    Section {
+                        if model.updatingAll { ProgressView("正在更新插件") }
+                        if let status = model.updateStatus { Text(status).font(.caption).foregroundStyle(.secondary) }
+                        ForEach(model.installed.filter { model.updateNotes[$0.id] != nil }) { plugin in
+                            DisclosureGroup(model.displayName(plugin)) { Text(model.updateNotes[plugin.id] ?? "").font(.callout) }
+                        }
+                    }
+                }
+                Section {
+                  ForEach(model.installed) { plugin in
+                    HStack(spacing: 8) {
+                    NavigationLink {
+                        PluginSettingsView(model: model, plugin: plugin)
+                    } label: {
+                        HStack(spacing: 14) {
+                            InstalledPluginArtwork(plugin: plugin)
+                            VStack(alignment: .leading, spacing: 5) {
+                            Text(model.displayName(plugin)).font(.headline)
+                            Text(plugin.manifest.version ?? "").font(.caption).foregroundStyle(.secondary)
+                            if let version = model.updates[plugin.id] { Text("可更新至 \(version)").font(.caption).foregroundStyle(.tint) }
+                            if let issue = model.updateIssues[plugin.id] { Text(issue).font(.caption).foregroundStyle(.secondary) }
+                            Text(LocalizedStringKey(model.disabled.contains(plugin.id) ? "已停用" : "已启用")).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }.padding(.vertical, 5)
+                    }
+                    Button("设置显示") { displaySettings = plugin }
+                        .buttonStyle(.borderless).font(.subheadline).fixedSize()
+                        .accessibilityIdentifier("plugin-display-\(plugin.id)")
+                    }
+                    .id(plugin.id)
+                    .listRowBackground(model.lastInstalledID == plugin.id ? skinAccent.opacity(0.12) : nil)
+                    .swipeActions(allowsFullSwipe: false) { Button("删除", role: .destructive) { removing = plugin; confirmingRemoval = true }.disabled(model.busy) }
+                    .contextMenu {
+                        Button("本地名称", systemImage: "pencil") { localName = model.presentation.names[plugin.id] ?? ""; renaming = plugin }
+                    }
+                  }.onMove { offsets, destination in Task { await model.move(from: offsets, to: destination) } }
+                }
+                Section {
+                    Button("从 ZIP 安装", systemImage: "doc.zipper") { importing = true }
+                    Button("从文件夹安装", systemImage: "folder") { folder = true }
+                    Button("从 GitHub 安装", systemImage: "arrow.down.circle") { github = true }
+                        .accessibilityIdentifier("plugin-install-github")
+                }.disabled(model.busy)
+                if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
+
+            }.modifier(SkinRow())
+        }
+            .task(id: model.lastInstalledID) {
+                guard let id = model.lastInstalledID else { return }
+                await Task.yield()
+                withAnimation { proxy.scrollTo(id, anchor: .center) }
+            }
+        }
+    }
+
 }
 
 private struct PluginStarsView: View {

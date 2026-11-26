@@ -17,6 +17,8 @@ public enum PluginPreparation: Equatable {
     public private(set) var preparation: PluginPreparation?
     public var busy: Bool { installing || updatingAll || preparation == .checking || starsBusy || starsEntries != nil }
     public private(set) var errorMessage: String?
+    public private(set) var lastInstalledID: String?
+    public func clearInstalledMark() { lastInstalledID = nil }
     public private(set) var revision = 0
     public private(set) var disabled: Set<String> = []
     public private(set) var updates: [String: String] = [:]
@@ -117,7 +119,7 @@ public enum PluginPreparation: Equatable {
     public func install() async {
         guard let pending, !busy else { return }; installing = true; errorMessage = nil
         defer { installing = false }
-        do { try await apply(pending); self.pending = nil; await restore() }
+        do { try await apply(pending); self.pending = nil; await restore(); lastInstalledID = pending.manifest.id }
         catch { errorMessage = error.localizedDescription }
     }
     public func discard() async { if let pending { await installer.discard(pending) }; pending = nil }

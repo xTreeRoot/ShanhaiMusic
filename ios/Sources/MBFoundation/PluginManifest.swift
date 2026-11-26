@@ -47,6 +47,7 @@ public struct PluginManifest: Codable, Sendable {
     public let id: String
     public let name: String?
     public let version: String?
+    public let icon: String?
     public let main: String?
     public let minAppVersion: String?
     public let minAppVersionByPlatform: [String: String]?

@@ -2,6 +2,40 @@ import XCTest
 import UIKit
 
 final class MBiOSUITests: XCTestCase {
+    @MainActor func testPluginCenterTabsAndInstallationReview() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--plugin-check-demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        selectTab("设置", app: app)
+        app.buttons["settings-plugins"].tap()
+        let community = app.buttons["社区"]
+        XCTAssertTrue(community.waitForExistence(timeout: 5))
+        community.tap()
+        let search = app.textFields["plugin-community-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap(); search.typeText("radio")
+        app.buttons["plugin-community-submit"].tap()
+        capture("插件中心-社区搜索", app: app)
+        app.buttons["已安装"].tap()
+        let github = app.buttons["plugin-install-github"]
+        XCTAssertTrue(github.waitForExistence(timeout: 5))
+        github.tap()
+        let alert = app.alerts.firstMatch
+        let field = alert.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap(); field.typeText("fixture/success")
+        alert.buttons["检查"].tap()
+        let install = app.buttons["安装"]
+        XCTAssertTrue(install.waitForExistence(timeout: 15))
+        capture("插件中心-安装仍需确认", app: app)
+        install.tap()
+        XCTAssertTrue(github.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["已安装"].exists)
+        capture("插件中心-安装后定位", app: app)
+    }
+
     @MainActor func testMusicMetadataAuthorLikesAndActionSheetShareQualityWithSettings() {
         continueAfterFailure = false
         let app = XCUIApplication()

@@ -1,0 +1,38 @@
+[
+  {
+    "file": "iphone-installed.png",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testPluginCenterTabsAndInstallationReview()",
+    "sha256": "ff093dccc2ebb04d5245b9b77dd6619588fc51508735d568af097aeb2129b5c2"
+  },
+  {
+    "file": "iphone-review.png",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testPluginCenterTabsAndInstallationReview()",
+    "sha256": "f73ca6d436307bae3651ef605443ce7b1ee645a1de2b8f810e85f491aea4fc00"
+  },
+  {
+    "file": "iphone-community.png",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testPluginCenterTabsAndInstallationReview()",
+    "sha256": "c84a0dab7271967047b1d138ed66fea1d4b402981ac8a970d39dde0bf28ce7d4"
+  },
+  {
+    "file": "ipad-installed.png",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPluginCenterTabsAndInstallationReview()",
+    "sha256": "da91bc3b9540719da22a788781811b81f251def509edfb5af4a605e26f0d3784"
+  },
+  {
+    "file": "ipad-review.png",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPluginCenterTabsAndInstallationReview()",
+    "sha256": "47537ba3a7aeb631bd3c5bb428b48ad8cb8e2ad6a095365b5ad252645af25132"
+  },
+  {
+    "file": "ipad-community.png",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPluginCenterTabsAndInstallationReview()",
+    "sha256": "3b37bc9afd126998c940c506b83b2bb627e6a703580c59519efe2ab83411fed4"
+  }
+]

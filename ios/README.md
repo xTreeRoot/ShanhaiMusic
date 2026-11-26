@@ -1,5 +1,7 @@
 # MB iPhone / iPad
 
+build 66 为插件管理增加「已安装 / 社区」切换、GitHub 社区搜索和分页安装、包内图标及作者头像；安装完成返回已安装并自动定位高亮。原名称、排序、栏目设置、导入、节点目录和账号数据继续保留。验收与截图见 [插件中心](Review/PluginCenter/README.md)。
+
 SwiftUI 原生客户端，最低 iOS / iPadOS 17，Swift 6。源码在 `ios` 分支维护，工程入口为 `ios/MBiOS.xcodeproj`。产品版本与构建号以工程设置为准，功能对照基准见 [PARITY.md](PARITY.md)。
 
 build 62 的 iPad 使用居中横向导航，依次为发现、搜索、资料库、我的、设置、模式切换，不再显示发现侧栏。设置直接在标签页打开，模式切换保留当前页面与播放会话；iPhone 沿用系统标签栏。
