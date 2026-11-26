@@ -39,16 +39,16 @@ private actor CommunityReplies {
     #expect(!model.loading && model.more)
 }
 
-@Test func communityRequestAndPageLimitsMatchGitHubContract() throws {
-    let url = PluginCommunity.address(query: " 中文 & radio ", page: 0)
-    let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-    #expect(query.first(where: { $0.name == "q" })?.value == "中文 & radio topic:mygo-music-plugin archived:false")
-    #expect(query.first(where: { $0.name == "page" })?.value == "1")
-    let item: [String: Any] = ["full_name": "owner/radio", "name": "mygo-music-plugin-radio", "description": NSNull(), "stargazers_count": 2, "owner": [:]]
-    let data = try JSONSerialization.data(withJSONObject: ["total_count": 5000, "items": Array(repeating: item, count: 30)])
-    #expect(try PluginCommunity.decode(data, page: 33).more)
-    #expect(try !PluginCommunity.decode(data, page: 34).more)
-    #expect(try PluginCommunity.decode(data, page: 1).plugins.first?.name == "radio")
+@Test func communitySearchAndPagingStayWithinTheMaintainedCatalog() {
+    let catalog = (0..<32).map { CommunityPlugin(repository: "owner/plugin-\($0)", name: "Plugin \($0)", description: "", avatar: nil, stars: 0) }
+    #expect(PluginCommunity.catalogURL.host == "github.com")
+    #expect(PluginCommunity.catalogURL.path.hasPrefix("/stars/xTreeRoot/lists/"))
+    #expect(PluginCommunity.page(catalog, query: "", page: 1).plugins.count == 30)
+    #expect(PluginCommunity.page(catalog, query: "", page: 1).more)
+    #expect(PluginCommunity.page(catalog, query: "", page: 2).plugins.count == 2)
+    #expect(!PluginCommunity.page(catalog, query: "", page: 2).more)
+    #expect(PluginCommunity.page(catalog, query: "PLUGIN 31", page: 1).plugins.map(\.repository) == ["owner/plugin-31"])
+    #expect(PluginCommunity.page(catalog, query: "outside-directory", page: 1).plugins.isEmpty)
 }
 
 @Test func pluginIconsStayInsideTheirCodeDirectory() throws {

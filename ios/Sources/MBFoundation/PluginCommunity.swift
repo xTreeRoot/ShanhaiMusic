@@ -15,45 +15,66 @@ public struct PluginCommunityPage: Sendable {
     public let more: Bool
 }
 
-/// 社区目录只读取 GitHub 公开仓库；安装仍走现有暂存和权限确认流程。
+/// 社区只来自山海维护列表；仓库元信息不改变目录成员。
 public enum PluginCommunity {
-    public static func address(query: String, page: Int) -> URL {
-        var url = URLComponents(string: "https://api.github.com/search/repositories")!
-        url.queryItems = [
-            URLQueryItem(name: "q", value: (query.trimmingCharacters(in: .whitespacesAndNewlines) + " topic:mygo-music-plugin archived:false").trimmingCharacters(in: .whitespaces)),
-            URLQueryItem(name: "sort", value: "stars"), URLQueryItem(name: "per_page", value: "30"),
-            URLQueryItem(name: "page", value: String(max(1, page)))
-        ]
-        return url.url!
-    }
+    public static let catalogURL = URL(string: "https://github.com/stars/xTreeRoot/lists/fork-mygo-%E5%B1%B1%E6%B5%B7-%E8%87%AA%E8%A1%8C%E7%BB%B4%E6%8A%A4%E4%BB%93%E5%BA%93-%E5%A4%9A%E5%B9%B3%E5%8F%B0")!
 
-    public static func decode(_ data: Data, page: Int) throws -> PluginCommunityPage {
-        struct Answer: Decodable {
-            struct Item: Decodable {
-                struct Owner: Decodable { let avatar_url: URL? }
-                let full_name: String
-                let name: String
-                let description: String?
-                let stargazers_count: Int
-                let owner: Owner
-            }
-            let total_count: Int
-            let items: [Item]
-        }
-        let answer = try JSONDecoder().decode(Answer.self, from: data)
-        let plugins = answer.items.map { item in
-            CommunityPlugin(repository: item.full_name, name: item.name.replacingOccurrences(of: "(?i)^mygo-music-(plugin-)?", with: "", options: .regularExpression),
-                            description: item.description ?? "", avatar: item.owner.avatar_url, stars: item.stargazers_count)
-        }
-        return PluginCommunityPage(plugins: plugins, more: plugins.count == 30 && max(1, page) * 30 < min(answer.total_count, 1000))
+    public static func page(_ catalog: [CommunityPlugin], query: String, page: Int) -> PluginCommunityPage {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filtered = catalog.filter { query.isEmpty || ($0.name + "\n" + $0.repository + "\n" + $0.description).lowercased().contains(query) }
+        let start = min((max(1, page) - 1) * 30, filtered.count), end = min(max(1, page) * 30, filtered.count)
+        return PluginCommunityPage(plugins: Array(filtered[start..<end]), more: end < filtered.count)
     }
 
     public static func load(query: String, page: Int) async throws -> PluginCommunityPage {
-        var request = URLRequest(url: address(query: query, page: page), timeoutInterval: 20)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await NetworkClient.shared.data(for: request, maximumBytes: 2 * 1024 * 1024)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw PluginFailure.invalid("无法读取社区插件，请稍后重试") }
-        return try decode(data, page: page)
+        let values = try await MaintainedCommunity.shared.load()
+        return self.page(values, query: query, page: page)
+    }
+
+    fileprivate static func repository(_ repository: String) async -> CommunityPlugin {
+        struct Metadata: Decodable {
+            struct Owner: Decodable { let avatar_url: URL? }
+            let description: String?
+            let stargazers_count: Int
+            let owner: Owner
+        }
+        let parts = repository.split(separator: "/"), raw = String(parts.last ?? "")
+        let short = raw.replacingOccurrences(of: "(?i)^mygo-music-(plugin-)?", with: "", options: .regularExpression)
+        var metadata: Metadata?
+        if let url = URL(string: "https://api.github.com/repos/" + repository) {
+            var request = URLRequest(url: url, timeoutInterval: 15)
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            if let (data, response) = try? await NetworkClient.shared.data(for: request, maximumBytes: 256 * 1024),
+               (response as? HTTPURLResponse)?.statusCode == 200 { metadata = try? JSONDecoder().decode(Metadata.self, from: data) }
+        }
+        return CommunityPlugin(repository: repository, name: short.isEmpty ? raw : short,
+                               description: metadata?.description ?? repository,
+                               avatar: metadata?.owner.avatar_url ?? URL(string: "https://github.com/\(parts.first ?? "").png?size=120"),
+                               stars: metadata?.stargazers_count ?? 0)
+    }
+}
+
+private actor MaintainedCommunity {
+    static let shared = MaintainedCommunity()
+    private var cached: [CommunityPlugin] = []
+    private var updated: Date?
+    private var request: Task<[CommunityPlugin], any Error>?
+
+    func load() async throws -> [CommunityPlugin] {
+        if let updated, Date().timeIntervalSince(updated) < 3600 { return cached }
+        if let request { return try await request.value }
+        let task = Task {
+            let repos = try await PluginStars.repositories(PluginCommunity.catalogURL.absoluteString)
+            return await withTaskGroup(of: (Int, CommunityPlugin).self) { group in
+                for (index, repo) in repos.enumerated() { group.addTask { (index, await PluginCommunity.repository(repo)) } }
+                var values: [(Int, CommunityPlugin)] = []
+                for await item in group { values.append(item) }
+                return values.sorted { $0.0 < $1.0 }.map(\.1)
+            }
+        }
+        request = task
+        do { let values = try await task.value; cached = values; updated = Date(); request = nil; return values }
+        catch { request = nil; throw error }
     }
 }
 

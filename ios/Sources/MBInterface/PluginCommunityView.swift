@@ -24,7 +24,7 @@ struct PluginCommunityView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(plugin.name).font(.headline)
                         Text(plugin.description.isEmpty ? plugin.repository : plugin.description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                        Text("★ \(plugin.stars)").font(.caption2).foregroundStyle(.secondary)
+                        if plugin.stars > 0 { Text("★ \(plugin.stars)").font(.caption2).foregroundStyle(.secondary) }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     if installed.contains(where: { $0.repository?.caseInsensitiveCompare(plugin.repository) == .orderedSame }) {
                         Text("已安装").font(.caption).foregroundStyle(.secondary)

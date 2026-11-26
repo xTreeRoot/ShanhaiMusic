@@ -1,6 +1,6 @@
 # MB iPhone / iPad
 
-build 66 为插件管理增加「已安装 / 社区」切换、GitHub 社区搜索和分页安装、包内图标及作者头像；安装完成返回已安装并自动定位高亮。原名称、排序、栏目设置、导入、节点目录和账号数据继续保留。验收与截图见 [插件中心](Review/PluginCenter/README.md)。
+build 67 为插件管理增加「已安装 / 社区」切换、山海维护 Stars 列表内搜索和分页安装、包内图标及作者头像；安装完成返回已安装并自动定位高亮。去掉一键导入/覆盖入口，名称、排序、栏目设置、手动安装、节点目录和账号数据继续保留。验收与截图见 [插件中心](Review/PluginCenter/README.md)。
 
 SwiftUI 原生客户端，最低 iOS / iPadOS 17，Swift 6。源码在 `ios` 分支维护，工程入口为 `ios/MBiOS.xcodeproj`。产品版本与构建号以工程设置为准，功能对照基准见 [PARITY.md](PARITY.md)。
 

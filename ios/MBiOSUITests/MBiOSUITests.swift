@@ -15,8 +15,9 @@ final class MBiOSUITests: XCTestCase {
         community.tap()
         let search = app.textFields["plugin-community-search"]
         XCTAssertTrue(search.waitForExistence(timeout: 5))
-        search.tap(); search.typeText("radio")
+        search.tap(); search.typeText("mygo")
         app.buttons["plugin-community-submit"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "plugin-community-install-")).firstMatch.waitForExistence(timeout: 35))
         capture("插件中心-社区搜索", app: app)
         app.buttons["已安装"].tap()
         let github = app.buttons["plugin-install-github"]
@@ -1389,24 +1390,21 @@ final class MBiOSUITests: XCTestCase {
         capture("设置-MB-Server-未接入", app: app)
     }
 
-    @MainActor func testPluginCatalogImportRejectsNonWebInput() {
+    @MainActor func testPluginManualInstallRejectsNonRepositoryInput() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--demo", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
-        app.launch()
-        selectTab("设置", app: app)
+        app.launch(); selectTab("设置", app: app)
         app.buttons["settings-plugins"].tap()
-        let open = app.buttons["plugin-import-stars"]
-        XCTAssertTrue(open.waitForExistence(timeout: 5)); open.tap()
-        let field = app.textFields["plugin-stars-address"]
-        XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("file:///tmp/plugin.zip")
-        app.buttons["plugin-stars-read"].tap()
-        let problem = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "请输入插件仓库或列表网页地址")).firstMatch
-        XCTAssertTrue(problem.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["plugin-stars-confirm"].exists)
-        capture("插件-网页列表导入弹窗", app: app)
-        app.buttons["关闭"].tap()
-        XCTAssertTrue(field.waitForNonExistence(timeout: 5))
+        app.buttons["plugin-install-github"].tap()
+        let field = app.alerts.firstMatch.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap(); field.typeText("file:///tmp/plugin.zip")
+        app.alerts.firstMatch.buttons["检查"].tap()
+        XCTAssertTrue(app.staticTexts["插件检查失败"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["安装"].exists)
+        app.buttons["dismiss-plugin-check-error"].tap()
+        XCTAssertTrue(app.buttons["plugin-install-github"].waitForExistence(timeout: 5))
     }
 
     @MainActor func testDiscoverySwipeAndPluginLocalNamePropagate() {

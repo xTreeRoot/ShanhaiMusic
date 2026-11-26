@@ -48,8 +48,6 @@ struct PluginsView: View {
     @State private var importing = false
     @State private var folder = false
     @State private var github = false
-    @State private var stars = false
-    @State private var starsAddress = ""
     @State private var repo = ""
     @State private var removing: InstalledPlugin?
     @State private var confirmingRemoval = false
@@ -77,9 +75,6 @@ struct PluginsView: View {
             Button("保存") { if let plugin = renaming { Task { await model.rename(plugin, to: localName) } }; renaming = nil }
         }
         .sheet(item: $displaySettings) { plugin in DiscoverySectionsEditor(manifest: plugin.manifest, model: model) }
-        .sheet(isPresented: $stars, onDismiss: { Task { await model.discardStars() } }) {
-            PluginStarsView(model: model, address: $starsAddress)
-        }
         .confirmationDialog("删除插件？", isPresented: $confirmingRemoval, titleVisibility: .visible) {
             Button("删除插件", role: .destructive) { if let removing { Task { await model.remove(removing) } } }
         }
@@ -130,10 +125,6 @@ struct PluginsView: View {
             Group {
                 Section {
                     HStack {
-                        Button("一键导入/覆盖", systemImage: "square.and.arrow.down.on.square") { stars = true }
-                            .disabled(model.busy || model.pending != nil)
-                            .accessibilityIdentifier("plugin-import-stars")
-                        Spacer(minLength: 12)
                         Button("全部更新", systemImage: "arrow.down.circle") { Task { await model.updateAll() } }
                             .accessibilityIdentifier("plugin-update-all")
                             .disabled(model.busy || !model.installed.contains(where: { $0.repository != nil }))
@@ -195,62 +186,6 @@ struct PluginsView: View {
         }
     }
 
-}
-
-private struct PluginStarsView: View {
-    let model: PluginModel
-    @Binding var address: String
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Group {
-                    if let entries = model.starsEntries {
-                        ForEach(entries, content: repositoryRow)
-                    } else {
-                        TextField("插件仓库或列表网页地址", text: $address)
-                            .autocorrectionDisabled().disabled(model.starsBusy)
-                            .accessibilityIdentifier("plugin-stars-address")
-                    }
-                    if model.starsBusy { ProgressView(model.starsEntries == nil ? "正在解析插件列表" : "正在导入插件") }
-                    if let status = model.starsStatus { Text(status).font(.caption).foregroundStyle(.secondary) }
-
-                }.modifier(SkinRow())
-            }
-            .navigationTitle("一键导入/覆盖")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(model.starsBusy) }
-                ToolbarItem(placement: .confirmationAction) { action }
-            }
-        }
-        .interactiveDismissDisabled(model.starsBusy)
-    }
-
-    @ViewBuilder private var action: some View {
-        if model.starsEntries == nil {
-            Button("解析列表") { Task { await model.reviewStars(address) } }
-                .disabled(model.starsBusy || address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("plugin-stars-read")
-        } else if !model.starsFinished {
-            Button("导入/覆盖") { Task { await model.applyStars() } }
-                .disabled(model.starsBusy || model.starsEntries?.contains(where: { $0.manifest != nil }) != true)
-                .accessibilityIdentifier("plugin-stars-confirm")
-        }
-    }
-
-    private func repositoryRow(_ entry: PluginStarsEntry) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(entry.manifest?.displayName ?? entry.repository).font(.headline)
-            if let manifest = entry.manifest {
-                Text(entry.repository).font(.caption).foregroundStyle(.secondary)
-                let network = manifest.permissions?.network ?? []
-                if network.isEmpty { Text("不需要网络权限").font(.caption) }
-                else { DisclosureGroup("网络权限") { Text(network.joined(separator: ", ")).font(.caption.monospaced()) } }
-            }
-            if let issue = entry.issue { Text(issue).font(.caption).foregroundStyle(.secondary) }
-        }
-    }
 }
 
 private struct PluginSettingsView: View {
