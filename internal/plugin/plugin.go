@@ -128,6 +128,9 @@ func (ps Programs) Allows(dir, command string) bool {
 type Manifest struct {
 	music.Info
 	Main string `json:"main,omitempty"`
+	// Icon is a picture of the plugin in its folder, PNG, JPEG or WebP, which
+	// the Plugins page shows: square, at least 120 pixels across.
+	Icon string `json:"icon,omitempty"`
 	// MinAppVersion is the oldest version of the app the plugin works with,
 	// such as 0.1.8. An older one won't install it, or load it.
 	MinAppVersion           string            `json:"minAppVersion,omitempty"`

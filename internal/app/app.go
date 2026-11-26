@@ -40,6 +40,7 @@ const (
 	pageBrowse
 	pageSection
 	pageDiscoveryCollection
+	pagePlugins
 )
 
 type route struct {
@@ -86,7 +87,8 @@ type app struct {
 
 	wasBehind bool // the window wasn't at the front as last built
 
-	captions                            captionState    // the episode playing's captions, and the model they take
+	captions                            captionState // the episode playing's captions, and the model they take
+	community                           communityState
 	installer                           pluginInstaller // installing and updating plugins
 	pluginPrefs                         *pluginprefs.Store
 	pluginPrefsBusy, pluginPrefsSyncing bool
@@ -342,7 +344,7 @@ func (a *app) setPluginEnabled(lib *library, on bool) {
 	a.enabledChanged()
 	if !on {
 		if a.library == lib {
-			a.switchSource(a.libs[0].id)
+			a.leaveSource()
 		}
 		if closer, ok := lib.src.(interface{ Close() }); ok {
 			go closer.Close()

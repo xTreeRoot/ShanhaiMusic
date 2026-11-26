@@ -173,9 +173,9 @@ func contactSheet(shots []image.Image, cols int) image.Image {
 	return out
 }
 
-// With MM_FRAMES set, saves the settings as they list the sources: the local
-// files and a plugin that asks for a couple of things.
-func TestSettingsFrame(t *testing.T) {
+// With MM_FRAMES set, saves the Plugins page as it lists the sources: the local
+// files, a plugin that asks for a couple of things, and one just installed.
+func TestPluginsFrame(t *testing.T) {
 	dir := framesDir(t)
 	a := newTestApp()
 	a.libs = nil
@@ -191,10 +191,24 @@ func TestSettingsFrame(t *testing.T) {
 	plugin.vals["region"] = "Nordics"
 	a.library = addFake(a, plugin)
 	a.account = &music.Account{ID: "1", Name: "Alex"}
-	a.settingsPage = "plugins"
-	tt := ui.NewTester(a.settingsView, 780, 720)
+	a.needsSetup = true
+	// GH, from GitHub with no icon of its own, shows its owner's picture.
+	wasAvatar := ownerAvatar
+	defer func() { ownerAvatar = wasAvatar }()
+	ownerAvatar = func(owner string) string { return "avatar:" + owner }
+	a.art.art[sized("avatar:o", pluginTileSize*3)] = &artwork{bmp: ui.NewBitmap(coverImage(ui.RGB(20, 20, 30), ui.RGB(90, 200, 170)))}
+	gh := addFake(a, githubPlugin(t))
+	a.settings.PluginUpdates = map[string]string{gh.id: "v0.2.0"}
+	tools := &guardedSource{fakeSource: newFakeSource("tools")}
+	tools.info.Name = "Podcast Tools"
+	tools.perms.Process = []string{"ffmpeg"}
+	tools.perms.Network = []string{"api.example.com"}
+	addFake(a, tools)
+	a.local.AddFolders(t.TempDir())
+	a.installer.marked = gh.id // as it shows just installed
+	tt := pluginsView(a, 1100)
 	settled(tt)
-	saveFrame(t, dir, "settings.png", tt.Image())
+	saveFrame(t, dir, "plugins.png", tt.Image())
 }
 
 // With MM_FRAMES set, saves Now Playing with and without a radio: the

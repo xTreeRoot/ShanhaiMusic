@@ -238,6 +238,21 @@ func (a *app) switchSource(id string) {
 	}
 }
 
+// leaveSource makes the first source on the active one, as the one active was
+// turned off or removed: on the Plugins page, where that's done, the page stays,
+// now of that source; elsewhere, its Home shows.
+func (a *app) leaveSource() {
+	next := a.libs[0]
+	if a.route.page != pagePlugins || a.nowPlaying {
+		a.switchSource(next.id)
+		return
+	}
+	a.activate(next)
+	// Still the page it was, scrolled as it was.
+	a.route.src = next.id
+	a.scrolled = a.route
+}
+
 // errNoAnswer stands for a source that answered nothing where it had to answer
 // something, which shouldn't take the app down with it.
 var errNoAnswer = errors.New("the source gave no answer")

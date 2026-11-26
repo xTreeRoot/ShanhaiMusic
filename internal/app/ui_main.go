@@ -86,6 +86,12 @@ func (a *app) view(c *ui.Context) {
 		a.nowPlayingLayer(c, npOpen, npSettled)
 	})
 	a.signInDialog(c, a.pal, false)
+	if a.installer.main {
+		a.installDialog(c, a.pal)
+		a.starsDialog(c, a.pal)
+		a.pluginNameDialog(c, a.pal)
+		a.discoveryEditorView(c)
+	}
 	a.playlistNameDialog(c)
 	a.deletePlaylistDialog(c)
 	if a.toast != "" {
@@ -138,6 +144,10 @@ func (a *app) show(r route) {
 	if r.src == "" {
 		r.src = a.route.src
 	}
+	if r.page == pagePlugins {
+		a.installer.main = true
+	}
+	a.installer.marked = "" // a plugin just installed is marked until the listener leaves
 	lib := a.libOf(r.src)
 	if lib == nil {
 		// Its source went away since: the active one's Home instead.
@@ -192,6 +202,10 @@ func (a *app) load(r route) {
 	case pageSection:
 		if r.id != "" {
 			a.loadBrowse(lib, r.id, false)
+		}
+	case pagePlugins:
+		if r.id == communityTab {
+			a.loadCommunity()
 		}
 	}
 }
@@ -252,7 +266,8 @@ func (a *app) sidebar(c *ui.Context) {
 			}
 		})
 
-		a.accountTool(c, iconPlug, T("Plugins"), func() { a.openSourceSettings("") })
+		// The plugins others made are the app's, whichever source is active.
+		a.navItem(c, iconPlug, T("Plugins"), route{page: pagePlugins})
 		a.accountTool(c, iconRefresh, T("Shanhai Service"), a.openEdgeSettings)
 		a.accountRow(c)
 	})
@@ -428,6 +443,8 @@ func (a *app) content(c *ui.Context) {
 		a.browsePage(c)
 	case pageSection:
 		a.sectionPage(c)
+	case pagePlugins:
+		a.pluginsPage(c)
 	}
 }
 

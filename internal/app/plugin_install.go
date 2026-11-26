@@ -29,7 +29,7 @@ import (
 
 // pluginCompatibilityVersion is the MyGo Music host contract implemented by MB.
 // It follows the adopted upstream baseline, independently of MB's release version.
-const pluginCompatibilityVersion = "0.1.25"
+const pluginCompatibilityVersion = "0.1.26"
 
 // pluginLinkSchemes matches mygo.config.ts. Development links stay separate
 // from the installed app, including those from the MyGo Music community.
@@ -67,7 +67,10 @@ var pickPlugin = func(a *app, folder bool, got func(string)) {
 // plugin, on a goroutine, for it blocks, calling yes if they say so; tests
 // replace it, and trashItem.
 var confirmRemovePlugin = func(a *app, name string, yes func()) {
-	parent := a.settingsWin
+	parent := a.win
+	if !a.installer.main && a.settingsWin != nil {
+		parent = a.settingsWin
+	}
 	go func() {
 		res, err := mygo.Dialog.Message(mygo.MessageOptions{
 			Parent:             parent,
@@ -92,6 +95,9 @@ const pluginCheckEvery = 24 * time.Hour
 
 // pluginInstaller is what's going on with installing plugins.
 type pluginInstaller struct {
+	main   bool // installation dialogs belong to the main Plugins page
+	marked string
+	reveal bool
 	// open is whether the dialog shows: asking for a repository, with github,
 	// or about a plugin on its way, or what went wrong with one.
 	renamingID, localName string
@@ -180,23 +186,34 @@ func (a *app) openLink(raw string) {
 		log.Printf("unknown link: %s", raw)
 		return
 	}
-	repo := strings.TrimSpace(u.Query().Get("repo"))
-	if repo == "" {
+	a.installRepo(strings.TrimSpace(u.Query().Get("repo")))
+}
+
+func (a *app) installRepo(repo string) {
+	if repo == "" || a.installer.stars != nil {
 		return
 	}
 	in := &a.installer
-	if in.stars != nil {
-		return
+	in.repo, in.catalogOpen, in.open, in.github, in.main = repo, false, true, true, true
+	if a.route.page == pagePlugins && !a.nowPlaying {
+		a.showMain()
+	} else {
+		a.openPlugins()
 	}
-	in.repo = repo
-	in.catalogOpen = false
-	in.open, in.github = true, true
-	a.showMain()
-	a.openSourceSettings("")
 	if !in.busy {
 		a.installFromRepo()
 	}
 	a.redraw()
+}
+
+func (a *app) showInstalled(id string) {
+	a.installer.detailsID = ""
+	if a.route.page == pagePlugins && !a.nowPlaying {
+		a.choosePluginsTab(false)
+	} else {
+		a.open(route{page: pagePlugins})
+	}
+	a.installer.marked, a.installer.reveal = id, true
 }
 
 // installFromDisk asks for a plugin's folder, or a zip of one, and copies it in
@@ -260,6 +277,9 @@ func (a *app) confirmInstall() {
 				return
 			}
 			in.open = false
+			if in.main {
+				a.showInstalled(pending.Manifest.ID)
+			}
 		})
 	}()
 }
@@ -336,7 +356,7 @@ func (a *app) removePlugin(lib *library) {
 	a.enabledChanged()
 	if a.library == lib {
 		a.settings.DisabledPlugins = slices.DeleteFunc(a.settings.DisabledPlugins, func(id string) bool { return id == a.libs[0].id })
-		a.switchSource(a.libs[0].id)
+		a.leaveSource()
 	}
 	delete(a.settings.PluginUpdates, lib.id)
 	delete(a.installer.found, lib.id)
@@ -633,20 +653,24 @@ func more(had, wants []string) bool {
 }
 
 // installMenu is the + of the plugins' header: the ways to install one.
-func (a *app) installMenu(c *ui.Context, p palette) {
+func (a *app) installMenu(c *ui.Context, p palette, inMain bool) {
 	in := &a.installer
 	add := iconButton(c.Key("install-plugin"), iconPlus, 16, p.muted, T("Install a Plugin"))
 	add.Menu(func(m *ui.Menu) {
 		if a.edge.catalog != nil && m.Item(T("Install from MB Plugin Catalog…")).Disabled(in.busy || a.edge.busy).Chosen() {
+			in.main = inMain
 			a.openEdgeCatalog()
 		}
 		if m.Item(T("From GitHub…")).Disabled(in.busy).Chosen() {
+			in.main = inMain
 			a.askForRepo()
 		}
 		if m.Item(T("From a Folder…")).Disabled(in.busy).Chosen() {
+			in.main = inMain
 			a.installFromDisk(true)
 		}
 		if m.Item(T("From a Zip…")).Disabled(in.busy).Chosen() {
+			in.main = inMain
 			a.installFromDisk(false)
 		}
 		m.Separator()

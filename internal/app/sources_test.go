@@ -1320,7 +1320,7 @@ func TestInstallPluginFromLink(t *testing.T) {
 	for _, link := range []string{linkScheme + "://settings", linkScheme + "://install-plugin", "https://example.com/install-plugin?repo=owner/repo"} {
 		a.openLink(link)
 	}
-	if len(asked) != 0 || a.settingsPage == "plugins" {
+	if len(asked) != 0 || a.route.page == pagePlugins {
 		t.Fatalf("acted on a link that isn't to install one: asked %d, on %q", len(asked), a.settingsPage)
 	}
 
@@ -1328,7 +1328,7 @@ func TestInstallPluginFromLink(t *testing.T) {
 	if got := wait(t, asked, "the download"); got != "owner/repo" {
 		t.Fatalf("asked for %q", got)
 	}
-	if a.settingsPage != "plugins" {
+	if a.route.page != pagePlugins {
 		t.Errorf("shows the settings' %q", a.settingsPage)
 	}
 	runPost(t, ch)

@@ -14,6 +14,7 @@ import (
 
 	"mygo-music/internal/music"
 	"mygo-music/internal/player"
+	"mygo-music/internal/plugin"
 )
 
 // mainThread takes what has to run on the main thread, which TestMain keeps
@@ -34,6 +35,8 @@ func onMainThread(fn func()) {
 // TestMain keeps what the tests write out of the listener's own data, and serves
 // the main thread while they run.
 func TestMain(m *testing.M) {
+	fetchCommunity = func(string, int) (*plugin.CommunityPage, error) { select {} }
+	ownerAvatar = func(string) string { return "" }
 	dir, err := os.MkdirTemp("", "mygo-music-test")
 	if err != nil {
 		panic(err)
@@ -484,4 +487,9 @@ func giveCover(a *app, url string, img *image.RGBA) {
 	bd := *art
 	bd.backdrop = ui.NewBitmap(blurImage(img))
 	a.art.art[sized(url, 600)+"#backdrop"] = &bd
+}
+
+func pluginsView(a *app, h int) *ui.Tester {
+	a.route = route{page: pagePlugins, src: a.library.id}
+	return ui.NewTester(a.view, 1200, h)
 }

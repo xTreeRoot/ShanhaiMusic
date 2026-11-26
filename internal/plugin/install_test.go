@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"mygo-music/internal/music"
 )
 
 type zipped struct {
@@ -542,6 +544,27 @@ func TestRemove(t *testing.T) {
 		}
 		if _, err := os.Stat(data); err != nil {
 			t.Errorf("its data is gone: %v", err)
+		}
+	}
+}
+
+// A plugin's icon is a file in its folder; one that names a file outside it
+// shows none, as a plugin reads no file but its own.
+func TestIcon(t *testing.T) {
+	for icon, want := range map[string]string{"icon.png": "icon.png", "art/logo.webp": "art/logo.webp", "../other/icon.png": "", "/etc/icon.png": "", "": ""} {
+		dir := t.TempDir()
+		manifest, _ := json.Marshal(map[string]string{"id": "iconic", "icon": icon})
+		os.WriteFile(filepath.Join(dir, "plugin.json"), manifest, 0o644)
+		os.WriteFile(filepath.Join(dir, "index.js"), []byte(""), 0o644)
+		p, err := Load(dir, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want != "" {
+			want = music.FileURL(filepath.Join(dir, want))
+		}
+		if got := p.Icon(); got != want {
+			t.Errorf("icon %q is %q, want %q", icon, got, want)
 		}
 	}
 }

@@ -50,13 +50,15 @@ func (a *app) openSettings() {
 		Content:         ui.View(a.settingsView),
 	})
 	a.settingsWin.OnClosed(func() {
-		a.closeStars()
-		a.installer.detailsID = ""
-		a.installer.editingPlugins = false
-		a.installer.renaming = false
+		if !a.installer.main {
+			a.closeStars()
+			a.installer.detailsID = ""
+			a.installer.editingPlugins = false
+			a.installer.renaming = false
+			a.discoveryEditor.open = false
+		}
 		a.settingsWin = nil
 		a.cancelSkinEditor()
-		a.discoveryEditor.open = false
 		// Its sign-in dialog goes with it; a sign-in on its way still counts.
 		if a.signIn.here {
 			a.cancelSignIn()
@@ -66,10 +68,10 @@ func (a *app) openSettings() {
 	a.syncDock()
 }
 
-// openSourceSettings shows the page of the settings where plugins are set up.
+// openSourceSettings reveals a plugin in the main window for setup.
 func (a *app) openSourceSettings(id string) {
 	a.selectPluginSettings(id)
-	a.openSettings()
+	a.openPlugins()
 	a.redraw()
 }
 
@@ -257,7 +259,7 @@ func (a *app) settingsView(c *ui.Context) {
 							Disabled(in.busy || in.batch || in.open || len(in.updating) != 0).Clicked() {
 							a.openStars()
 						}
-						a.installMenu(c, p)
+						a.installMenu(c, p, false)
 					}
 				}
 			})
@@ -265,11 +267,13 @@ func (a *app) settingsView(c *ui.Context) {
 			edge.Opacity(edgeShown(edge, a.settingsUnderTop || header.Hovered()))
 		})
 	})
-	a.installDialog(c, p)
-	a.starsDialog(c, p)
+	if !a.installer.main {
+		a.installDialog(c, p)
+		a.starsDialog(c, p)
+		a.pluginNameDialog(c, p)
+		a.discoveryEditorView(c)
+	}
 	a.signInDialog(c, p, true)
-	a.discoveryEditorView(c)
-	a.pluginNameDialog(c, p)
 	a.skinEditorView(c, p)
 }
 
@@ -315,6 +319,9 @@ func (a *app) settingsNavItem(c *ui.Context, p palette, sec settingsSection, sel
 		ui.Text(c, sec.title).FontSize(13).FontWeight(500).SingleLine().Shrink(1).MinWidth(0)
 	})
 	if b.Clicked() {
+		if sec.id == "plugins" {
+			a.installer.main = false
+		}
 		a.settingsPage, a.settingsQuery = sec.id, ""
 		a.installer.detailsID = ""
 		a.installer.editingPlugins = false

@@ -43,7 +43,7 @@ func TestCommunityPluginInstallLinks(t *testing.T) {
 							t.Fatalf("downloaded %q", got)
 						}
 						runPost(t, post)
-						if a.settingsPage != "plugins" || !a.installer.open || a.installer.pending == nil {
+						if a.route.page != pagePlugins || !a.installer.open || a.installer.pending == nil {
 							t.Fatal("link did not show the pending plugin for confirmation")
 						}
 						if len(a.allLibs) != libs {
@@ -68,7 +68,7 @@ func TestCommunityPluginInstallLinks(t *testing.T) {
 					a := newTestApp()
 					posts(a)
 					a.openLink(link)
-					if a.installer.open || a.installer.busy || a.settingsPage == "plugins" {
+					if a.installer.open || a.installer.busy || a.route.page == pagePlugins {
 						t.Fatal("unsupported link opened the installer")
 					}
 				})
@@ -100,10 +100,10 @@ func TestQishuiCommunityInstallLink(t *testing.T) {
 		t.Fatalf("downloaded %q", got)
 	}
 	runPost(t, post)
-	if a.settingsPage != "plugins" || !a.installer.open || a.installer.pending == nil {
+	if a.route.page != pagePlugins || !a.installer.open || a.installer.pending == nil {
 		t.Fatal("Qishui download did not open the install confirmation")
 	}
-	tt := ui.NewTester(a.settingsView, 780, 640)
+	tt := ui.NewTester(a.view, 1200, 800)
 	settled(tt)
 	if _, ok := tt.AccessByRole(ui.RoleButton, Tf("Install %s", "Qishui")); !ok {
 		t.Fatal("download did not expose its installation action")
@@ -122,7 +122,7 @@ func TestQishuiCommunityInstallLink(t *testing.T) {
 func TestCommunityPluginVersionGate(t *testing.T) {
 	plugin.SetAppVersion(pluginCompatibilityVersion)
 	t.Cleanup(func() { plugin.SetAppVersion("") })
-	for _, version := range []string{"0.1.8", "0.1.21", "0.1.25", "0.1.26"} {
+	for _, version := range []string{"0.1.8", "0.1.21", "0.1.25", "0.1.26", "0.1.27"} {
 		t.Run(version, func(t *testing.T) {
 			dir := t.TempDir()
 			manifest := map[string]string{"id": "community", "name": "Community", "minAppVersion": version}
@@ -140,7 +140,7 @@ func TestCommunityPluginVersionGate(t *testing.T) {
 			}
 			installed := t.TempDir()
 			pending, err := plugin.Open(dir, installed)
-			if version == "0.1.26" {
+			if version == "0.1.27" {
 				var needs *plugin.NeedsNewerApp
 				if !errors.As(err, &needs) || needs.Version != version {
 					t.Fatalf("newer host requirement was not enforced: %v", err)

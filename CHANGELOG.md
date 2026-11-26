@@ -1,5 +1,12 @@
 ## 0.1.36 - 2026-11-25
 
+## 桌面 0.1.37 - 2026-11-26
+
+- 接入 MyGo Music 0.1.26 插件中心：主窗口管理、社区搜索和分页安装。
+- 保留名称、排序、栏目设置、批量更新、Stars 导入与节点目录。
+- 支持插件图标和作者头像，安装成功后自动定位并高亮。
+- 宿主兼容版本更新至 0.1.26，产品版本和更新源继续独立维护。
+
 - 「上次播放」由播放器按列表记在本机，扩展到插件详情、自定义曲目列表和发现曲目栏目，包括「每日推荐」。搜索、专辑、喜欢和播客也可在列表内续播。
 
 ## 0.1.35 - 2026-11-25
@@ -254,6 +261,17 @@
 
 All notable changes to MyGo Music are written down here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [0.1.26] - 2026-11-25
+
+### Added
+
+- Plugins in the sidebar lists the plugins others published on GitHub, a page at a time, with a search, to install with a click. A plugin just installed shows on the Installed tab, scrolled to and marked.
+- Plugins can name an icon in `plugin.json`. One installed from GitHub without one shows its owner's picture.
+
+### Changed
+
+- The plugins installed moved from Settings to the Plugins page in the main window, a card each, with what each asks for under it. A plugin that needs setting up takes you there.
+
 ## [0.1.25] - 2026-11-14
 
 ### Added
@@ -499,6 +517,7 @@ All notable changes to MyGo Music are written down here. Versions follow [Semant
 
 The first release: a native music player that plays your local files and gets everything else from plugins.
 
+[0.1.26]: https://github.com/egoist/mygo-music/compare/v0.1.25...v0.1.26
 [0.1.25]: https://github.com/egoist/mygo-music/compare/v0.1.24...v0.1.25
 [0.1.24]: https://github.com/egoist/mygo-music/compare/v0.1.23...v0.1.24
 [0.1.23]: https://github.com/egoist/mygo-music/compare/v0.1.22...v0.1.23

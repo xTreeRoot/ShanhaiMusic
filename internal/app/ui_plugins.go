@@ -31,11 +31,16 @@ func (a *app) pluginListRow(c *ui.Context, lib *library, index int, editing bool
 			a.movePlugin(drag.id, lib.id)
 		}
 	}
+	if a.installer.marked == lib.id {
+		row.Background(p.accent.Alpha(0.12)).Border(1, p.accent).Radius(8)
+		if a.installer.reveal {
+			a.installer.reveal = false
+			row.ScrollIntoView(ui.ScrollIntoViewOptions{Block: ui.ScrollCenter, Animation: &ui.Smooth})
+		}
+	}
 	row.Children(func() {
 		identity := func() {
-			ui.Box(c).Size(34, 34).Shrink(0).Radius(8).Center().Background(p.accent.Alpha(0.09)).Children(func() {
-				ui.Icon(c, iconPlug).Size(17, 17).TextColor(p.accent)
-			})
+			a.pluginTile(c, lib)
 			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
 				ui.Text(c, lib.name()).FontSize(13.5).FontWeight(600).SingleLine().Tooltip(lib.name())
 				status := T("Plugin Disabled")
@@ -68,6 +73,7 @@ func (a *app) pluginListRow(c *ui.Context, lib *library, index int, editing bool
 			ui.Icon(c, iconForward).Size(13, 13).Shrink(0).TextColor(p.faint)
 		})
 		open.OnClick(func() { a.selectPluginSettings(lib.id) })
+		a.pluginSwitch(c, lib)
 		ui.Button(c.Key("discovery-sections"), T("Display Settings")).Shrink(0).
 			Label(Tf("Display Settings for %s", lib.name())).OnClick(func() { a.openDiscoveryEditor(lib) })
 	})
@@ -166,7 +172,13 @@ func (a *app) pluginAccountRow(c *ui.Context, lib *library, row settingsRow) {
 		})
 	case lib.can("signIn"):
 		row(T("Account"), "", func() {
-			ui.PrimaryButton(c.Key("sign-in"), T("Sign In")).OnClick(func() { a.promptSignInInSettings(lib) })
+			ui.PrimaryButton(c.Key("sign-in"), T("Sign In")).OnClick(func() {
+				if a.installer.main {
+					a.promptSignIn(lib)
+				} else {
+					a.promptSignInInSettings(lib)
+				}
+			})
 		})
 	}
 }

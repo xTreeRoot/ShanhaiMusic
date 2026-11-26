@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"mygo-music/internal/local"
+	"mygo-music/internal/music"
 	"mygo-music/internal/network"
 )
 
@@ -695,6 +696,16 @@ func (p *Plugin) Remove(trash func(path string) error) error {
 
 // Dir is the plugin's folder.
 func (p *Plugin) Dir() string { return p.dir }
+
+// Icon is the file:// URL of the plugin's icon, or "" if it names none in its
+// folder: one outside it isn't shown, as a plugin reads no file but its own.
+func (p *Plugin) Icon() string {
+	icon := p.manifest.Icon
+	if icon == "" || !filepath.IsLocal(icon) {
+		return ""
+	}
+	return music.FileURL(filepath.Join(p.dir, icon))
+}
 
 // Origin is where the plugin was installed from, or nil if it was just dropped in.
 func (p *Plugin) Origin() *Origin {
