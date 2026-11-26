@@ -153,3 +153,27 @@ func TestPluginSettingsKeepDetailsOutOfTheList(t *testing.T) {
 		t.Fatal("reopening details left network permissions expanded")
 	}
 }
+
+// Main-window editing must not inherit a search left in the separate settings window.
+func TestPluginManagerEditingIgnoresSettingsSearch(t *testing.T) {
+	a := newTestApp()
+	a.pluginPrefs = pluginprefs.NewStore(t.TempDir(), pluginprefs.Legacy{})
+	a.settingsQuery = "unrelated settings search"
+	a.openPlugins()
+	view := ui.NewTester(a.view, 1200, 800)
+	settled(view)
+	if err := view.Click(T("Edit Plugins")); err != nil {
+		t.Fatal(err)
+	}
+	settled(view)
+	if _, ok := view.Find(Tf("Reorder %s", a.library.name())); !ok {
+		t.Fatal("main manager did not enter editing")
+	}
+	if err := view.Click(T("Finish Editing")); err != nil {
+		t.Fatal(err)
+	}
+	settled(view)
+	if _, ok := view.Find(Tf("Display Settings for %s", a.library.name())); !ok {
+		t.Fatal("main manager did not leave editing")
+	}
+}

@@ -1,83 +1,96 @@
 package plugin
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
-// fakeSearch is GitHub's repository search with total repositories found, of
-// which it answers a page; it keeps what was asked.
-func fakeSearch(t *testing.T, total int, items string) *[]string {
-	t.Helper()
-	var asked []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		asked = append(asked, r.URL.Query().Get("q")+" page="+r.URL.Query().Get("page"))
-		fmt.Fprintf(w, `{"total_count":%d,"items":[%s]}`, total, items)
+func TestCommunityUsesMaintainedCatalogAndCachesIt(t *testing.T) {
+	wasRepos, wasAPI, wasToken := communityRepositories, githubAPI, githubToken
+	communityCache.Lock()
+	wasList, wasAt := communityCache.list, communityCache.at
+	communityCache.list, communityCache.at = nil, time.Time{}
+	communityCache.Unlock()
+	t.Cleanup(func() {
+		communityRepositories, githubAPI, githubToken = wasRepos, wasAPI, wasToken
+		communityCache.Lock()
+		communityCache.list, communityCache.at = wasList, wasAt
+		communityCache.Unlock()
+	})
+	calls := 0
+	communityRepositories = func(_ context.Context, address string) ([]string, error) {
+		calls++
+		if address != CommunityCatalog {
+			t.Errorf("wrong catalog %q", address)
+		}
+		return []string{"xTreeRoot/mygo-music-radio", "xTreeRoot/mygo-music-video"}, nil
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/xTreeRoot/mygo-music-radio" && r.URL.Path != "/repos/xTreeRoot/mygo-music-video" {
+			t.Errorf("queried outside maintained repositories: %s", r.URL.Path)
+		}
+		fmt.Fprint(w, `{"description":"maintained plugin","stargazers_count":3}`)
 	}))
-	t.Cleanup(srv.Close)
-	was, wasToken := githubAPI, githubToken
-	githubAPI, githubToken = srv.URL, func() string { return "" }
-	t.Cleanup(func() { githubAPI, githubToken = was, wasToken })
-	return &asked
+	defer server.Close()
+	githubAPI = server.URL
+	githubToken = func() string { return "" }
+	page, err := Community("radio", 1)
+	if err != nil || len(page.Listings) != 1 || page.Listings[0].Repo != "xTreeRoot/mygo-music-radio" {
+		t.Fatalf("page=%+v, err=%v", page, err)
+	}
+	all, err := Community("", 1)
+	if err != nil || len(all.Listings) != 2 || calls != 1 {
+		t.Fatalf("list=%+v, calls=%d, err=%v", all, calls, err)
+	}
 }
 
-// Community asks GitHub's search for repositories with the plugins' topic, and
-// lists them by the names they're known by, without the app's in front.
-func TestCommunity(t *testing.T) {
-	asked := fakeSearch(t, 3, `
-		{"full_name":"a/mygo-music-plugin-radio","name":"mygo-music-plugin-radio","description":null,"html_url":"https://github.com/a/mygo-music-plugin-radio","stargazers_count":7,"owner":{"login":"a","avatar_url":"https://avatars/a"}},
-		{"full_name":"b/MyGo-Music-podcasts","name":"MyGo-Music-podcasts","description":"Podcasts","stargazers_count":2,"owner":{"login":"b"}},
-		{"full_name":"c/mygo-music-","name":"mygo-music-","owner":{"login":"c"}}`)
+func TestCommunityPages(t *testing.T) {
+	var list []Listing
+	for i := range 32 {
+		list = append(list, Listing{Repo: fmt.Sprintf("owner/plugin-%d", i), Name: fmt.Sprintf("Plugin %d", i)})
+	}
+	first := communityPage(list, "", 1)
+	second := communityPage(list, "", 2)
+	if len(first.Listings) != 30 || !first.More || len(second.Listings) != 2 || second.More {
+		t.Fatal("incorrect maintained-list pagination")
+	}
+	if got := communityPage(list, "PLUGIN 31", 1); len(got.Listings) != 1 || got.Listings[0].Repo != "owner/plugin-31" {
+		t.Fatalf("search: %+v", got)
+	}
+	if got := communityPage(list, "not-in-list", 1); len(got.Listings) != 0 || got.More {
+		t.Fatalf("search escaped catalog: %+v", got)
+	}
+}
 
-	page, err := Community("", 1)
+func TestMaintainedCommunityLive(t *testing.T) {
+	if os.Getenv("MB_COMMUNITY_LIVE") != "1" {
+		t.Skip("explicit public maintained-catalog validation")
+	}
+	repos, err := StarsRepositories(context.Background(), CommunityCatalog)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "topic:" + Topic + " archived:false page=1"; (*asked)[0] != want {
-		t.Errorf("searched for %q", (*asked)[0])
+	got, err := Community("", 1)
+	if err != nil {
+		t.Fatal(err)
 	}
-	list := page.Listings
-	if len(list) != 3 || page.More {
-		t.Fatalf("got %d plugins, more: %v", len(list), page.More)
+	allowed := map[string]bool{}
+	for _, repo := range repos {
+		allowed[strings.ToLower(repo)] = true
 	}
-	if l := list[0]; l.Repo != "a/mygo-music-plugin-radio" || l.Name != "radio" || l.Owner != "a" || l.Avatar != "https://avatars/a" || l.Stars != 7 {
-		t.Errorf("first is %+v", l)
+	if len(got.Listings) == 0 {
+		t.Fatal("empty maintained catalog")
 	}
-	if list[1].Name != "podcasts" || list[1].Description != "Podcasts" {
-		t.Errorf("second is %+v", list[1])
-	}
-	if list[2].Name != "mygo-music-" {
-		t.Errorf("a name that's only the app's became %q", list[2].Name)
-	}
-}
-
-// A search goes in front of the topic, and a full page has more after it while
-// GitHub found more, up to the thousand its search goes to.
-func TestCommunityPages(t *testing.T) {
-	item := `{"full_name":"a/p","name":"p","owner":{"login":"a"}}`
-	full := strings.TrimSuffix(strings.Repeat(item+",", CommunityPerPage), ",")
-	for _, tc := range []struct {
-		total, page int
-		more        bool
-	}{
-		{CommunityPerPage + 1, 1, true},
-		{CommunityPerPage, 1, false},
-		{5000, 1000 / CommunityPerPage, true},
-		{5000, 1000/CommunityPerPage + 1, false},
-	} {
-		asked := fakeSearch(t, tc.total, full)
-		page, err := Community(" radio ", tc.page)
-		if err != nil {
-			t.Fatal(err)
+	for _, item := range got.Listings {
+		if !allowed[strings.ToLower(item.Repo)] {
+			t.Fatalf("outside catalog: %s", item.Repo)
 		}
-		if page.More != tc.more {
-			t.Errorf("page %d of %d: more is %v", tc.page, tc.total, page.More)
-		}
-		if want := fmt.Sprintf("radio topic:%s archived:false page=%d", Topic, tc.page); (*asked)[0] != want {
-			t.Errorf("searched for %q", (*asked)[0])
-		}
+		t.Log(item.Repo)
 	}
 }

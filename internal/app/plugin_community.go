@@ -81,8 +81,7 @@ func (a *app) moreCommunity() {
 			if page == 1 {
 				d.at = time.Now()
 			}
-			// The stars, which order the list, may have moved one already listed
-			// onto this page.
+			// A maintained entry may occur on adjacent pages after the catalog changes.
 			for _, l := range got.Listings {
 				if !slices.ContainsFunc(d.list, func(m plugin.Listing) bool { return strings.EqualFold(m.Repo, l.Repo) }) {
 					d.list = append(d.list, l)
@@ -292,8 +291,11 @@ func (a *app) listingCard(c *ui.Context, l *plugin.Listing, installed bool) {
 		}
 		ui.Text(c, desc).FontSize(12.5).TextColor(p.muted).LineHeight(1.4).Lines(2, 2).Grow(1)
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, iconStar).Size(13, 13).TextColor(p.faint)
-			ui.Text(c, count(l.Stars)).FontSize(12).TextColor(p.muted).Grow(1)
+			if l.Stars > 0 {
+				ui.Icon(c, iconStar).Size(13, 13).TextColor(p.faint)
+				ui.Text(c, count(l.Stars)).FontSize(12).TextColor(p.muted)
+			}
+			ui.Box(c).Grow(1)
 			if installed {
 				ui.Row(c).Gap(4).AlignItems(ui.Center).Height(28).Children(func() {
 					ui.Icon(c, iconCheck).Size(13, 13).TextColor(p.muted)

@@ -2,84 +2,90 @@ package plugin
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 )
 
-// Topic is the topic on GitHub that the README asks plugins to have, which is
-// how others find them: the website's plugins page lists them, and the app's
-// Plugins page.
-const Topic = "mygo-music-plugin"
-
-// Listing is a plugin someone published: a public repository with the topic.
-type Listing struct {
-	Repo        string // owner/repo, to install it from
-	Name        string // the repository's name, without the app's in front
-	Owner       string
-	Avatar      string // the owner's picture
-	Description string
-	URL         string // its page on GitHub
-	Stars       int
-}
-
-// CommunityPerPage is how many plugins a page of Community has.
+// CommunityCatalog is the maintained Shanhai Stars list, shared by all clients.
+const CommunityCatalog = "https://github.com/stars/xTreeRoot/lists/fork-mygo-%E5%B1%B1%E6%B5%B7-%E8%87%AA%E8%A1%8C%E7%BB%B4%E6%8A%A4%E4%BB%93%E5%BA%93-%E5%A4%9A%E5%B9%B3%E5%8F%B0"
 const CommunityPerPage = 30
 
-// communityLimit is how far GitHub's search goes: its first thousand results.
-const communityLimit = 1000
-
-// CommunityPage is a page of the plugins on GitHub, and whether there are more.
+type Listing struct {
+	Repo        string
+	Name        string
+	Owner       string
+	Avatar      string
+	Description string
+	URL         string
+	Stars       int
+}
 type CommunityPage struct {
 	Listings []Listing
 	More     bool
 }
 
-// Community lists the plugins on GitHub that query finds, by their names and
-// what they say of themselves, or all of them without one: the most starred
-// first, as the website does, CommunityPerPage at a time from page 1. GitHub's
-// search allows few requests without the listener's token.
+var communityRepositories = StarsRepositories
+var communityCache struct {
+	sync.Mutex
+	list []Listing
+	at   time.Time
+}
+
+// Community searches only the maintained list. Metadata cannot add repositories.
 func Community(query string, page int) (*CommunityPage, error) {
-	var answer struct {
-		Total int `json:"total_count"`
-		Items []struct {
-			FullName    string `json:"full_name"`
-			Name        string `json:"name"`
-			Description string `json:"description"`
-			HTMLURL     string `json:"html_url"`
-			Stars       int    `json:"stargazers_count"`
-			Owner       struct {
-				Login  string `json:"login"`
-				Avatar string `json:"avatar_url"`
-			} `json:"owner"`
-		} `json:"items"`
+	communityCache.Lock()
+	defer communityCache.Unlock()
+	if communityCache.at.IsZero() || time.Since(communityCache.at) >= time.Hour {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		repos, err := communityRepositories(ctx, CommunityCatalog)
+		if err != nil {
+			return nil, err
+		}
+		list := make([]Listing, len(repos))
+		var jobs sync.WaitGroup
+		gate := make(chan struct{}, 4)
+		for i, repo := range repos {
+			jobs.Add(1)
+			go func() {
+				defer jobs.Done()
+				gate <- struct{}{}
+				defer func() { <-gate }()
+				owner, name, _ := strings.Cut(repo, "/")
+				item := Listing{Repo: repo, Name: ShortName(name), Owner: owner, Avatar: "https://github.com/" + owner + ".png?size=120", Description: repo, URL: "https://github.com/" + repo}
+				var metadata struct {
+					Description string
+					Stars       int `json:"stargazers_count"`
+				}
+				if status, err := githubGet(ctx, "/repos/"+repo, &metadata); err == nil && status == http.StatusOK {
+					if metadata.Description != "" {
+						item.Description = metadata.Description
+					}
+					item.Stars = metadata.Stars
+				}
+				list[i] = item
+			}()
+		}
+		jobs.Wait()
+		communityCache.list, communityCache.at = list, time.Now()
 	}
-	q := strings.TrimSpace(strings.TrimSpace(query) + " topic:" + Topic + " archived:false")
-	path := fmt.Sprintf("/search/repositories?q=%s&sort=stars&per_page=%d&page=%d", url.QueryEscape(q), CommunityPerPage, max(page, 1))
-	status, err := githubGet(context.Background(), path, &answer)
-	if err != nil {
-		return nil, err
+	return communityPage(communityCache.list, query, page), nil
+}
+
+func communityPage(list []Listing, query string, page int) *CommunityPage {
+	query = strings.ToLower(strings.TrimSpace(query))
+	var filtered []Listing
+	for _, item := range list {
+		if query == "" || strings.Contains(strings.ToLower(item.Name+"\n"+item.Repo+"\n"+item.Description), query) {
+			filtered = append(filtered, item)
+		}
 	}
-	if status != http.StatusOK {
-		return nil, fmt.Errorf("GitHub answered %d", status)
-	}
-	list := make([]Listing, 0, len(answer.Items))
-	for _, r := range answer.Items {
-		list = append(list, Listing{
-			Repo:        r.FullName,
-			Name:        ShortName(r.Name),
-			Owner:       r.Owner.Login,
-			Avatar:      r.Owner.Avatar,
-			Description: r.Description,
-			URL:         r.HTMLURL,
-			Stars:       r.Stars,
-		})
-	}
-	seen := max(page, 1) * CommunityPerPage
-	more := len(list) == CommunityPerPage && seen < min(answer.Total, communityLimit)
-	return &CommunityPage{Listings: list, More: more}, nil
+	start := min((max(1, page)-1)*CommunityPerPage, len(filtered))
+	end := min(start+CommunityPerPage, len(filtered))
+	return &CommunityPage{Listings: filtered[start:end], More: end < len(filtered)}
 }
 
 var appPrefix = regexp.MustCompile(`(?i)^mygo-music-(plugin-)?`)

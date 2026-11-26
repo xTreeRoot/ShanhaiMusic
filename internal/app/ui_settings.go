@@ -246,21 +246,7 @@ func (a *app) settingsView(c *ui.Context) {
 				ui.Text(c, title).FontSize(15).FontWeight(700).SingleLine().Shrink(1).MinWidth(0)
 				if query == "" && current.id == "plugins" && details == nil {
 					ui.Box(c).Grow(1)
-					edit := T("Edit Plugins")
-					if in.editingPlugins {
-						edit = T("Finish Editing")
-					}
-					noPlugins := !slices.ContainsFunc(a.allLibs, func(lib *library) bool { return lib.id != local.ID })
-					ui.Button(c.Key("edit-plugins"), edit).Disabled(!in.editingPlugins && (noPlugins || a.pluginPrefs == nil || in.busy || in.batch || len(in.updating) != 0)).OnClick(func() {
-						in.editingPlugins = !in.editingPlugins
-					})
-					if !in.editingPlugins {
-						if ui.Button(c.Key("stars-import"), T("Import / Replace Plugins")).Margin(0, 4, 0, 8).
-							Disabled(in.busy || in.batch || in.open || len(in.updating) != 0).Clicked() {
-							a.openStars()
-						}
-						a.installMenu(c, p, false)
-					}
+					a.installMenu(c, p, false)
 				}
 			})
 			// The pointer over it brings the edge up too, as AppKit's does.
@@ -637,10 +623,10 @@ func (a *app) anyCan(what string) bool {
 // and where more of them come from.
 func (a *app) sourceSettings(c *ui.Context, row settingsRow, block settingsBlock, p palette) {
 	in := &a.installer
-	editing := in.editingPlugins && strings.TrimSpace(a.settingsQuery) == ""
-	if !editing && len(a.githubPluginTargets()) > 0 {
+	editing := in.editingPlugins && (in.main || strings.TrimSpace(a.settingsQuery) == "")
+	if slices.ContainsFunc(a.allLibs, func(lib *library) bool { return lib.id != local.ID }) {
 		status := in.batchStatus
-		busy := in.batch || in.busy || in.pending != nil || len(in.updating) != 0
+		busy := in.batch || in.busy || in.pending != nil || len(in.updating) != 0 || editing || len(a.githubPluginTargets()) == 0
 		if in.batch {
 			status = T("Checking plugin updates…")
 		}
@@ -655,6 +641,12 @@ func (a *app) sourceSettings(c *ui.Context, row settingsRow, block settingsBlock
 				if ui.Button(c.Key("update-all-plugins"), T("Update All")).Disabled(busy).Clicked() {
 					a.runPluginBatch(true, true)
 				}
+				edit := T("Edit Plugins")
+				if editing {
+					edit = T("Finish Editing")
+				}
+				ui.Button(c.Key("edit-plugins"), edit).Disabled(a.pluginPrefs == nil || in.busy || in.batch || len(in.updating) != 0).
+					OnClick(func() { in.editingPlugins = !in.editingPlugins })
 			})
 		})
 	}

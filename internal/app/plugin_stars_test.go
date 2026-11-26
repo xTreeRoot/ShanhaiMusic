@@ -60,7 +60,8 @@ func TestStarsImportReviewsBeforeInstallingAndKeepsPluginData(t *testing.T) {
 		view.Frame()
 	}
 	view.Frame()
-	click("Import / Replace Plugins")
+	a.openStars()
+	view.Frame()
 	click("GitHub repository or catalog page URL")
 	view.Type("https://catalog.test/plugins")
 	view.Frame()

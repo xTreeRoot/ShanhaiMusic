@@ -46,16 +46,7 @@ func (a *app) pluginsPage(c *ui.Context) {
 			a.communityPlugins(c, p)
 			return
 		}
-		ui.Row(c).Gap(8).Children(func() {
-			edit := T("Edit Plugins")
-			if in.editingPlugins {
-				edit = T("Finish Editing")
-			}
-			ui.Button(c.Key("edit-plugins"), edit).Disabled(a.pluginPrefs == nil || in.busy || in.batch).
-				OnClick(func() { in.editingPlugins = !in.editingPlugins })
-			ui.Button(c.Key("stars-import"), T("Import / Replace Plugins")).
-				Disabled(in.busy || in.batch || in.open || len(in.updating) != 0).OnClick(a.openStars)
-		})
+
 		a.settingsGroup(c, p, settingsSection{id: "plugins-list", build: func(row settingsRow, block settingsBlock) {
 			a.sourceSettings(c, row, block, p)
 		}}, "", "")
