@@ -99,7 +99,15 @@ final class MBiOSUITests: XCTestCase {
         if !folder.exists { app.swipeUp() }
         XCTAssertTrue(folder.waitForExistence(timeout: 5)); folder.tap()
         let action = app.buttons["曲目操作 music · 插件结果"].firstMatch
-        XCTAssertTrue(action.waitForExistence(timeout: 5)); action.tap()
+        XCTAssertTrue(action.waitForExistence(timeout: 5))
+        let resume = app.buttons["playlist-resume"]
+        let firstTrack = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "catalog-track-")).firstMatch
+        XCTAssertTrue(resume.exists); XCTAssertTrue(firstTrack.exists)
+        let gap = firstTrack.frame.minY - resume.frame.maxY
+        XCTAssertGreaterThanOrEqual(gap, 0, "续播入口不应覆盖第一首曲目")
+        XCTAssertLessThanOrEqual(gap, 24, "无标题列表不应在续播入口后保留空白分区，实际间距：\(gap)")
+        capture("收藏夹-顶部紧凑曲目列表", app: app)
+        action.tap()
         let remove = app.buttons["从此收藏夹移除"]
         XCTAssertTrue(remove.waitForExistence(timeout: 5)); capture("收藏夹-原生移除", app: app); remove.tap()
         XCTAssertTrue(app.descendants(matching: .any)["catalog-empty"].waitForExistence(timeout: 5))

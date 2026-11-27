@@ -68,4 +68,4 @@ print('仅可安装到描述文件已授权的设备；免费团队需在到期�
 PY
 xcrun devicectl device install app --device "$task_device" --timeout 60 \
     --json-output .build/logs/device-install.json "$task_app"
-printf '已完成签名、导出和真机安装。请在手机上打开 MB 验证。\n'
+printf '已完成签名、导出和真机安装。请在手机上打开山海验证。\n'

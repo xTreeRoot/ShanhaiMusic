@@ -1,0 +1,62 @@
+[
+  {
+    "number": 1,
+    "file": "images/001.png",
+    "sha256": "84df5968fddfe838702647e33de1022d0c1847549c9eecfbcf47c3b2ba7763e9",
+    "name": "收藏夹-原生移除",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testFavoriteFolderTerminologyAndNativeRemoval()",
+    "captured": 1795750357.643,
+    "origin": "compact-catalog-attachments"
+  },
+  {
+    "number": 2,
+    "file": "images/002.png",
+    "sha256": "4e35a593d1146a91085e3ba41a0cad76a9d6dbcae20990fe3315de124ea584f1",
+    "name": "收藏夹-播放器添加入口",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testFavoriteFolderTerminologyAndNativeRemoval()",
+    "captured": 1795750343.846,
+    "origin": "compact-catalog-attachments"
+  },
+  {
+    "number": 3,
+    "file": "images/003.png",
+    "sha256": "ec50fa491b0fb95df1444dd5ebb9e65593c07074fc5ad4a5d978f8761ff19da2",
+    "name": "收藏夹-顶部紧凑曲目列表",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testFavoriteFolderTerminologyAndNativeRemoval()",
+    "captured": 1795750354.755,
+    "origin": "compact-catalog-attachments"
+  },
+  {
+    "number": 4,
+    "file": "images/004.png",
+    "sha256": "d5ba4fe741e52466fb7e79352884f5d892f86eb8e02ec25b7b67c84fc2f480cf",
+    "name": "收藏夹-原生移除",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testFavoriteFolderTerminologyAndNativeRemoval()",
+    "captured": 1795750351.546,
+    "origin": "compact-catalog-attachments"
+  },
+  {
+    "number": 5,
+    "file": "images/005.png",
+    "sha256": "c2d070d2453e2d129ad8c4386bd524816b4a873f56cfd2a9ccf2ddea1c4a400f",
+    "name": "收藏夹-播放器添加入口",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testFavoriteFolderTerminologyAndNativeRemoval()",
+    "captured": 1795750339.592,
+    "origin": "compact-catalog-attachments"
+  },
+  {
+    "number": 6,
+    "file": "images/006.png",
+    "sha256": "eaee1efec4761896310567c185d4f4cabd4e7a7cf2aaa20d50e5b83ba7e86b45",
+    "name": "收藏夹-顶部紧凑曲目列表",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testFavoriteFolderTerminologyAndNativeRemoval()",
+    "captured": 1795750349.85,
+    "origin": "compact-catalog-attachments"
+  }
+]

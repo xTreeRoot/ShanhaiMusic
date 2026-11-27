@@ -112,37 +112,12 @@ struct PluginCatalogPage: View {
                     if let playlistKey, let playback, content.sections.contains(where: { !$0.tracks.isEmpty }) {
                         PlaylistResumeRow(resume: playback.playlistResume(playlistKey), action: resumePlaylist).id(playlistKey)
                     }
-                    if !content.subtitle.isEmpty { Text(content.subtitle).font(.subheadline).foregroundStyle(.secondary) }
-                    if !content.description.isEmpty { Text(content.description).font(.callout).foregroundStyle(.secondary) }
                     ForEach(content.sections) { section in
-                        Section {
-                            if section.trackLayout == "videos" {
-                                VideoTrackGrid(tracks: section.tracks, select: { play($0, index: $1) }, menu: menu, includeArtistInLabel: false)
-                            } else {
-                            ForEach(Array(section.tracks.enumerated()), id: \.offset) { index, track in
-                                HStack {
-                                    Button { play(section.tracks, index: index) } label: { TrackRow(track: track, position: index + 1) }
-                                        .buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
-                                        .accessibilityIdentifier("catalog-track-\(section.id)-\(index + 1)")
-                                        .modifier(TrackProblemAccessibility(track: track))
-                                    Menu { menu(track); playlistTrackActions(track, index: index) } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("曲目操作 \(track.title)")
-                                }.contextMenu { menu(track); playlistTrackActions(track, index: index) }
-                            }
-                            }
-                            ForEach(section.entities) { entity in
-                                NavigationLink { PluginCatalogPage(source: source, request: .entity(entity), select: select, menu: menu) } label: {
-                                    PluginCatalogRow(track: entity.artworkTrack(sourceID: source.manifest.id), subtitle: entity.subtitle,
-                                                     avatar: entity.kind == .artist, symbol: entity.kind == .artist ? "person.crop.circle.fill" : entity.kind == .playlist ? "music.note.list" : "square.stack.fill")
-                                }
-                            }
-                            ForEach(section.links) { link in
-                                NavigationLink { PluginBrowseView(source: source, page: link.page, select: select, menu: menu) } label: {
-                                    PluginCatalogRow(track: artwork(link), subtitle: link.subtitle, avatar: true, symbol: "person.crop.circle.fill")
-                                }.accessibilityLabel(link.title).accessibilityIdentifier("catalog-link-" + link.page)
-                            }
-                            if let page = section.morePage { NavigationLink("查看更多") { PluginBrowseView(source: source, page: page, select: select, menu: menu) } }
-                            if section.tracks.isEmpty && section.entities.isEmpty && section.links.isEmpty && !section.empty.isEmpty { Text(section.empty).foregroundStyle(.secondary) }
-                        } header: { Text(section.title) }
+                        if section.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            sectionContents(section)
+                        } else {
+                            Section { sectionContents(section) } header: { Text(section.title) }
+                        }
                     }
                 }
                 if let action = saveAction, capabilities.contains(action.method) {
@@ -190,6 +165,36 @@ struct PluginCatalogPage: View {
             }
         }
     }
+    /// 无标题目录直接铺开曲目；有标题目录保留原生分区标题。
+    @ViewBuilder private func sectionContents(_ section: PluginBrowse.Section) -> some View {
+        if section.trackLayout == "videos" {
+            VideoTrackGrid(tracks: section.tracks, select: { play($0, index: $1) }, menu: menu, includeArtistInLabel: false)
+        } else {
+            ForEach(Array(section.tracks.enumerated()), id: \.offset) { index, track in
+                HStack {
+                    Button { play(section.tracks, index: index) } label: { TrackRow(track: track, position: index + 1) }
+                        .buttonStyle(.plain).accessibilityLabel("播放 \(track.title)")
+                        .accessibilityIdentifier("catalog-track-\(section.id)-\(index + 1)")
+                        .modifier(TrackProblemAccessibility(track: track))
+                    Menu { menu(track); playlistTrackActions(track, index: index) } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("曲目操作 \(track.title)")
+                }.contextMenu { menu(track); playlistTrackActions(track, index: index) }
+            }
+        }
+        ForEach(section.entities) { entity in
+            NavigationLink { PluginCatalogPage(source: source, request: .entity(entity), select: select, menu: menu) } label: {
+                PluginCatalogRow(track: entity.artworkTrack(sourceID: source.manifest.id), subtitle: entity.subtitle,
+                                 avatar: entity.kind == .artist, symbol: entity.kind == .artist ? "person.crop.circle.fill" : entity.kind == .playlist ? "music.note.list" : "square.stack.fill")
+            }
+        }
+        ForEach(section.links) { link in
+            NavigationLink { PluginBrowseView(source: source, page: link.page, select: select, menu: menu) } label: {
+                PluginCatalogRow(track: artwork(link), subtitle: link.subtitle, avatar: true, symbol: "person.crop.circle.fill")
+            }.accessibilityLabel(link.title).accessibilityIdentifier("catalog-link-" + link.page)
+        }
+        if let page = section.morePage { NavigationLink("查看更多") { PluginBrowseView(source: source, page: page, select: select, menu: menu) } }
+        if section.tracks.isEmpty && section.entities.isEmpty && section.links.isEmpty && !section.empty.isEmpty { Text(section.empty).foregroundStyle(.secondary) }
+    }
+
     private func startLoading() {
         initialLoad?.cancel()
         initialLoad = Task {

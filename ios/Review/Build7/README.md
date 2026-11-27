@@ -24,6 +24,6 @@
 
 ## 安装与边界
 
-Release IPA 不含个人证书、Team 或描述文件；已检查 ZIP、唯一 Payload/MB.app、可执行权限、iPhone/iPad 设备族与后台 audio，115 项生产源码/工程/脚本摘要与打包工作区一致。另一台 Mac 拉取 `origin/ios` 后按 [安装说明](../../INSTALL.md) 编译签名，或用 AltStore 对未签名包重新签名。
+Release IPA 不含个人证书、Team 或描述文件；已检查 ZIP、唯一 Payload/山海.app、可执行权限、iPhone/iPad 设备族与后台 audio，115 项生产源码/工程/脚本摘要与打包工作区一致。另一台 Mac 拉取 `origin/ios` 后按 [安装说明](../../INSTALL.md) 编译签名，或用 AltStore 对未签名包重新签名。
 
 真实扫码/账号发布、真机锁屏/CarPlay、后台长播、蓝牙、网络切换、第三方插件完整平台业务及功耗仍未实测。模拟器与游客探针不能代替这些结果。历史失败均作为修复线索保留在本地结果包，不计入通过数。

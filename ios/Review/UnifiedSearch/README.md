@@ -23,4 +23,4 @@
 - [iPad 搜索下拉](ipad-search-platforms.png)
 - [iPad 平台和结果类型](ipad-search-results.png)
 
-公开资产为 MB-iOS-v0.1.0-build28-unsigned.ipa，3,620,537 字节，SHA-256 为 ef292b5cb580e833ba837c28107c5cfa0d1488c09082d084da6c5902672c6ea3。已移除个人签名、描述文件和签名目录，需使用原有签名方式覆盖安装。
+公开资产为山海-iOS-v0.1.0-build28-unsigned.ipa，3,620,537 字节，SHA-256 为 ef292b5cb580e833ba837c28107c5cfa0d1488c09082d084da6c5902672c6ea3。已移除个人签名、描述文件和签名目录，需使用原有签名方式覆盖安装。

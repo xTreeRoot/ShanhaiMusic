@@ -1,6 +1,6 @@
 # 第三方声明
 
-MB 主体采用 AGPL-3.0，完整许可证见 LICENSE。
+山海主体采用 AGPL-3.0，完整许可证见 LICENSE。
 
 ## QuickJS 2026-06-04
 

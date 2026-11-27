@@ -1,4 +1,4 @@
-# MB iPhone / iPad
+# 山海 iPhone / iPad
 
 build 67 为插件管理增加「已安装 / 社区」切换、山海维护 Stars 列表内搜索和分页安装、包内图标及作者头像；安装完成返回已安装并自动定位高亮。去掉一键导入/覆盖入口，名称、排序、栏目设置、手动安装、节点目录和账号数据继续保留。验收与截图见 [插件中心](Review/PluginCenter/README.md)。
 
@@ -64,7 +64,7 @@ HTML 页面可通过 `window.webkit.messageHandlers.mbSignIn.postMessage({error:
 
 `host.oauthSignIn({authorizationEndpoint, tokenEndpoint, clientID, redirectURI, scopes})` 返回授权服务器的 token JSON。两个服务端点必须使用 HTTPS 并在插件 `permissions.network` 内；`redirectURI` 必须为 App 已注册的自定义回调 scheme。宿主通过 `ASWebAuthenticationSession` 打开系统授权页面，每次生成独立 state 和 PKCE S256，校验回调后用 POST 交换一次性授权码，禁止 token 请求自动重定向。取消会关闭当前授权，迟到回调不能完成后续请求。
 
-YouTube Music 0.1.6 使用 MB 自己的公开 iOS OAuth 客户端和 YouTube 权限；当前 Google Cloud 为外部测试模式，已加入的测试用户可以登录。测试模式下 Google 刷新令牌通常 7 天失效，需要再次授权。插件把会话保存在现有私有数据目录，退出仅停用，重新登录先验证后复用；候选授权验证通过才替换旧会话。源码仅包含公开客户端 ID 和回调 scheme。系统授权页面遵循系统网络设置，MB 的 URLSession 代理白名单不控制系统浏览器。
+YouTube Music 0.1.6 使用山海自己的公开 iOS OAuth 客户端和 YouTube 权限；当前 Google Cloud 为外部测试模式，已加入的测试用户可以登录。测试模式下 Google 刷新令牌通常 7 天失效，需要再次授权。插件把会话保存在现有私有数据目录，退出仅停用，重新登录先验证后复用；候选授权验证通过才替换旧会话。源码仅包含公开客户端 ID 和回调 scheme。系统授权页面遵循系统网络设置，山海的 URLSession 代理白名单不控制系统浏览器。
 
 ## 流式播放检查（2026-11-19）
 
