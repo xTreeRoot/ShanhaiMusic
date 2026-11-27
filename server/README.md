@@ -1,4 +1,4 @@
-# MB Server
+# 山海 Server
 
 独立 Go 模块。节点自行配置 HTTPS 地址和接入密码。SQLite 保存设备授权、加密会话和同步资料；插件目录不依赖 SQLite。边缘端接口见 [EDGE.md](EDGE.md)。
 

@@ -33,7 +33,7 @@
 - 本轮游客联网：首页四区各 6 条、更多页 30/20/100/40 条；“夜曲”搜索 17 条，PCM 4096 帧，视频 Range HTTP 206 与原生画面输出成功。封面探针因平台分区偶发错误得到三个分区，18 张 HTTPS 图片全部下载解码；平板首页实际显示，失败分区保留重试。
 - 本轮 UI 按设备/方法去重：iPhone 13 项、iPad 4 项通过，分批执行；最终修复后手机 4 项与音视频综合流程重跑通过，另验暗色辅助大字体、平板横竖屏与样式。演示图库 148 张，来源与采集时间逐图记录；测试方法与最后通过的结果包见 `Review/Build7/ui-validation.json`。历史 build 4/5/6 的结果保留在 `Review/README.md`，不计入本轮通过数。
 
-测试命令包装见 `scripts/verify-core.sh`、`scripts/check-ui-host.sh`。构建包不含个人 Team；`scripts/package-ipa.sh` 校验唯一 Payload/MB.app、可执行权限、Bundle 字段、ZIP 完整性，并生成源码摘要。
+测试命令包装见 `scripts/verify-core.sh`、`scripts/check-ui-host.sh`。构建包不含个人 Team；`scripts/package-ipa.sh` 校验唯一 Payload/山海.app、可执行权限、Bundle 字段、ZIP 完整性，并生成源码摘要。
 
 ## 明确保留的真机验收
 

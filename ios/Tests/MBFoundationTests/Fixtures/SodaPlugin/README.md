@@ -1,10 +1,10 @@
-# 汽水音乐 · MB iOS 兼容版
+# 汽水音乐 · 山海 iOS 兼容版
 
 基于 [sogud/mygo-music-soda](https://github.com/sogud/mygo-music-soda) 0.2.0 的 MIT 开源插件，当前版本 **0.2.1**。浏览公开推荐歌单、音乐分类，播放服务端提供的完整 AAC 音频并显示逐字歌词。无需桌面辅助进程、Node、ffmpeg 或本机服务。
 
 ## 安装
 
-在 MB → 我的 → 插件中从 GitHub 安装 `xTreeRoot/mygo-music-soda`，或者从 [Releases](https://github.com/xTreeRoot/mygo-music-soda/releases) 下载 ZIP 导入。插件 ID 保持 `soda`，音源名称为「汽水音乐」。宿主插件兼容版本需达到 0.1.21。
+在山海 → 我的 → 插件中从 GitHub 安装 `xTreeRoot/mygo-music-soda`，或者从 [Releases](https://github.com/xTreeRoot/mygo-music-soda/releases) 下载 ZIP 导入。插件 ID 保持 `soda`，音源名称为「汽水音乐」。宿主插件兼容版本需达到 0.1.21。
 
 ## 已实现能力
 
@@ -17,7 +17,7 @@
 
 ## 验证
 
-MB 的真实 QuickJS 宿主已完成首页、公开歌单、完整音频下载和 AVFoundation 可播放性检查。可播放范围由平台、地区和版权状态决定；本插件不承诺每首歌都可用，与汽水音乐及其运营方无关联。
+山海的真实 QuickJS 宿主已完成首页、公开歌单、完整音频下载和 AVFoundation 可播放性检查。可播放范围由平台、地区和版权状态决定；本插件不承诺每首歌都可用，与汽水音乐及其运营方无关联。
 
 ```sh
 npm run check

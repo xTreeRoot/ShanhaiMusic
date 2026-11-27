@@ -1,6 +1,6 @@
-# MB 的 MyGo 视频后端修补
+# 山海的 MyGo 视频后端修补
 
-此目录基于 `github.com/egoist/mygo/ui/video` v0.9.0，保留 MIT 许可证和原始跨平台后端。模块路径位于 MyGo 命名空间下，以继续使用其原有 `internal/media` 和 `internal/scene` 契约；MB 通过根 `go.mod` 的本地 replace 引用。
+此目录基于 `github.com/egoist/mygo/ui/video` v0.9.0，保留 MIT 许可证和原始跨平台后端。模块路径位于 MyGo 命名空间下，以继续使用其原有 `internal/media` 和 `internal/scene` 契约；山海通过根 `go.mod` 的本地 replace 引用。
 
 macOS 原版在 `Interval()` 中同步读取 `AVAsset.tracksWithMediaType:`。渲染首帧时，远程服务器未返回媒体数据会阻塞 UI；本地模拟慢网已抓到该调用栈，3 秒网络延迟导致约 6 秒首帧阻塞。
 

@@ -1,8 +1,8 @@
-# MB
+# 山海
 
 使用 Go 与 [MyGo](https://github.com/egoist/mygo) 构建的原生桌面音乐播放器，基于 [egoist/mygo-music](https://github.com/egoist/mygo-music) 提交 `298c88a03407844ac1c4eb76e3590edfe4577121` 开发，遵循 AGPL-3.0 许可证。
 
-iPhone / iPad 客户端位于 `main` 分支的 [ios/](https://github.com/xTreeRoot/MB/tree/main/ios)，使用 SwiftUI；构建、个人签名安装和页面截图见该目录说明。
+iPhone / iPad 客户端位于 `main` 分支的 [ios/](https://github.com/xTreeRoot/ShanhaiMusic/tree/main/ios)，使用 SwiftUI；构建、个人签名安装和页面截图见该目录说明。
 
 ## 当前能力
 
@@ -40,12 +40,12 @@ go tool mygo build -sign - -skip-notarize
 
 新增平台时新增独立目录并声明其已实现能力，运行时文件通过 `plugins/builtin/assets.go` 嵌入。通用页面、播放器和登录弹窗不根据平台名称调用私有 API。为平台需求增加的视频、登录取消等逻辑必须扩展为可复用的播放器能力，用户安装的 MyGo 音源插件也可通过同一契约接入。能力契约见 [插件开发约定](plugins/README.md)，插件示例保留在 `examples/demo-plugin`。
 
-正式包同时支持 `mb://install-plugin?repo=owner/repo` 和上游社区的 `mygo-music://install-plugin?repo=owner/repo` 安装链接；开发包使用各自的 `-dev` 协议。插件兼容版本按已采用的 MyGo Music `0.1.25` 宿主契约检查，与 MB 的产品版本独立。上游历史、更新流程和本地功能优先规则见 [UPSTREAM.md](UPSTREAM.md)。
+正式包同时支持 `mb://install-plugin?repo=owner/repo` 和上游社区的 `mygo-music://install-plugin?repo=owner/repo` 安装链接；开发包使用各自的 `-dev` 协议。插件兼容版本按已采用的 MyGo Music `0.1.25` 宿主契约检查，与山海的产品版本独立。上游历史、更新流程和本地功能优先规则见 [UPSTREAM.md](UPSTREAM.md)。
 
 哔哩哔哩能力通过平台策略适配已有 MyGo 能力入口。扫码登录使用官方 `qrcode/generate`、`qrcode/poll`，优先读取 `Set-Cookie`，兼容官方 `passport.biligame.com/crossDomain` 回调。字幕接口返回的秒数转换为毫秒后交给原生歌词组件。
 
 ## 来源与许可证
 
-保留 MyGo Music 的 Go 模块路径、上游许可证和历史变更记录，便于核对来源与后续维护。`website/` 是保留的上游网站源码，不参与 MB 桌面打包；本次未发布网站。源项目的歌词舞台动画参考 [folia-major](https://github.com/chthollyphile/folia-major)。
+保留 MyGo Music 的 Go 模块路径、上游许可证和历史变更记录，便于核对来源与后续维护。`website/` 是保留的上游网站源码，不参与山海桌面打包；本次未发布网站。源项目的歌词舞台动画参考 [folia-major](https://github.com/chthollyphile/folia-major)。
 
-源码仓库：[xTreeRoot/MB](https://github.com/xTreeRoot/MB)。许可证见 [LICENSE](LICENSE)。
+源码仓库：[xTreeRoot/ShanhaiMusic](https://github.com/xTreeRoot/ShanhaiMusic)。许可证见 [LICENSE](LICENSE)。
