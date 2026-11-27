@@ -134,10 +134,12 @@ enum DemoCatalog {
         }
         try manifest.write(to: folder.appendingPathComponent("plugin.json"), atomically: true, encoding: .utf8)
         let paginationFixture = ProcessInfo.processInfo.arguments.contains("--catalog-pagination-fixture")
-        let refreshScript = "const filterFixture = \(filterFixture), refreshFixture = \(refreshFixture), paginationFixture = \(paginationFixture), sidebarFixture = \(sidebarFixture);"
+        let playlistFocusFixture = ProcessInfo.processInfo.arguments.contains("--playlist-focus-plugin")
+        let refreshScript = "const playlistFocusFixture = \(playlistFocusFixture), filterFixture = \(filterFixture), refreshFixture = \(refreshFixture), paginationFixture = \(paginationFixture), sidebarFixture = \(sidebarFixture);"
         var script = refreshScript + (includeTrackProblems ? "const extraTracks = [{id:'vip',name:'会员示例曲目',unavailableReason:'vip'}, {id:'missing',name:'无音源示例曲目'}];\n" : "const extraTracks = [];\n") + #"""
         let listName='示例歌单', listTracks=[], homeCalls=0, extraCalls=0, savedHome, savedExtra;
         const track = {id:'sample',name:'插件示例歌曲',artists:[{id:'artist',name:'示例作者'}],album:{},duration:180000};
+        if (playlistFocusFixture) listTracks.push(...Array.from({length:48},(_,i)=>({...track,id:i===35?'sample':'focus-'+(i+1),name:i===35?'插件示例歌曲':'定位曲目 '+(i+1)})));
         const tabs=[{title:'全部',page:'all'},{title:'音乐',page:'music'},{title:'游戏',page:'games'}];
         export function home({refresh}={}){if(filterFixture)return {tabs,selectedTab:'all',sections:[{title:'推荐',tracks:[{...track,name:'全部内容'}]}]};if(refreshFixture){if(!savedHome||refresh)savedHome={sections:[{title:'刷新首页',tracks:[{...track,name:'首页第'+(++homeCalls)+'次'}]}]};return savedHome;} return {title:'示例插件首页',sections:[{title:'示例曲目',tracks:[track,...extraTracks],links:[{title:'更多示例',page:'more'}],albums:[{id:'al',name:'示例专辑'}],artists:[{id:'ar',name:'示例作者'}],playlists:[{id:'pl',name:listName,mine:true}],shows:[{id:'sh',name:'示例播客'}],stations:[{id:'st',name:'示例电台'}]}]};}
         export function browse({page,offset=0,refresh}) {
@@ -229,9 +231,13 @@ enum DemoCatalog {
             bytes.append(Data("data".utf8)); append(count); bytes.append(Data(repeating: 0, count: Int(count)))
             try bytes.write(to: file)
             var tracks: [Track] = []
-            for (index, original) in DemoCatalog.tracks.enumerated() {
-                var track = Track(sourceID: "local", sourceTrackID: original.sourceTrackID, title: original.title, artist: "山海界面示例", durationMilliseconds: 1_000)
-                track.localFileID = original.sourceTrackID
+            let focusFixture = ProcessInfo.processInfo.arguments.contains("--playlist-focus-fixture")
+            let originals = focusFixture ? (0..<48).map { DemoCatalog.tracks[$0 % DemoCatalog.tracks.count] } : DemoCatalog.tracks
+            for (index, original) in originals.enumerated() {
+                let id = focusFixture ? "focus-\(index + 1)" : original.sourceTrackID
+                let title = focusFixture ? "定位曲目 \(index + 1)" : original.title
+                var track = Track(sourceID: "local", sourceTrackID: id, title: title, artist: "山海界面示例", durationMilliseconds: 1_000)
+                track.localFileID = id
                 track.localMetadata = LocalAudioMetadata(album: "城市的声音 · 示例", albumArtist: "山海界面示例", trackNumber: index + 1, folderID: "preview")
                 try await media.saveDownload(file: file, track: track)
                 tracks.append(track)

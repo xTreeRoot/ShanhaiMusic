@@ -343,6 +343,15 @@ public struct MBRootView: View {
                 await video.restore()
                 await playback.restore()
                 for item in downloads.items { playback.updateLocalTrack(item.track) }
+                #if DEBUG
+                if demo, ProcessInfo.processInfo.arguments.contains("--playlist-focus-fixture"),
+                   let track = localLibrary.catalog.tracks.first(where: { $0.sourceTrackID == "focus-36" }) {
+                    playback.queue.replace(with: [track], selecting: 0)
+                }
+                if demo, ProcessInfo.processInfo.arguments.contains("--playlist-focus-plugin") {
+                    playback.queue.replace(with: [Track(sourceID: "fixture", sourceTrackID: "sample", title: "插件示例歌曲", artist: "示例作者")], selecting: 0)
+                }
+                #endif
                 video.updateTrack(playback.queue.current)
             }
             .task(id: selectedSourceID + ":" + String(plugins.revision) + ":" + String(preferences.isRestored)) {

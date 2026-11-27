@@ -106,6 +106,13 @@ struct PluginCatalogPage: View {
     }
 
     private var catalogList: some View {
+        PlaylistTrackScroll(tracks: content?.sections.flatMap(\.tracks) ?? [], current: playback?.queue.current,
+                            enabled: revealCurrentPlaylist, loading: loading, more: more && error == nil,
+                            loadMore: {
+                                let previousOffset = offset, previousCursor = nextBrowse
+                                await load(append: true)
+                                return error == nil && (offset != previousOffset || nextBrowse != previousCursor)
+                            }) {
         List {
             Group {
                 if let content {
@@ -165,6 +172,12 @@ struct PluginCatalogPage: View {
             }
         }
     }
+    }
+    private var revealCurrentPlaylist: Bool {
+        guard case .entity(let item) = request, item.kind == .playlist else { return false }
+        return playback?.queue.current?.sourceID == source.manifest.id
+    }
+
     /// 无标题目录直接铺开曲目；有标题目录保留原生分区标题。
     @ViewBuilder private func sectionContents(_ section: PluginBrowse.Section) -> some View {
         if section.trackLayout == "videos" {
@@ -177,7 +190,7 @@ struct PluginCatalogPage: View {
                         .accessibilityIdentifier("catalog-track-\(section.id)-\(index + 1)")
                         .modifier(TrackProblemAccessibility(track: track))
                     Menu { menu(track); playlistTrackActions(track, index: index) } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("曲目操作 \(track.title)")
-                }.contextMenu { menu(track); playlistTrackActions(track, index: index) }
+                }.id(track.id).contextMenu { menu(track); playlistTrackActions(track, index: index) }
             }
         }
         ForEach(section.entities) { entity in

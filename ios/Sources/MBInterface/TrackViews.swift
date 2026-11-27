@@ -44,7 +44,7 @@ struct VideoTrackGrid: View {
                         Text(track.title).font(.subheadline.weight(.medium)).lineLimit(2)
                         Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }.frame(maxWidth: .infinity, alignment: .leading)
-                }.buttonStyle(.plain).contextMenu { menu(track) }
+                }.id(track.id).buttonStyle(.plain).contextMenu { menu(track) }
                     .accessibilityLabel(includeArtistInLabel ? "播放 \(track.title)，\(track.artist)" : "播放 \(track.title)")
             }
         }

@@ -2,6 +2,41 @@ import XCTest
 import UIKit
 
 final class MBiOSUITests: XCTestCase {
+    @MainActor func testLocalPlaylistRevealsPausedCurrentTrack() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--playlist-focus-fixture", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        selectTab("资料库", app: app)
+        let playlist = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "晚间散步 · 示例")).firstMatch
+        XCTAssertTrue(playlist.waitForExistence(timeout: 15)); playlist.tap()
+        let target = app.buttons["播放 定位曲目 36"]
+        let revealed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in target.exists && target.isHittable }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [revealed], timeout: 8), .completed)
+        capture("本地歌单-自动定位暂停曲目", app: app)
+        app.swipeDown(); app.swipeDown(); app.swipeDown()
+        XCTAssertFalse(target.isHittable, "用户滚动后不能再次拉回当前曲目")
+    }
+
+    @MainActor func testPluginPlaylistRevealsPausedCurrentTrack() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--plugin-demo", "--playlist-focus-plugin", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        selectTab("设置", app: app); app.buttons["settings-plugins"].tap()
+        XCTAssertTrue(app.buttons["安装"].waitForExistence(timeout: 8)); app.buttons["安装"].tap()
+        selectTab("发现", app: app)
+        let source = app.buttons["source-tab-fixture"]
+        XCTAssertTrue(source.waitForExistence(timeout: 5)); source.tap()
+        let playlist = app.buttons["示例歌单"].firstMatch
+        if !playlist.isHittable { app.swipeUp() }
+        XCTAssertTrue(playlist.waitForExistence(timeout: 5)); playlist.tap()
+        let target = app.buttons["播放 插件示例歌曲"].firstMatch
+        let revealed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in target.exists && target.isHittable }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [revealed], timeout: 8), .completed)
+        capture("平台歌单-自动定位暂停曲目", app: app)
+    }
+
     @MainActor func testFailedSongsAutomaticallyAdvanceToPlayableAudio() {
         continueAfterFailure = false
         let app = XCUIApplication()

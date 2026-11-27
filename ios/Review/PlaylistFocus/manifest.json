@@ -1,0 +1,42 @@
+[
+  {
+    "number": 1,
+    "file": "images/001.png",
+    "sha256": "5b4a9f738ffe646961ea56b88774983a7b7a9b17cab4a34bf3c1be4e28a1894f",
+    "name": "平台歌单-自动定位暂停曲目",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPluginPlaylistRevealsPausedCurrentTrack()",
+    "captured": 1795770117.248,
+    "origin": "tablet-attachments"
+  },
+  {
+    "number": 2,
+    "file": "images/002.png",
+    "sha256": "c1852f646c18cc4b933a66097f061a06af5e5e9da8e9c8790b028cef50f35a56",
+    "name": "本地歌单-自动定位暂停曲目",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testLocalPlaylistRevealsPausedCurrentTrack()",
+    "captured": 1795770072.251,
+    "origin": "tablet-attachments"
+  },
+  {
+    "number": 3,
+    "file": "images/003.png",
+    "sha256": "aadab7d505ce1209abfd0b18d6f29ce932fdfeef0936afd46c84368c53af6bf4",
+    "name": "平台歌单-自动定位暂停曲目",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testPluginPlaylistRevealsPausedCurrentTrack()",
+    "captured": 1795770037.005,
+    "origin": "phone-attachments"
+  },
+  {
+    "number": 4,
+    "file": "images/004.png",
+    "sha256": "23bc004260c1e0bd7509b9723f2c80fd6be7592ed35f14b8297875e6db7786ed",
+    "name": "本地歌单-自动定位暂停曲目",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testLocalPlaylistRevealsPausedCurrentTrack()",
+    "captured": 1795769996.463,
+    "origin": "phone-attachments"
+  }
+]

@@ -10,6 +10,7 @@ struct LocalLibraryPage: View {
     @State private var adding = false
     @State private var query = ""
     var body: some View {
+        PlaylistTrackScroll(tracks: filtered, current: playback.queue.current, enabled: playlistID != nil) {
         List {
             Group {
                 if page == .albums || page == .artists {
@@ -75,6 +76,7 @@ struct LocalLibraryPage: View {
         #endif
         .sheet(isPresented: $adding) { if let playlistID { LocalPlaylistAddView(playlistID: playlistID, library: library) } }
     }
+    }
     private func playPlaylist() {
         playback.select(filtered, index: 0)
         if let resumeKey { playback.rememberPlaylist(resumeKey) }
@@ -137,7 +139,7 @@ struct LocalTrackRows: DynamicViewContent {
                     .contextMenu { actions(track) }
                 Menu { actions(track) } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }
                     .accessibilityLabel("曲目操作 \(track.title)")
-            }
+            }.id(track.id)
         }
         .confirmationDialog("删除音频文件？", isPresented: $confirmingDeletion, titleVisibility: .visible) {
             Button("删除音频文件", role: .destructive) { if let deletion { Task { await downloads.remove(deletion) } } }
