@@ -74,7 +74,7 @@ public struct DemoSource: DiscoverySource, AccountSource, AccountCacheResetSourc
 
 private actor DemoAccountState {
     private var signedIn = ProcessInfo.processInfo.arguments.contains("--demo-account")
-    private var likes: Set<String> = []
+    private var likes: Set<String> = ProcessInfo.processInfo.arguments.contains("--demo-liked") ? ["night"] : []
     func current() -> SourceAccount? { signedIn ? SourceAccount(id: "preview", name: "界面示例用户") : nil }
     func signOut() { signedIn = false }
     func liked(_ id: String) -> Bool { likes.contains(id) }
@@ -130,7 +130,7 @@ enum DemoCatalog {
         try manifest.write(to: folder.appendingPathComponent("plugin.json"), atomically: true, encoding: .utf8)
         let paginationFixture = ProcessInfo.processInfo.arguments.contains("--catalog-pagination-fixture")
         let refreshScript = "const filterFixture = \(filterFixture), refreshFixture = \(refreshFixture), paginationFixture = \(paginationFixture), sidebarFixture = \(sidebarFixture);"
-        let script = refreshScript + (includeTrackProblems ? "const extraTracks = [{id:'vip',name:'会员示例曲目',unavailableReason:'vip'}, {id:'missing',name:'无音源示例曲目'}];\n" : "const extraTracks = [];\n") + #"""
+        var script = refreshScript + (includeTrackProblems ? "const extraTracks = [{id:'vip',name:'会员示例曲目',unavailableReason:'vip'}, {id:'missing',name:'无音源示例曲目'}];\n" : "const extraTracks = [];\n") + #"""
         let listName='示例歌单', listTracks=[], homeCalls=0, extraCalls=0, savedHome, savedExtra;
         const track = {id:'sample',name:'插件示例歌曲',artists:[{id:'artist',name:'示例作者'}],album:{},duration:180000};
         const tabs=[{title:'全部',page:'all'},{title:'音乐',page:'music'},{title:'游戏',page:'games'}];
@@ -181,6 +181,9 @@ enum DemoCatalog {
         export function savePlaylist(){}
         export function stream({id}){return id==='missing'?{url:''}:{url:'https://media.example.test/sample.mp3',type:'mp3'};}
         """#
+        if ProcessInfo.processInfo.arguments.contains("--platform-playlist-fixture") {
+            script += "\nexport function account(){return {id:'fixture-user',name:'示例账号'};}"
+        }
         if shelfFixture {
             let cover = folder.appendingPathComponent("avatar.png")
             if let image = DemoCatalog.backgroundImage,

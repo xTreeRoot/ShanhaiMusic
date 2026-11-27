@@ -46,7 +46,7 @@ struct NowPlayingView: View {
                     } else if textSize.isAccessibilitySize {
                         ScrollView { player(track: track, viewportHeight: max(900, geometry.size.height)).frame(minHeight: max(900, geometry.size.height)) }
                     } else { player(track: track, viewportHeight: geometry.size.height) }
-                }.padding(.horizontal, geometry.size.width > geometry.size.height ? 16 : 24).padding(.top, 4).padding(.bottom, 2)
+                }.padding(.horizontal, geometry.size.width > geometry.size.height ? 16 : 24).padding(.top, playerTopInset).padding(.bottom, 2)
             } else { ContentUnavailableView("播放队列为空", systemImage: "music.note.list") }
         }
         .background {
@@ -78,7 +78,7 @@ struct NowPlayingView: View {
             if queuedCreator, let track = playback.queue.current { queuedCreator = false; creatorAction(track)?() }
         }) {
             if let track = playback.queue.current {
-                PlayerTrackActionsSheet(track: track, downloads: downloads, preferences: preferences, openCreator: creatorAction(track).map { _ in { queuedCreator = true } })
+                PlayerTrackActionsSheet(track: track, downloads: downloads, preferences: preferences, pluginSource: pluginSource, openCreator: creatorAction(track).map { _ in { queuedCreator = true } })
             }
         }
         .sheet(item: $creatorDestination) { destination in
@@ -202,9 +202,18 @@ struct NowPlayingView: View {
         }
     }
 
+    private var playerTopInset: CGFloat {
+        #if os(iOS)
+        // iPad 窗口模式的系统窗口按钮覆盖左上角；给自定义播放器控制区留出标题栏。
+        UIDevice.current.userInterfaceIdiom == .pad ? 32 : 4
+        #else
+        4
+        #endif
+    }
     private func header(track: Track) -> some View {
         HStack(spacing: 8) {
-            Button("收起", systemImage: "chevron.down") { dismiss() }.labelStyle(.iconOnly).frame(width: 44, height: 44)
+            Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).contentShape(Rectangle()) }
+                .buttonStyle(.plain).accessibilityLabel("收起")
             Spacer(minLength: 0)
             Text(LocalizedStringKey(demo ? "界面演示" : "正在播放")).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
             Spacer(minLength: 0)
@@ -262,7 +271,8 @@ struct NowPlayingView: View {
     private func widePlayer(track: Track) -> some View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
-                Button("收起", systemImage: "chevron.down") { dismiss() }.labelStyle(.iconOnly).frame(width: 44, height: 44)
+                Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44).contentShape(Rectangle()) }
+                .buttonStyle(.plain).accessibilityLabel("收起")
                 ForEach(WidePlayerSection.allCases) { section in
                     Button { wideSection = section } label: {
                         Text(section.title).font(.subheadline.weight(.semibold)).padding(.horizontal, 10).frame(minHeight: 40)

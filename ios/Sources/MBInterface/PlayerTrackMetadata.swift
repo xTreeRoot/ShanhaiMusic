@@ -8,12 +8,14 @@ struct PlayerTrackMetadata: View {
     let openCreator: (() -> Void)?
     let openComments: () -> Void
     let more: () -> Void
+    private let pluginID: String?
     @State private var interaction: InteractionModel?
 
     init(track: Track, compact: Bool, source: (any InteractionSource)?, openCreator: (() -> Void)?,
          openComments: @escaping () -> Void, more: @escaping () -> Void) {
         self.track = track; self.compact = compact; self.openCreator = openCreator
         self.openComments = openComments; self.more = more
+        pluginID = (source as? PluginSource)?.manifest.id
         _interaction = State(initialValue: source.map { InteractionModel(source: $0, track: track) })
     }
 
@@ -35,13 +37,15 @@ struct PlayerTrackMetadata: View {
                     } else { Text(track.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }
                 }.frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
                 HStack(spacing: 0) {
-                    Button { if let interaction { Task { await interaction.toggleLike() } } } label: {
-                        countedIcon(interaction?.liked == true ? "heart.fill" : "heart", count: interaction?.summary.likes)
-                            .foregroundStyle(interaction?.liked == true ? Color.red : Color.primary)
-                    }.disabled(interaction?.capabilities.likes != true || interaction?.isChangingLike == true)
-                        .accessibilityLabel(interaction?.liked == true ? "取消点赞" : "点赞")
-                        .accessibilityValue(interaction?.summary.likes.map(String.init) ?? "")
-                        .accessibilityIdentifier("player-platform-like")
+                    if interaction?.capabilities.likesReadable == true {
+                        Button { if let interaction { Task { await interaction.toggleLike() } } } label: {
+                            countedIcon(interaction?.liked == true ? "heart.fill" : "heart", count: interaction?.summary.likes)
+                                .foregroundStyle(interaction?.liked == true ? Color.red : Color.primary)
+                        }.disabled(interaction?.capabilities.likes != true || interaction?.isChangingLike == true)
+                            .accessibilityLabel(interaction?.liked == true ? "取消点赞" : "点赞")
+                            .accessibilityValue(interaction?.summary.likes.map(String.init) ?? "")
+                            .accessibilityIdentifier("player-platform-like")
+                    }
                     Button(action: openComments) {
                         countedIcon("bubble.right", count: interaction?.summary.comments)
                     }.disabled(interaction?.capabilities.comments != true)
@@ -55,6 +59,10 @@ struct PlayerTrackMetadata: View {
             }
             if let message = interaction?.likeError { Text(message).font(.caption).foregroundStyle(.red).lineLimit(2) }
         }.task { await interaction?.loadSummary() }
+            .onReceive(NotificationCenter.default.publisher(for: .pluginLikedStateDidChange).receive(on: RunLoop.main)) { event in
+                guard let pluginID, event.object as? String == pluginID else { return }
+                if let interaction { Task { await interaction.loadLike() } }
+            }
     }
 
     private func countedIcon(_ name: String, count: Int?) -> some View {
@@ -74,10 +82,12 @@ struct PlayerTrackActionsSheet: View {
     let track: Track
     let downloads: DownloadModel?
     let preferences: PreferencesModel?
+    var pluginSource: PluginSource? = nil
     let openCreator: (() -> Void)?
     @Environment(\.offlineLibrary) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var choosingQuality = false
+    @State private var choosingPlatformPlaylist = false
     private var collected: Bool {
         guard let library else { return false }
         return library.contains(track) ? library.snapshot.favorites.contains(track.id) : library.resources.contains { $0.id == track.id }
@@ -110,6 +120,10 @@ struct PlayerTrackActionsSheet: View {
                         .accessibilityIdentifier("player-download")
                 }.frame(maxWidth: .infinity).buttonStyle(.plain)
                 Divider()
+                if track.localFileID == nil {
+                    Button { choosingPlatformPlaylist = true } label: { row("添加到平台歌单", icon: "text.badge.plus") }
+                        .buttonStyle(.plain).accessibilityIdentifier("player-add-platform-playlist")
+                }
                 if let openCreator {
                     Button { dismiss(); openCreator() } label: {
                         row("作者：\(track.artist)", icon: "person.crop.circle")
@@ -136,6 +150,7 @@ struct PlayerTrackActionsSheet: View {
             }.padding(24)
         }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             .accessibilityIdentifier("player-track-actions")
+            .sheet(isPresented: $choosingPlatformPlaylist) { PlatformPlaylistPicker(track: track, source: pluginSource) }
     }
     private var downloading: Bool { downloads?.downloading[track.id] != nil }
     private var downloaded: Bool { downloads?.items.contains { $0.track.id == track.id } == true }

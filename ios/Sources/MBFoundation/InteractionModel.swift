@@ -20,12 +20,13 @@ public final class InteractionModel {
         let available = await source.capabilities()
         guard generation == current, !Task.isCancelled else { return }
         capabilities = available
+        // 插件运行时按调用串行执行，先查红心，避免慢计数占住执行通道。
+        await loadLike()
         do {
             let value = try await source.interactionSummary(trackID: track.sourceTrackID)
             try Task.checkCancellation()
             if generation == current { summary = value }
         } catch { /* 计数失败不阻塞播放或用户操作。 */ }
-        await loadLike()
     }
     public private(set) var errorMessage: String?
     public private(set) var likeError: String?
@@ -37,7 +38,7 @@ public final class InteractionModel {
     public init(source: any InteractionSource, track: Track) { self.source = source; self.track = track }
 
     public func loadLike() async {
-        guard (await source.capabilities()).likes else { return }
+        guard (await source.capabilities()).likesReadable else { return }
         let current = generation
         do {
             let enabled = try await source.isLiked(trackID: track.sourceTrackID)

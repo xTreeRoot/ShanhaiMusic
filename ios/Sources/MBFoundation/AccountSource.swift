@@ -1,5 +1,9 @@
 import Foundation
 
+public extension Notification.Name {
+    static let pluginLikedStateDidChange = Notification.Name("MBPluginLikedStateDidChange")
+}
+
 public struct SourceAccount: Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
@@ -127,10 +131,13 @@ public protocol InteractionSource: MusicSource {
 
 public struct InteractionCapabilities: Sendable {
     public let likes: Bool
+    public let likesReadable: Bool
     public let comments: Bool
     public let posting: Bool
-    public var available: Bool { likes || comments || posting }
-    public init(likes: Bool = true, comments: Bool = true, posting: Bool = true) { self.likes = likes; self.comments = comments; self.posting = posting }
+    public var available: Bool { likesReadable || comments || posting }
+    public init(likes: Bool = true, comments: Bool = true, posting: Bool = true, likesReadable: Bool? = nil) {
+        self.likes = likes; self.comments = comments; self.posting = posting; self.likesReadable = likesReadable ?? likes
+    }
 }
 public extension InteractionSource {
     func interactionSummary(trackID: String) async throws -> TrackInteractionSummary { TrackInteractionSummary() }

@@ -20,6 +20,57 @@ final class MBiOSUITests: XCTestCase {
         capture("播放失败-连续跳过并自动续播", app: app)
     }
 
+    @MainActor func testExistingPlatformLikeShowsFilledHeartOnEntry() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-account", "--demo-liked", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        selectTab("搜索", app: app)
+        let field = app.textFields["搜索视频、音乐、UP 主"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("likes fixture\n")
+        let song = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "选择 晚风里的片刻")).firstMatch
+        XCTAssertTrue(song.waitForExistence(timeout: 5)); song.tap()
+        let like = app.buttons["player-platform-like"]
+        XCTAssertTrue(like.waitForExistence(timeout: 5))
+        let loaded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "取消点赞"), object: like)
+        XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 5), .completed)
+        capture("已在平台喜欢-播放器直接亮红心", app: app)
+        like.tap(); XCTAssertEqual(like.label, "点赞")
+    }
+
+    @MainActor func testPlatformPlaylistCanBeAddedFromThePlayerAndSongList() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--plugin-demo", "--platform-playlist-fixture", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        selectTab("设置", app: app); app.buttons["settings-plugins"].tap()
+        XCTAssertTrue(app.buttons["安装"].waitForExistence(timeout: 5)); app.buttons["安装"].tap()
+        selectTab("发现", app: app)
+        let source = app.buttons["source-tab-fixture"]
+        XCTAssertTrue(source.waitForExistence(timeout: 5)); source.tap()
+        let song = app.buttons["播放 插件示例歌曲"].firstMatch
+        XCTAssertTrue(song.waitForExistence(timeout: 5)); song.tap()
+        let more = app.buttons["player-track-more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 5)); more.tap()
+        app.buttons["player-add-platform-playlist"].tap()
+        let target = app.buttons["platform-playlist-pl"]
+        XCTAssertTrue(target.waitForExistence(timeout: 5)); capture("播放器-选择平台歌单", app: app); target.tap()
+        let pickerClosed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !app.navigationBars["添加到平台歌单"].exists }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [pickerClosed], timeout: 5), .completed)
+        app.buttons["关闭"].firstMatch.tap()
+        let actionsClosed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !app.descendants(matching: .any)["player-track-actions"].exists }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [actionsClosed], timeout: 5), .completed)
+        app.buttons["收起"].press(forDuration: 0.15)
+        capture("平台歌单-收起返回列表", app: app)
+        let playerClosed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !app.buttons["player-track-more"].exists }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [playerClosed], timeout: 5), .completed)
+        let actions = app.buttons["曲目操作 插件示例歌曲"].firstMatch
+        if !actions.exists { app.buttons["查看更多示例曲目"].firstMatch.tap() }
+        XCTAssertTrue(actions.waitForExistence(timeout: 5)); actions.tap()
+        app.buttons["添加到平台歌单"].tap()
+        XCTAssertTrue(target.waitForExistence(timeout: 5)); capture("歌曲列表-选择平台歌单", app: app); target.tap()
+    }
+
     @MainActor func testPluginCenterTabsAndInstallationReview() {
         continueAfterFailure = false
         let app = XCUIApplication()

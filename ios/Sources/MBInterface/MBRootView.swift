@@ -35,6 +35,7 @@ public struct MBRootView: View {
     @State private var showingPlugins = false
     @State private var account: AccountModel
     @State private var accountPlatformID: String
+    @State private var platformPlaylistTrack: Track?
     @State private var commentTrack: Track?
     @State private var resourceDetail: Track?
     @State private var systemPlayback = SystemPlaybackCoordinator()
@@ -254,6 +255,9 @@ public struct MBRootView: View {
                 NavigationStack { ResourceDetailView(track: track, library: localLibrary)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { resourceDetail = nil } } }
                 }
+            }
+            .sheet(item: $platformPlaylistTrack) { track in
+                PlatformPlaylistPicker(track: track, source: plugins.sources[track.sourceID])
             }
             .sheet(item: $commentTrack) { track in
                 if let interactions = currentInteractions { CommentsView(source: interactions, track: track).id(account.revision) }
@@ -865,7 +869,7 @@ public struct MBRootView: View {
             openCreator: source is any LibrarySource && track.sourceID == selectedSourceID ? { id in
                 if selectedTab == .search { searchPath.append(.library(.creator(id))) }
                 else { path.append(.library(.creator(id))) }
-            } : nil))
+            } : nil, addToPlatformPlaylist: track.localFileID == nil ? { platformPlaylistTrack = track } : nil))
     }
     private var searchTargetName: String {
         if searchTarget == "all" { return AppLocalization.text("全平台搜索") }

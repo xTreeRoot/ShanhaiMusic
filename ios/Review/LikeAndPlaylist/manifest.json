@@ -1,0 +1,82 @@
+[
+  {
+    "number": 1,
+    "file": "images/001.png",
+    "sha256": "61a25d9059c4ef190ffb493e98ed44597809158dd0a59200b27f3b2b4684a7f4",
+    "name": "已在平台喜欢-播放器直接亮红心",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testExistingPlatformLikeShowsFilledHeartOnEntry()",
+    "captured": 1795747201.086,
+    "origin": "like-playlist-final-attachments"
+  },
+  {
+    "number": 2,
+    "file": "images/002.png",
+    "sha256": "278b9e5922cdac757528cb5ddb697f66f6b69ac96ef0181fffbbe32e683e4d3c",
+    "name": "平台歌单-收起返回列表",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPlatformPlaylistCanBeAddedFromThePlayerAndSongList()",
+    "captured": 1795747245.926,
+    "origin": "like-playlist-final-attachments"
+  },
+  {
+    "number": 3,
+    "file": "images/003.png",
+    "sha256": "084beff6a686bbbd775638d5e3e0fa09ab27f70f22ad17b4361156fbe018accd",
+    "name": "播放器-选择平台歌单",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPlatformPlaylistCanBeAddedFromThePlayerAndSongList()",
+    "captured": 1795747239.63,
+    "origin": "like-playlist-final-attachments"
+  },
+  {
+    "number": 4,
+    "file": "images/004.png",
+    "sha256": "4379cb8f32e85894414cc7c1ecef50ae644caf75c5caac365fca793df2c7e975",
+    "name": "歌曲列表-选择平台歌单",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPlatformPlaylistCanBeAddedFromThePlayerAndSongList()",
+    "captured": 1795747254.465,
+    "origin": "like-playlist-final-attachments"
+  },
+  {
+    "number": 5,
+    "file": "images/005.png",
+    "sha256": "a11c3479f570abfa7344647f1c041e3961eeeb02e22a39d7ff67414fdd413819",
+    "name": "已在平台喜欢-播放器直接亮红心",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testExistingPlatformLikeShowsFilledHeartOnEntry()",
+    "captured": 1795747209.648,
+    "origin": "like-playlist-final-attachments"
+  },
+  {
+    "number": 6,
+    "file": "images/006.png",
+    "sha256": "d570b774f06000b2a71f045d7a95defa80dbb478d3068a24dcb0e9e3dfcf7bf1",
+    "name": "平台歌单-收起返回列表",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testPlatformPlaylistCanBeAddedFromThePlayerAndSongList()",
+    "captured": 1795747251.364,
+    "origin": "like-playlist-final-attachments"
+  },
+  {
+    "number": 7,
+    "file": "images/007.png",
+    "sha256": "c284839cb331f0ddf5349c7f44535cf14b7c1b033568cef4b8f0ad4bc360f74d",
+    "name": "播放器-选择平台歌单",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testPlatformPlaylistCanBeAddedFromThePlayerAndSongList()",
+    "captured": 1795747245.672,
+    "origin": "like-playlist-final-attachments"
+  },
+  {
+    "number": 8,
+    "file": "images/008.png",
+    "sha256": "ceacf2c9c9c0532fac9e306912c7f7f58808eee19a4d4cf07e2add8ae6a09947",
+    "name": "歌曲列表-选择平台歌单",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testPlatformPlaylistCanBeAddedFromThePlayerAndSongList()",
+    "captured": 1795747259.462,
+    "origin": "like-playlist-final-attachments"
+  }
+]

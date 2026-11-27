@@ -7,7 +7,12 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
     public init(manifest: PluginManifest, runtime: PluginRuntime) { self.manifest = manifest; self.runtime = runtime }
     public func supports(_ name: String) async throws -> Bool { try await runtime.supports(name) }
     private var cacheAccount: String?
-    private var accountGeneration = 0
+    private(set) var accountGeneration = 0
+    private var likesScope = -1
+    private var likesRevision = 0
+    private var likeStates: [String: (value: Bool, at: Date)] = [:]
+    private var likedSnapshot: (ids: Set<String>, at: Date)?
+    private var likedLoading: (id: UUID, task: Task<Set<String>, any Error>)?
     private var offsets: [String: [Int: Int]] = [:]
     private var commentOffsets: [String: [Int: Int]] = [:]
     public func suggestions(_ query: String) async throws -> [String] {
@@ -46,7 +51,7 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
                 return try await runtime.invoke(method, arguments: requestArguments)
             }
         }
-        let scope = cacheAccount ?? "guest", generation = accountGeneration
+        let scope = cacheAccount ?? "guest", generation = accountGeneration, likeRevision = likesRevision
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
         let key = ResponseCache.key([manifest.id, manifest.version ?? "", scope, method, String(decoding: try encoder.encode(arguments), as: UTF8.self)])
         let runtime = runtime
@@ -54,7 +59,19 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
             try await self.catalogData(method, arguments: requestArguments, generation: generation)
         }
         guard generation == accountGeneration else { throw CancellationError() }
-        return try JSONDecoder().decode(PluginJSON.self, from: data)
+        let value = try JSONDecoder().decode(PluginJSON.self, from: data)
+        if method == "liked", likeRevision == likesRevision {
+            resetLikeScope()
+            var changed = false
+            for row in value["tracks"].array {
+                if let id = row["id"].string { changed = changed || likeStates[id]?.value != true; likeStates[id] = (true, Date()) }
+            }
+            if changed {
+                likesRevision += 1; likedLoading?.task.cancel(); likedLoading = nil; likedSnapshot = nil
+                NotificationCenter.default.post(name: .pluginLikedStateDidChange, object: manifest.id)
+            }
+        }
+        return value
     }
     private func catalogData(_ method: String, arguments: PluginJSON, generation: Int) async throws -> Data {
         guard generation == accountGeneration else { throw CancellationError() }
@@ -126,7 +143,7 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
         let found = try await account(runtime.invoke("account"))
         guard generation == accountGeneration else { throw CancellationError() }
         let scope = found.map { "user:" + $0.id } ?? "guest"
-        if let previous = cacheAccount, previous != scope { accountGeneration += 1 }
+        if cacheAccount != scope { accountGeneration += 1 }
         cacheAccount = scope
         return found
     }
@@ -194,9 +211,12 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
         await invalidateCatalog()
     }
     public func capabilities() async -> InteractionCapabilities {
-        InteractionCapabilities(likes: (try? await supports("like")) == true,
+        let query = (try? await supports("isLiked")) == true
+        let list = (try? await supports("liked")) == true
+        return InteractionCapabilities(likes: (try? await supports("like")) == true,
                                 comments: (try? await supports("comments")) == true,
-                                posting: (try? await supports("postComment")) == true)
+                                posting: (try? await supports("postComment")) == true,
+                                likesReadable: query || list)
     }
     public func supportsCommentLikes() async -> Bool { (try? await supports("likeComment")) == true }
     public func likeComment(trackID: String, commentID: String, enabled: Bool) async throws {
@@ -217,10 +237,64 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
         return TrackInteractionSummary(likes: count(value["likes"]), comments: count(value["comments"]))
     }
     public func isLiked(trackID: String) async throws -> Bool {
-        try await runtime.invoke("isLiked", arguments: .object(["ids": .array([.string(trackID)])]))[trackID] == .bool(true)
+        resetLikeScope()
+        if let known = likeStates[trackID], Date().timeIntervalSince(known.at) < 60 { return known.value }
+        let generation = accountGeneration, revision = likesRevision
+        let listSupported = (try? await supports("liked")) == true
+        if try await supports("isLiked") {
+            do {
+                let value = try await runtime.invoke("isLiked", arguments: .object(["ids": .array([.string(trackID)])]))[trackID]
+                guard generation == accountGeneration, revision == likesRevision else { throw CancellationError() }
+                if case .bool(let liked) = value { likeStates[trackID] = (liked, Date()); return liked }
+            } catch { if error is CancellationError || !listSupported { throw error } }
+        }
+        let ids = try await readLikedSnapshot()
+        guard generation == accountGeneration, revision == likesRevision else { throw CancellationError() }
+        return ids.contains(trackID)
     }
     public func like(trackID: String, enabled: Bool) async throws {
+        let generation = accountGeneration
         try await mutate("like", arguments: .object(["id": .string(trackID), "on": .bool(enabled)]))
+        guard generation == accountGeneration else { throw CancellationError() }
+        resetLikeScope(); likesRevision += 1
+        likedLoading?.task.cancel(); likedLoading = nil; likedSnapshot = nil
+        likeStates[trackID] = (enabled, Date())
+        NotificationCenter.default.post(name: .pluginLikedStateDidChange, object: manifest.id)
+    }
+
+    private func resetLikeScope() {
+        guard likesScope != accountGeneration else { return }
+        likedLoading?.task.cancel(); likedLoading = nil
+        likedSnapshot = nil; likeStates.removeAll(); likesScope = accountGeneration; likesRevision += 1
+    }
+
+    private func readLikedSnapshot() async throws -> Set<String> {
+        guard try await supports("liked") else { throw PluginFailure.unavailable }
+        if let snapshot = likedSnapshot, Date().timeIntervalSince(snapshot.at) < 60 { return snapshot.ids }
+        let generation = accountGeneration, revision = likesRevision
+        if let loading = likedLoading { return try await loading.task.value }
+        let runtime = runtime, id = UUID()
+        let task = Task<Set<String>, any Error> {
+            var ids = Set<String>(), offset = 0
+            for _ in 0..<512 {
+                try Task.checkCancellation()
+                let value = try await runtime.invoke("liked", arguments: .object(["offset": .number(Double(offset))]))
+                guard case .array(let rows) = value["tracks"] else { throw PluginFailure.invalid("Invalid liked list") }
+                let before = ids.count
+                for row in rows { if let id = row["id"].string { ids.insert(id) } }
+                if value["more"] != .bool(true) { return ids }
+                guard let next = catalogNextOffset(value, offset: offset, count: rows.count), next > offset,
+                      ids.count > before, ids.count <= 25_000 else { throw PluginFailure.invalid("Liked list is incomplete") }
+                offset = next
+            }
+            throw PluginFailure.invalid("Liked list exceeds paging limit")
+        }
+        likedLoading = (id, task)
+        defer { if likedLoading?.id == id { likedLoading = nil } }
+        let ids = try await task.value
+        guard generation == accountGeneration, revision == likesRevision else { throw CancellationError() }
+        likedSnapshot = (ids, Date())
+        return ids
     }
     public func comments(trackID: String, page: Int) async throws -> CommentPage {
         if page == 1 { commentOffsets[trackID] = [1: 0] }
