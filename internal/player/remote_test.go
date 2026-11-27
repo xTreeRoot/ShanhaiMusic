@@ -517,8 +517,7 @@ func TestRemoteErrors(t *testing.T) {
 	}
 }
 
-// A source that wants the listener signed in stops there, saying so to the app,
-// rather than skipping through the queue.
+// Sign-in failures remain visible while each candidate is tried at most once.
 func TestRemoteSignIn(t *testing.T) {
 	src := &remoteFake{cmd: make(chan string, 8), playErr: music.ErrSignIn}
 	posted := make(chan func(), 16)
@@ -539,7 +538,8 @@ func TestRemoteSignIn(t *testing.T) {
 	if !errors.Is(failed, music.ErrSignIn) {
 		t.Fatal("the app never heard")
 	}
-	if p.Playing() || p.Current().ID != "a" || len(src.played) != 1 {
+	settle(t, posted, p)
+	if p.Playing() || p.Current().ID != "b" || len(src.played) != 2 {
 		t.Errorf("playing %v, on %s, told %v", p.Playing(), p.Current().ID, src.played)
 	}
 }

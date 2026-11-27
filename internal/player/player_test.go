@@ -324,21 +324,20 @@ func TestTrackProblemFollowsFailedSongAndClearsOnPlayback(t *testing.T) {
 	}
 }
 
-// A song the listener picks that can't play stays, saying why. Clicking one
-// the source refused for a moment used to play the one after it instead.
-func TestPickedTrackStays(t *testing.T) {
+// A failed explicit selection now advances, keeping its failure on that track.
+func TestPickedTrackSkipsFailure(t *testing.T) {
 	p, ch, q := pickyQueue()
 	defer p.stop()
 	p.PlayTrack(q, 1)
 	settle(t, ch, p)
-	if p.Current().ID != "b" || p.Playing() || p.Err() == "" {
+	if p.Current().ID != "c" || !p.Playing() || p.TrackProblem(&q[1]) != music.TrackUnavailable {
 		t.Fatalf("on %s, playing %v, err %q", p.Current().ID, p.Playing(), p.Err())
 	}
 	p.Jump(0)
 	settle(t, ch, p)
 	p.Jump(1)
 	settle(t, ch, p)
-	if p.Current().ID != "b" || p.Playing() {
+	if p.Current().ID != "c" || !p.Playing() {
 		t.Errorf("jumped to %s, playing %v", p.Current().ID, p.Playing())
 	}
 }

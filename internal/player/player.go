@@ -84,7 +84,8 @@ type Player struct {
 	videoHold     bool
 	err           string
 	trackProblems map[problemKey]music.TrackProblem
-	gen           int // counts loads, to drop the results of stale ones
+	failedTracks  map[problemKey]bool // skipped in this queue; explicit selection permits retry
+	gen           int                 // counts loads, to drop the results of stale ones
 	stopOpening   context.CancelFunc
 
 	lyrics       []lyrics.Line
@@ -192,7 +193,12 @@ func (p *Player) ended() {
 		p.sync()
 		return
 	}
-	p.Next()
+	if at, ok := p.nextPlayable(p.at, forward, p.repeat == RepeatAll); ok {
+		p.load(at)
+	} else {
+		p.playing = false
+		p.sync()
+	}
 }
 
 // PlayQueue replaces the queue with tracks and plays the one at start, or the
@@ -201,11 +207,9 @@ func (p *Player) PlayQueue(tracks []music.Track, start int) {
 	p.playQueue(tracks, start, forward)
 }
 
-// PlayTrack replaces the queue with tracks and plays the one at i, the
-// listener's pick: one that can't play stays, saying why, rather than another
-// playing in its place.
+// PlayTrack starts with the listener's pick, passing tracks that cannot play.
 func (p *Player) PlayTrack(tracks []music.Track, i int) {
-	p.playQueue(tracks, i, stay)
+	p.playQueue(tracks, i, forward)
 }
 
 func (p *Player) PlayPaged(tracks []music.Track, index int, feed func(func([]music.Track, bool, error))) {
@@ -488,17 +492,18 @@ func (p *Player) Next() {
 	if len(p.order) == 0 {
 		return
 	}
-	at := p.at + 1
-	if at >= len(p.order) {
+	at, ok := p.nextPlayable(p.at, forward, true)
+	if p.at+1 >= len(p.order) {
 		if p.hasFeed() {
 			p.pageManual = p.pageFeed != nil
 			p.stopForFeed()
 			p.awaitFeed()
 			return
 		}
-		at = 0
 	}
-	p.load(at)
+	if ok {
+		p.load(at)
+	}
 }
 
 // Prev plays the track before this one, however far this one has played:
@@ -516,12 +521,12 @@ func (p *Player) Prev() {
 	p.loadSkipping(at, 0, back, true, 0)
 }
 
-// Jump plays the queue's track i, the listener's pick: one that can't play
-// stays, saying why.
+// Jump retries the listener's pick, passing it if it still cannot play.
 func (p *Player) Jump(i int) {
 	for k, v := range p.order {
 		if v == i {
-			p.loadSkipping(k, 0, stay, true, 0)
+			p.failedTracks = nil
+			p.loadSkipping(k, 0, forward, true, 0)
 			if p.Picked != nil {
 				p.Picked()
 			}
@@ -549,7 +554,8 @@ func (p *Player) TogglePlay() {
 			p.sync()
 		case len(p.order) > 0:
 			// Again, as for a track that couldn't play.
-			p.loadSkipping(max(p.at, 0), 0, stay, true, p.pending)
+			p.failedTracks = nil
+			p.loadSkipping(max(p.at, 0), 0, forward, true, p.pending)
 		}
 		return
 	}
@@ -833,6 +839,9 @@ func (p *Player) loadAudio(at, skipped, dir int, play bool, from time.Duration, 
 		quality = p.Quality()
 	}
 	pre := p.takeAhead(t, quality)
+	if pre == nil {
+		p.dropAhead()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p.stopOpening = cancel
 	if refreshed && pre != nil {
@@ -848,7 +857,7 @@ func (p *Player) loadAudio(at, skipped, dir int, play bool, from time.Duration, 
 			p.pending = position
 			return false
 		}
-		p.loadAudio(at, 0, stay, intent, position, true)
+		p.loadAudio(at, skipped, dir, intent, position, true)
 		return true
 	}
 	go func() {
@@ -867,9 +876,6 @@ func (p *Player) loadAudio(at, skipped, dir int, play bool, from time.Duration, 
 				if recover(err) {
 					return
 				}
-				if refreshMedia(err) {
-					dir = stay
-				}
 				p.loadFailed(t.Source, err, at, skipped, dir)
 				return
 			}
@@ -886,14 +892,13 @@ func (p *Player) loadAudio(at, skipped, dir int, play bool, from time.Duration, 
 						if gen != p.gen || p.out == nil {
 							return
 						}
+						dir = forward
 						if recover(err) {
 							return
 						}
 						p.pending = p.Position()
 						p.stop()
-						p.playing, p.err = false, errorText(err)
-						p.rememberTrackProblem(&t, err)
-						p.sync()
+						p.loadFailed(t.Source, err, at, skipped, forward)
 					})
 				},
 			}
@@ -968,22 +973,18 @@ func (p *Player) loadLyrics(gen int, src music.Source, t music.Track) {
 	}()
 }
 
-// loadFailed says why the track at order[at] can't play, and skips it the way
-// dir goes, unless it stays, nothing in the queue can play, or the listener has
-// to do something first, which would stop the next track too.
+// loadFailed records the failed item and moves on once, without retrying a
+// failed queue forever or resuming after the listener paused during loading.
 func (p *Player) loadFailed(source string, err error, at, skipped, dir int) {
 	p.err = errorText(err)
 	p.rememberTrackProblem(p.track, err)
+	p.markFailed(*p.track)
 	if errors.Is(err, music.ErrSignIn) || errors.Is(err, music.ErrSetup) {
-		p.playing = false
 		if p.Failed != nil {
 			p.Failed(source, err)
 		}
-		p.sync()
-		return
 	}
-	if dir != stay && skipped+1 < len(p.order) {
-		next := (at + dir + len(p.order)) % len(p.order)
+	if next, ok := p.nextPlayable(at, dir, dir == back || p.repeat != RepeatOff); p.playing && dir != stay && ok && skipped+1 < len(p.order) {
 		p.loadSkipping(next, skipped+1, dir, p.playing, 0)
 		return
 	}
@@ -1038,6 +1039,9 @@ func (p *Player) openContext(ctx context.Context, src music.Source, t music.Trac
 			pre.close()
 			return nil, nil, ctx.Err()
 		case <-pre.done:
+		}
+		if pre.err != nil {
+			pre.close()
 		}
 		if pre.err == nil {
 			info, dl, ok = pre.info, pre.dl, true
@@ -1164,6 +1168,8 @@ func (p *Player) Restore(s Session) {
 }
 
 func (p *Player) beforeQueueReplace() {
+	p.dropAhead()
+	p.failedTracks = nil
 	if p.QueueReplacing != nil {
 		p.QueueReplacing()
 	}

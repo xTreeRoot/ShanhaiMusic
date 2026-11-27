@@ -1,6 +1,7 @@
 package player
 
 import (
+	"context"
 	"strings"
 
 	"mygo-music/internal/music"
@@ -17,6 +18,7 @@ type ahead struct {
 	info                *music.Stream
 	dl                  *download // nil for a song on disk, which opens at once
 	err                 error
+	cancel              context.CancelFunc
 }
 
 func (a *ahead) is(t music.Track, quality string) bool {
@@ -29,14 +31,8 @@ func (p *Player) upNext() (music.Track, bool) {
 	if p.at < 0 || p.at >= len(p.order) || p.repeat == RepeatOne {
 		return music.Track{}, false
 	}
-	at := p.at + 1
-	if at >= len(p.order) {
-		if p.repeat != RepeatAll || p.hasFeed() {
-			return music.Track{}, false
-		}
-		at = 0
-	}
-	if at == p.at {
+	at, ok := p.nextPlayable(p.at, forward, p.repeat == RepeatAll && !p.hasFeed())
+	if !ok || at == p.at {
 		return music.Track{}, false
 	}
 	return p.queue[p.order[at]], true
@@ -57,13 +53,34 @@ func (p *Player) getAhead(quality string) {
 		return
 	}
 	src := p.sourceOf(&t)
-	if src == nil || src.Info().Playback == music.PlaybackRemote || p.Cache.has(t.Source, t.ID, quality) {
+	if src == nil {
+		p.markFailed(t)
+		p.rememberTrackProblem(&t, errNoSource)
+		p.getAhead(quality)
 		return
 	}
-	a := &ahead{source: t.Source, id: t.ID, quality: quality, done: make(chan struct{})}
+	if src.Info().Playback == music.PlaybackRemote || p.Cache.has(t.Source, t.ID, quality) {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a := &ahead{source: t.Source, id: t.ID, quality: quality, done: make(chan struct{}), cancel: cancel}
 	p.ahead = a
 	go func() {
-		defer close(a.done)
+		defer func() {
+			close(a.done)
+			if a.err != nil {
+				p.post(func() {
+					if p.ahead != a {
+						return
+					}
+					p.markFailed(t)
+					p.rememberTrackProblem(&t, a.err)
+					p.dropAhead()
+					p.getAhead(quality)
+					p.sync()
+				})
+			}
+		}()
 		info, err := src.Stream(t.ID, quality)
 		if err == nil && (info == nil || strings.TrimSpace(info.URL) == "") {
 			err = music.ErrNoStream
@@ -72,9 +89,23 @@ func (p *Player) getAhead(quality string) {
 			a.err = err
 			return
 		}
+		if a.err = ctx.Err(); a.err != nil {
+			return
+		}
 		a.info = info
 		if _, isFile := music.PathOf(info.URL); !isFile {
 			a.dl = p.Cache.download(t.Source, t.ID, quality, info)
+			// Observe an unavailable HTTP response before this track's turn.
+			stop := context.AfterFunc(ctx, a.dl.cancel)
+			if a.dl.waitFor(12) < 12 {
+				a.dl.mu.Lock()
+				a.err = a.dl.err
+				a.dl.mu.Unlock()
+				if a.err == nil {
+					a.err = music.ErrNoStream
+				}
+			}
+			stop()
 		}
 	}()
 }
@@ -103,6 +134,9 @@ func (p *Player) dropAhead() {
 
 // close stops what was asked for ahead once it's in, if it's still coming in.
 func (a *ahead) close() {
+	if a.cancel != nil {
+		a.cancel()
+	}
 	<-a.done
 	if a.dl != nil {
 		a.dl.Close()
