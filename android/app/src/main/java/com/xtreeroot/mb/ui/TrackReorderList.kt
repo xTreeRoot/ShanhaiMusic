@@ -3,6 +3,7 @@ package com.xtreeroot.mb.ui
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,9 +50,23 @@ private val LazyListItemInfo.center get() = offset + size / 2f
 internal fun <T> ReorderList(items: List<T>, itemKey: (T) -> String, enabled: Boolean, onMove: (Int, Int) -> Unit,
                               modifier: Modifier = Modifier, header: (@Composable () -> Unit)? = null,
                               footer: (@Composable () -> Unit)? = null,
+                              revealKey: String? = null, revealTrackID: String? = null,
                               row: @Composable (Int, Modifier, Boolean, Boolean) -> Unit) {
     val list = rememberLazyListState()
     val firstTrack = if (header == null) 0 else 1
+    val focus = remember(revealKey) { PlaylistTrackFocus(revealTrackID) }
+    LaunchedEffect(list, focus) {
+        list.interactionSource.interactions.collect { if (it is DragInteraction.Start) focus.stop() }
+    }
+    LaunchedEffect(focus, items.map(itemKey)) {
+        if (focus.finished || items.isEmpty()) return@LaunchedEffect
+        val index = items.indexOfFirst { itemKey(it) == focus.target }
+        focus.stop()
+        if (index < 0) return@LaunchedEffect
+        val rowIndex = index + firstTrack
+        if (abs(list.firstVisibleItemIndex - rowIndex) > 12) list.scrollToItem((rowIndex - 3).coerceAtLeast(0))
+        list.animateScrollToItem(rowIndex, -list.layoutInfo.viewportSize.height / 3)
+    }
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val edge = with(LocalDensity.current) { trackReorderHandleSize.toPx() }
     val move by rememberUpdatedState(onMove)

@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -186,6 +187,8 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
         }
     }
     val playPlaylist = LocalPlaylistPlayback.current
+    val grid = rememberLazyGridState()
+    PlaylistCatalogFocus(source.id, request, pager, grid, playlistKey != null && playPlaylist != null) { load(append = true) }
     val select: (List<Track>, Track) -> Unit = if (station != null && playStation != null) {
         { batch, track -> playStation(batch, track, station) }
     } else if (playlistKey != null && playPlaylist != null) {
@@ -298,7 +301,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
         }
     PullToRefreshBox(isRefreshing = status.busy && !status.appending && page != null,
         onRefresh = { if (!changing) scope.launch { destination.refresh(source, discovery) } }, modifier = Modifier.fillMaxWidth().weight(1f)) {
-        LazyVerticalGrid(columns = GridCells.Adaptive(155.dp), modifier = Modifier.fillMaxSize(),
+        LazyVerticalGrid(columns = GridCells.Adaptive(155.dp), state = grid, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 12.dp), content = content)
     }
     }

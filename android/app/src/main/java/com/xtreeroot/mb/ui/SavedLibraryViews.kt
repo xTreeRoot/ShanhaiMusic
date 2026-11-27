@@ -244,7 +244,7 @@ internal fun PlaylistsPage(saved: SavedLibraryModel, library: LocalMusicIndex,
         val canSort = trackQuery.isBlank() && tracks.size > 1
         val editing = canSort && sorting
         ReorderList(matching, Track::id, editing, { from, to -> saved.reorder(current.id, from, to, matching.map(Track::id)) },
-            Modifier.fillMaxSize(), header = {
+            Modifier.fillMaxSize(), revealKey = current.id, revealTrackID = LocalMarkedTrack.current?.id, header = {
                 Column {
                     LibraryPageHeader(null, back = ::closePlaylist) {
                         if (canSort) TextButton(onClick = { sorting = !sorting }) {
