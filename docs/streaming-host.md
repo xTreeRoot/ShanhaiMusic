@@ -1,4 +1,4 @@
-# MB 宿主 App：音视频断点流播改造方案
+# 山海宿主 App：音视频断点流播改造方案
 
 配套文档：[插件改造方案](streaming-plugins.md)。这是实施方案，不代表功能已上线。覆盖桌面、iOS 和 Android；Android 基线指当前工作区实现。首版验收音频五家、视频三家：内置 B 站、YouTube Music、网易云公开 MV。
 

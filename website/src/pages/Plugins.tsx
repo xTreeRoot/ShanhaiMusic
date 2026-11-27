@@ -13,7 +13,7 @@ const plugins = [
   { repo: 'mygo-music-bodian', name: ['Bodian Music', '波点音乐'], detail: ['Music and radio', '音乐与电台'] },
   { repo: 'mygo-music-soda', name: ['Soda Music', '汽水音乐'], detail: ['Music plugin', '音乐插件'] },
   { repo: 'mygo-music-youtube-music', name: ['YouTube Music', 'YouTube Music'], detail: ['Music plugin', '音乐插件'] },
-  { repo: 'mb-plugin-douyin', name: ['Douyin node library', '抖音 · 节点资料库'], detail: ['Preview · requires a SocialCrawlerHub node account', '预览版 · 需要 SocialCrawlerHub 节点账号'], preview: 'v0.1.0/mb-douyin-0.1.0.zip' },
+  { repo: 'mygo-ximalaya', name: ['Ximalaya', '喜马拉雅'], detail: ['Audio, subscriptions and liked sounds', '声音、订阅与喜欢列表'] },
 ] as const
 
 export function Plugins() {
@@ -34,10 +34,8 @@ export function Plugins() {
                 <h2>{t(plugin.name[0], plugin.name[1])}</h2>
                 <p>{t(plugin.detail[0], plugin.detail[1])}</p>
                 <div class="download-actions">
-                  <a class="text-link" href={'preview' in plugin
-                    ? `https://github.com/xTreeRoot/${plugin.repo}/releases/download/${plugin.preview}`
-                    : `mb://install-plugin?repo=xTreeRoot/${plugin.repo}`}>
-                    <Icon name="download" size={16} />{'preview' in plugin ? t('Download ZIP', '下载 ZIP') : t('Open in Shanhai', '在山海安装')}
+                  <a class="text-link" href={`mb://install-plugin?repo=xTreeRoot/${plugin.repo}`}>
+                    <Icon name="download" size={16} />{t('Open in Shanhai', '在山海安装')}
                   </a>
                   <a class="text-link" href={`https://github.com/xTreeRoot/${plugin.repo}/releases`}>
                     <GitHubMark size={16} />{t('Releases', '发布页')}

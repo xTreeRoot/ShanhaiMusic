@@ -21,16 +21,9 @@
 
 
 
-## 从 MB 升级
+## 安装与升级
 
-本次统一更名为「山海」，标语为「万端归一」。应用标识、签名兼容关系、插件 ID、登录回调和已有数据目录继续沿用，覆盖安装后保留账号、插件、资料库与设置。
-
-- 桌面继续使用 `MB` / `MB Dev` 数据和缓存目录，应用包名称为 `山海.app`。
-- Android 包名继续为 `com.xtreeroot.mb`；iOS Bundle ID 保持现有工程配置。
-- `mb://install-plugin?repo=owner/repo` 与 `mygo-music://install-plugin?repo=owner/repo` 等已有安装协议继续有效。
-- GitHub 仓库已更名为 [xTreeRoot/ShanhaiMusic](https://github.com/xTreeRoot/ShanhaiMusic)。原 `xTreeRoot/MB` 地址由 GitHub 重定向，现有发布标签和安装包文件名继续沿用。
-
-请保留旧版数据，使用相同应用标识及兼容签名覆盖更新。
+请使用相同应用标识与兼容签名覆盖安装，保留账号、插件、资料库和设置。
 
 ## 插件与平台策略
 
