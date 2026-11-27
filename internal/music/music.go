@@ -80,10 +80,11 @@ type Playlist struct {
 	Description string  `json:"description,omitempty"`
 	Owner       string  `json:"owner,omitempty"`
 	TrackCount  int     `json:"trackCount,omitempty"`
-	Mine        bool    `json:"mine,omitempty"`    // the listener's own
-	Saved       bool    `json:"saved,omitempty"`   // saved from someone else
-	Fixed       bool    `json:"fixed,omitempty"`   // the listener's, but kept by the source: liked songs, say
-	Addable     bool    `json:"addable,omitempty"` // explicitly allows adding to a fixed system list
+	Mine        bool    `json:"mine,omitempty"`      // the listener's own
+	Saved       bool    `json:"saved,omitempty"`     // saved from someone else
+	Fixed       bool    `json:"fixed,omitempty"`     // the listener's, but kept by the source: liked songs, say
+	Removable   bool    `json:"removable,omitempty"` // explicitly permits removing from a fixed list
+	Addable     bool    `json:"addable,omitempty"`   // explicitly allows adding to a fixed system list
 	Tracks      []Track `json:"tracks,omitempty"`
 	More        bool    `json:"more,omitempty"`
 	NextOffset  int     `json:"nextOffset,omitempty"`
@@ -382,11 +383,13 @@ type SettingOption struct {
 
 // Info is how a source introduces itself.
 type Info struct {
-	ID       string    `json:"id"`
-	Name     string    `json:"name"`
-	Version  string    `json:"version,omitempty"`
-	Playback Playback  `json:"playback"`
-	Settings []Setting `json:"settings,omitempty"`
+	// PlaylistKind selects generic folder terminology for a source using favorite folders.
+	PlaylistKind string    `json:"playlistKind,omitempty"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Version      string    `json:"version,omitempty"`
+	Playback     Playback  `json:"playback"`
+	Settings     []Setting `json:"settings,omitempty"`
 	// Navigation is the sidebar while the source is active, in this order. With
 	// none, the sidebar has an entry for each of the app's pages the source can do.
 	Navigation []NavItem `json:"navigation,omitempty"`

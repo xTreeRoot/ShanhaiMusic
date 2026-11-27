@@ -439,6 +439,7 @@ func (a *app) playerBar(c *ui.Context) {
 				a.nowPlaying = true
 			}
 			a.likeButton(c.Key("like"), tr, 16, p.muted).Margin(0, 0, 0, 4).Shrink(0)
+			iconButton(c.Key("more"), iconMore, 16, p.muted, T("Current Track Actions")).Menu(a.songItems(tr, "")).Shrink(0)
 		})
 
 		// Controls over the progress.

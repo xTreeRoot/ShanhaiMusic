@@ -220,7 +220,7 @@ func (a *app) episodeRow(c *ui.Context, d *showData, i int, cur *music.Track) {
 	tr := &d.episodes[i]
 	playing := sameTrack(cur, tr)
 	row := ui.ButtonBase(c).Height(60).PaddingX(12).Gap(14).Radius(8).AlignItems(ui.Center).FocusRing(false).
-		Label(tr.Name).Disabled(tr.Unavailable).ContextMenu(a.songItems(tr, ""))
+		Label(tr.Name).ContextMenu(a.songItems(tr, ""))
 	switch {
 	case playing:
 		row.Background(p.accent.Alpha(0.08))
@@ -246,6 +246,7 @@ func (a *app) episodeRow(c *ui.Context, d *showData, i int, cur *music.Track) {
 		if playing {
 			a.nowPlayingBars(c)
 		}
+		iconButton(c.Key("track-menu"), iconMore, 15, p.muted, Tf("Actions for %s", tr.Name)).Menu(a.songItems(tr, ""))
 		// A liked episode's heart shows; the others' as the pointer is on them.
 		ui.Box(c).Size(32, 32).Center().Children(func() {
 			if a.isLiked(tr) || row.Hovered() {
@@ -254,7 +255,7 @@ func (a *app) episodeRow(c *ui.Context, d *showData, i int, cur *music.Track) {
 		})
 		ui.Text(c, clock(time.Duration(tr.Duration)*time.Millisecond)).FontSize(12).FontFeatures("tnum").TextColor(p.muted)
 	})
-	if row.Clicked() {
+	if row.Clicked() && !tr.Unavailable {
 		a.playEpisodes(a.library, a.route.id, d, i)
 	}
 }

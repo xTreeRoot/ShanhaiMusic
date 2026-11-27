@@ -396,6 +396,7 @@ func (a *app) dailyPicks(c *ui.Context, songs []music.Track, resumeKey string, o
 					ui.Text(c, tr.Name).FontSize(13).FontWeight(600).MaxLines(1)
 					a.artistLinks(c, tr, white.Alpha(0.6), white).FontSize(11.5).MaxLines(1)
 				})
+				iconButton(c.Key("track-menu"), iconMore, 14, white.Alpha(0.75), Tf("Actions for %s", tr.Name)).Menu(a.songItems(tr, ""))
 			})
 			if row.Clicked() {
 				a.playResumableList(a.library, resumeKey, songs, i, nil)

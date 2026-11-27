@@ -261,8 +261,8 @@ func (a *app) sidebar(c *ui.Context) {
 				a.navItem(c, iconSearch, T("Search Results"), a.searched)
 			}
 			if a.can("playlists") {
-				a.myPlaylists(c, T("My Playlists"), a.mine, true, &a.mineCollapsed)
-				a.myPlaylists(c, T("Saved Playlists"), a.saved, false, &a.savedCollapsed)
+				a.myPlaylists(c, a.library.playlistLabel("My Playlists", "My Favorites"), a.mine, true, &a.mineCollapsed)
+				a.myPlaylists(c, a.library.playlistLabel("Saved Playlists", "Saved Favorite Folders"), a.saved, false, &a.savedCollapsed)
 			}
 		})
 

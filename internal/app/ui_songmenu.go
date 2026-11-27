@@ -23,7 +23,7 @@ func (a *app) songMenu(c *ui.Context, tr *music.Track, size float32, color ui.Co
 // artists, or the link to its page, downloading it, opening its artists',
 // album's or show's, and adding it to a playlist or taking it out of pid, the
 // playlist it is listed in, if set; as far as its source can.
-func (a *app) songItems(tr *music.Track, pid string) func(m *ui.Menu) {
+func (a *app) songItems(tr *music.Track, pid string, fromLiked ...bool) func(m *ui.Menu) {
 	return func(m *ui.Menu) {
 		lib := a.trackLib(tr)
 		if m.Item(T("Copy Title")).Chosen() {
@@ -62,6 +62,12 @@ func (a *app) songItems(tr *music.Track, pid string) func(m *ui.Menu) {
 		}
 		if tr.Album.ID != "" && lib.can("album") && m.Item(Tf("Go to Album: %s", tr.Album.Name)).Chosen() {
 			a.openPage(route{page: pageAlbum, src: lib.id, id: tr.Album.ID})
+		}
+		if len(fromLiked) > 0 && fromLiked[0] && lib.canLike(tr) {
+			m.Separator()
+			if m.Item(T("Remove from Liked Songs")).Chosen() {
+				a.setLikeIn(lib, tr, false)
+			}
 		}
 		a.playlistItems(m, tr, pid)
 	}

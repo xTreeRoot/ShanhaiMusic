@@ -77,3 +77,11 @@ func (p *Plugin) resetLikeSnapshot(who string) {
 	p.likesEpoch++
 	p.likesWho, p.likesIDs, p.likesAt = who, nil, time.Time{}
 }
+
+func (p *Plugin) invalidateLikeSnapshot() {
+	p.likesMu.Lock()
+	defer p.likesMu.Unlock()
+	p.likesEpoch++
+	p.likesAt = time.Time{}
+	p.likesIDs = nil
+}

@@ -137,6 +137,10 @@ func (a *app) toggleLike(tr *music.Track) {
 }
 
 func (a *app) toggleLikeIn(lib *library, tr *music.Track) {
+	a.setLikeIn(lib, tr, !lib.liked[tr.ID])
+}
+
+func (a *app) setLikeIn(lib *library, tr *music.Track, like bool) {
 	if lib.signedOut() {
 		a.promptSignIn(lib)
 		return
@@ -147,7 +151,7 @@ func (a *app) toggleLikeIn(lib *library, tr *music.Track) {
 	if lib.liked == nil {
 		lib.liked = map[string]bool{}
 	}
-	id, like := tr.ID, !lib.liked[tr.ID]
+	id := tr.ID
 	lib.rememberLike(id, like)
 	a.updateTrayLyric()
 	liked := *tr

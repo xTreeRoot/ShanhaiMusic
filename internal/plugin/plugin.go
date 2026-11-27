@@ -217,6 +217,9 @@ func Load(dir, dataDir string) (*Plugin, error) {
 	if !pluginName.MatchString(m.ID) {
 		return nil, fmt.Errorf("%s: a plugin can't be called %q", dir, m.ID)
 	}
+	if m.PlaylistKind != "" && m.PlaylistKind != "playlist" && m.PlaylistKind != "folder" {
+		return nil, fmt.Errorf("%s: invalid playlistKind", dir)
+	}
 	if err := music.ValidateDiscovery(m.Discovery); err != nil {
 		return nil, err
 	}

@@ -265,11 +265,19 @@ func (p *Plugin) DeletePlaylist(id string) error {
 }
 
 func (p *Plugin) AddToPlaylist(id string, trackIDs []string) error {
-	return p.call("addToPlaylist", map[string]any{"id": id, "trackIds": trackIDs}, nil)
+	err := p.call("addToPlaylist", map[string]any{"id": id, "trackIds": trackIDs}, nil)
+	if err == nil {
+		p.invalidateLikeSnapshot()
+	}
+	return err
 }
 
 func (p *Plugin) RemoveFromPlaylist(id string, trackIDs []string) error {
-	return p.call("removeFromPlaylist", map[string]any{"id": id, "trackIds": trackIDs}, nil)
+	err := p.call("removeFromPlaylist", map[string]any{"id": id, "trackIds": trackIDs}, nil)
+	if err == nil {
+		p.invalidateLikeSnapshot()
+	}
+	return err
 }
 
 func (p *Plugin) MovePlaylistTrack(id string, from, to int) error {

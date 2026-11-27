@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"mygo-music/internal/i18n"
 	"mygo-music/internal/music"
 )
 
@@ -39,6 +40,30 @@ func (a *app) editable(id string) *music.Playlist {
 		}
 	}
 	return nil
+}
+
+// playlistLabel uses source metadata, so folder sources retain their native terminology.
+func (l *library) playlistLabel(ordinary, folder string) string {
+	if l.src.Info().PlaylistKind == "folder" {
+		return T(folder)
+	}
+	return T(ordinary)
+}
+
+func (l *library) playlistCount(n int) string {
+	if l.src.Info().PlaylistKind == "folder" {
+		return Tf("%d items", n)
+	}
+	return i18n.Songs(n)
+}
+
+func (a *app) removablePlaylist(id string) bool {
+	for _, playlist := range a.mine {
+		if playlist.ID == id {
+			return !playlist.Fixed || playlist.Removable
+		}
+	}
+	return false
 }
 
 // isSaved reports whether the listener saved playlist pl, as its page or
@@ -277,9 +302,13 @@ func (l *library) setPlaylistName(id, name string) {
 // addTo adds tr to the listener's playlist pid; a toast says how it went.
 func (a *app) addTo(lib *library, pid string, tr *music.Track) {
 	id := tr.ID
+	gen := lib.accountGen
 	go func() {
 		err := lib.src.AddToPlaylist(pid, []string{id})
 		a.post(func() {
+			if lib.accountGen != gen {
+				return
+			}
 			if err != nil {
 				a.actionFailed(lib, err, T("Couldn't add it to the playlist. Try again later."))
 				return
@@ -294,6 +323,7 @@ func (a *app) addTo(lib *library, pid string, tr *music.Track) {
 // app and then with its source, which may refuse: the song comes back then.
 func (a *app) removeFrom(lib *library, pid string, tr *music.Track) {
 	id := tr.ID
+	gen := lib.accountGen
 	pl := lib.playlists[pid]
 	var before []music.Track
 	if pl != nil {
@@ -304,6 +334,9 @@ func (a *app) removeFrom(lib *library, pid string, tr *music.Track) {
 	go func() {
 		err := lib.src.RemoveFromPlaylist(pid, []string{id})
 		a.post(func() {
+			if lib.accountGen != gen {
+				return
+			}
 			if err != nil {
 				if pl != nil && lib.playlists[pid] == pl {
 					pl.Tracks = before
@@ -311,6 +344,8 @@ func (a *app) removeFrom(lib *library, pid string, tr *music.Track) {
 				a.actionFailed(lib, err, T("Couldn't remove it from the playlist. Try again later."))
 				return
 			}
+			delete(lib.likedChecked, id)
+			delete(lib.likedPending, id)
 			// The songs listed are right: only the sidebar's covers may
 			// have changed.
 			a.loadMine(lib)
@@ -359,7 +394,7 @@ func (a *app) playlistItems(m *ui.Menu, tr *music.Track, pid string) {
 	editing := pid != "" && lib == a.library && a.editable(pid) != nil
 	if lib.can("addToPlaylist") {
 		m.Separator()
-		m.Submenu(T("Add to Platform Playlist"), func(m *ui.Menu) {
+		m.Submenu(lib.playlistLabel("Add to Platform Playlist", "Add to Favorite Folder"), func(m *ui.Menu) {
 			if lib.can("createPlaylist") && lib == a.library && m.Item(T("New Playlist…")).Chosen() {
 				a.newPlaylist(tr)
 			}
@@ -371,6 +406,8 @@ func (a *app) playlistItems(m *ui.Menu, tr *music.Track, pid string) {
 			}
 			if len(to) > 0 {
 				m.Separator()
+			} else if !lib.can("createPlaylist") {
+				m.Item(lib.playlistLabel("No editable platform playlists", "No editable favorite folders")).Disabled(true)
 			}
 			for _, pl := range to {
 				if m.Item(pl.Name).Chosen() {
@@ -379,11 +416,12 @@ func (a *app) playlistItems(m *ui.Menu, tr *music.Track, pid string) {
 			}
 		})
 	}
+	if pid != "" && lib == a.library && a.removablePlaylist(pid) && lib.can("removeFromPlaylist") &&
+		m.Item(lib.playlistLabel("Remove from Playlist", "Remove from This Favorite Folder")).Chosen() {
+		a.removeFrom(lib, pid, tr)
+	}
 	if !editing {
 		return
-	}
-	if lib.can("removeFromPlaylist") && m.Item(T("Remove from Playlist")).Chosen() {
-		a.removeFrom(lib, pid, tr)
 	}
 	if lib.can("movePlaylistTrack") && mine != nil {
 		at := slices.IndexFunc(mine.Tracks, func(t music.Track) bool { return t.ID == tr.ID })

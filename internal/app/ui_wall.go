@@ -362,6 +362,9 @@ func (a *app) wallTile(c *ui.Context, tr *music.Track, i int, x float32, playing
 					}
 				})
 		}
+		if hovered || playing {
+			iconButton(c.Key("track-menu"), iconMore, 15, white, Tf("Actions for %s", tr.Name)).Absolute().Top(4).Right(4).Background(ui.RGBA(0, 0, 0, 0.5)).Menu(a.songItems(tr, ""))
+		}
 		if playing {
 			ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Radius(12).Border(2, white.Alpha(0.9)).PassThrough()
 		}

@@ -880,6 +880,7 @@ func (a *app) playbackListRow(c *ui.Context, tr *music.Track, playing bool, play
 			ui.Text(c, tr.Name).FontSize(14).FontWeight(600).SingleLine()
 			a.artistLinks(c, tr, white.Alpha(0.55), white).FontSize(12.5).SingleLine()
 		})
+		iconButton(c.Key("track-menu"), iconMore, 15, white.Alpha(0.7), Tf("Actions for %s", tr.Name)).Menu(a.songItems(tr, ""))
 		ui.Text(c, clock(tr.Length())).FontSize(12).FontFeatures("tnum").TextColor(white.Alpha(0.4))
 	})
 	if !tr.Unavailable && !playing {

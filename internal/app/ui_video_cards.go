@@ -22,7 +22,7 @@ func (a *app) videoTrackRow(c *ui.Context, sec *music.Section, row browseRow, co
 func (a *app) videoTrackCard(c *ui.Context, track *music.Track, play func()) {
 	p := a.pal
 	card := ui.ButtonBase(c).Column().Gap(8).AlignItems(ui.Stretch).Justify(ui.Start).
-		Label(track.Name).Disabled(track.Unavailable).FocusRing(false)
+		Label(track.Name).FocusRing(false).ContextMenu(a.songItems(track, ""))
 	hovered := card.Hovered()
 	card.Children(func() {
 		art := ui.Box(c).AspectRatio(16.0 / 9).Radius(10)
@@ -40,10 +40,13 @@ func (a *app) videoTrackCard(c *ui.Context, track *music.Track, play func()) {
 				a.coverPlayButton(c, hovered, play)
 			}
 		})
-		ui.Text(c, track.Name).FontSize(13).FontWeight(500).MaxLines(2).LineHeight(1.35).Height(36)
+		ui.Row(c).Gap(4).AlignItems(ui.Start).Children(func() {
+			ui.Text(c, track.Name).Grow(1).MinWidth(0).FontSize(13).FontWeight(500).MaxLines(2).LineHeight(1.35).Height(36)
+			iconButton(c.Key("track-menu"), iconMore, 15, p.muted, Tf("Actions for %s", track.Name)).Menu(a.songItems(track, ""))
+		})
 		ui.Text(c, artistNames(track.Artists)).FontSize(12).TextColor(p.muted).SingleLine().Margin(-4, 0, 0, 0)
 	})
-	if card.Clicked() {
+	if card.Clicked() && !track.Unavailable {
 		play()
 	}
 }

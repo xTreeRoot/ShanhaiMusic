@@ -308,13 +308,13 @@ func (a *app) playlistHeader(c *ui.Context, pl *music.Playlist) {
 			a.coverFill(c, pl.ImageURL, 600, 14)
 		})
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
-			ui.Text(c, T("Playlist")).FontSize(12).FontWeight(600).TextColor(p.accent)
+			ui.Text(c, a.library.playlistLabel("Playlist", "Favorite Folder")).FontSize(12).FontWeight(600).TextColor(p.accent)
 			ui.Text(c, pl.Name).FontSize(30).FontWeight(800).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
 			var meta []string
 			if pl.Owner != "" {
 				meta = append(meta, pl.Owner)
 			}
-			meta = append(meta, i18n.Songs(max(pl.TrackCount, len(pl.Tracks))))
+			meta = append(meta, a.library.playlistCount(max(pl.TrackCount, len(pl.Tracks))))
 			ui.Text(c, strings.Join(meta, " · ")).FontSize(13).TextColor(p.muted)
 			if d := strings.TrimSpace(pl.Description); d != "" {
 				ui.Text(c, strings.ReplaceAll(d, "\n", " ")).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45).Margin(2, 0, 0, 0)
@@ -374,7 +374,7 @@ func (a *app) likedPage(c *ui.Context) {
 				LinearGradient(ui.LinearGradient{Angle: 135, Oklab: true, From: ui.Oklch(0.72, 0.17, 10), To: ui.Oklch(0.58, 0.22, 350)}).
 				Children(func() { ui.Icon(c, iconHeartFill).Size(84, 84) })
 			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
-				ui.Text(c, T("Playlist")).FontSize(12).FontWeight(600).TextColor(p.accent)
+				ui.Text(c, a.library.playlistLabel("Playlist", "Favorite Folder")).FontSize(12).FontWeight(600).TextColor(p.accent)
 				ui.Text(c, a.builtinTitle("liked")).FontSize(30).FontWeight(800).LetterSpacing(-0.6)
 				if lib.likedPaged.loaded {
 					ui.Text(c, i18n.Songs(len(lib.likedList))).FontSize(13).TextColor(p.muted)
@@ -527,7 +527,7 @@ func (a *app) trackRow(c *ui.Context, tracks []music.Track, i int, covers bool, 
 	wide := w-sidebarWidth > 820 && a.route.page != pageAlbum
 	playing := sameTrack(a.pl.Current(), tr)
 	row := ui.ButtonBase(c.Key(tr.ID)).Height(54).PaddingX(12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
-		ContextMenu(a.songItems(tr, pid))
+		ContextMenu(a.songItems(tr, pid, a.route.page == pageLiked))
 	problem := player.TrackProblemText(a.pl.TrackProblem(tr))
 	if problem != "" {
 		row.Description(problem)
@@ -586,6 +586,8 @@ func (a *app) trackRow(c *ui.Context, tracks []music.Track, i int, covers bool, 
 				}
 			})
 		}
+		iconButton(c.Key("track-menu"), iconMore, 15, p.muted, Tf("Actions for %s", tr.Name)).
+			Menu(a.songItems(tr, pid, a.route.page == pageLiked))
 		// A liked song's heart shows; the others' as the pointer is on them.
 		ui.Box(c).Size(32, 32).Center().Children(func() {
 			if a.isLiked(tr) || hovered {

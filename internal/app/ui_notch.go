@@ -459,6 +459,7 @@ func (n *notch) expanded(c *ui.Context, tr *music.Track, open, left float32) {
 				}
 			})
 			a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6))
+			a.songMenu(c.Key("more"), tr, 17, white.Alpha(0.65))
 			n.levels(c, tr, 26, 22, 5)
 		})
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
