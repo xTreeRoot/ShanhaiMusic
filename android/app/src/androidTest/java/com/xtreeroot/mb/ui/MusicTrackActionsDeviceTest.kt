@@ -101,6 +101,33 @@ class MusicTrackActionsDeviceTest {
         } finally { countGate.complete(Unit); withContext(Dispatchers.Main) { screen.finish() } }
     }
 
+    @Test fun platformPlaylistPickerWritesTheOriginalTrackToAnOwnedTarget() = runBlocking<Unit> {
+        val parent = File(app.cacheDir, "platform-playlist-ui-${java.util.UUID.randomUUID()}").apply { mkdirs() }
+        val code = File(parent, "code").apply { mkdirs() }
+        File(code, "index.js").writeText("""
+            let added=[];
+            export function account(){return {id:'one',name:'One'};}
+            export function playlists(){return [{id:'mine',name:'Owned target',mine:true},{id:'foreign',name:'Foreign target'}];}
+            export function addToPlaylist(args){if(args.id!=='mine')throw Error('wrong target');added.push(args);}
+            export function probe(){return {added};}
+        """.trimIndent())
+        val manifest = com.xtreeroot.mb.plugin.PluginManifest.parse(org.json.JSONObject().put("id", track.sourceId))
+        val runtime = com.xtreeroot.mb.plugin.PluginRuntime(app.assets, code, File(parent, "data"), manifest, emptyMap())
+        val source = com.xtreeroot.mb.plugin.PluginSource(manifest, runtime)
+        val screen = start()
+        try {
+            withContext(Dispatchers.Main) { screen.setContent { MaterialTheme { CompositionLocalProvider(LocalMBEnglish provides true) {
+                PlatformPlaylistAction(track, source)
+            } } } }
+            tap("Add to Platform Playlist"); awaitNode("Owned target")
+            assertNull(find("Foreign target")); capture("android-platform-playlist-picker")
+            tap("Owned target"); await { find("Owned target") == null }
+            val values = (runtime.invoke("probe") as org.json.JSONObject).getJSONArray("added")
+            assertEquals(1, values.length()); assertEquals("mine", values.getJSONObject(0).getString("id"))
+            assertEquals(track.sourceTrackId, values.getJSONObject(0).getJSONArray("trackIds").getString(0))
+        } finally { runtime.close(); withContext(Dispatchers.Main) { screen.finish() }; parent.deleteRecursively() }
+    }
+
     private fun capture(name: String) {
         val directory = File(app.filesDir, "review").apply { mkdirs() }
         File(directory, "$name.png").outputStream().use { instrumentation.uiAutomation.takeScreenshot().compress(Bitmap.CompressFormat.PNG, 100, it) }
