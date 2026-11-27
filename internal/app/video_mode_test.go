@@ -20,10 +20,11 @@ import (
 	"mygo-music/internal/player"
 )
 
-// A mode switch changes only the preference. Even playback restoration and
-// track/transport updates must not turn it into an open-player button.
+// Switching modes applies to the current track without restarting audio or
+// leaving the library. Restoring a session alone still does not open a window.
 func TestVideoModeSwitchAndBrowse(t *testing.T) {
 	a := newTestApp()
+	ch := posts(a)
 	a.settings.path = filepath.Join(t.TempDir(), "settings.json")
 	a.home = &music.Browse{Sections: []music.Section{{Title: "Recommended", Tracks: framesTracks(a), TrackLayout: music.TrackLayoutVideos}}}
 	a.pl.Cue([]music.Track{videoSong("1", "First")})
@@ -38,16 +39,17 @@ func TestVideoModeSwitchAndBrowse(t *testing.T) {
 		}
 		tt.Frame()
 		a.syncPlaybackExtras()
-		if a.mv.openPending || a.mv.loading || a.mv.video != nil || a.mv.win != nil {
-			t.Fatal("switching preference opened or loaded video")
+		if a.mv.openPending != (label == "Video Mode") {
+			t.Fatalf("mode %q did not apply to the current track", label)
 		}
 		if a.route.page != pageHome || a.pl.Current() != current || a.pl.Position() != position || !a.pl.Playing() {
 			t.Fatal("switching preference navigated or restarted audio")
 		}
+		until(t, ch, func() bool { return !a.mv.openPending }) // no native window in this offscreen test
 	}
 	if dir := os.Getenv("MM_FRAMES"); dir != "" {
 		settled(tt)
-		saveFrame(t, dir, "mode-preference-video.png", tt.Image())
+		saveFrame(t, dir, "mode-current-video.png", tt.Image())
 	}
 	a.pl.Restore(player.Session{Queue: []music.Track{videoSong("saved", "Saved")}, Order: []int{0}, At: 0, Position: 9000})
 	tt.Frame()
@@ -68,6 +70,23 @@ func TestVideoModeSwitchAndBrowse(t *testing.T) {
 	if err = json.Unmarshal(data, &saved); err != nil || saved.PlaybackMode != playbackVideo {
 		t.Fatal("mode was not saved", err)
 	}
+}
+
+func TestVideoModeSwitchPreservesPausedTrack(t *testing.T) {
+	a := newTestApp()
+	ch := posts(a)
+	a.pl.Restore(player.Session{Queue: []music.Track{videoSong("paused", "Paused")}, Order: []int{0}, At: 0, Position: 9000})
+	current, position := a.pl.Current(), a.pl.Position()
+	tt := ui.NewTester(a.view, 1180, 780)
+	settled(tt)
+	if err := tt.Click("Video Mode"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !a.mv.openPending || a.pl.Current() != current || a.pl.Position() != position || a.pl.Playing() {
+		t.Fatal("video mode did not open the paused track at its saved position")
+	}
+	until(t, ch, func() bool { return !a.mv.openPending })
 }
 
 // Both homepage video cards and ordinary track rows use the explicit selection
@@ -122,8 +141,8 @@ func TestVideoModeContentClicks(t *testing.T) {
 	}
 }
 
-// A pending user selection is cancelled by switching modes; switching back
-// must not revive it without a new content click. Closing keeps the preference.
+// Switching to music cancels a pending open. Switching back applies a fresh
+// request to the current track; closing the player keeps the preference.
 func TestVideoModeCancelsPendingAndKeepsPreference(t *testing.T) {
 	a := newTestApp()
 	ch := posts(a)
@@ -133,7 +152,14 @@ func TestVideoModeCancelsPendingAndKeepsPreference(t *testing.T) {
 		t.Fatal("selection did not queue a video window")
 	}
 	a.choosePlaybackMode(playbackMusic)
+	runPost(t, ch)
+	if a.mv.openPending || a.mv.win != nil {
+		t.Fatal("music mode did not cancel the pending selection")
+	}
 	a.choosePlaybackMode(playbackVideo)
+	if !a.mv.openPending {
+		t.Fatal("switching back did not request the current video")
+	}
 	for len(ch) > 0 {
 		runPost(t, ch)
 	}

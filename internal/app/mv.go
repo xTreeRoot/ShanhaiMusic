@@ -33,6 +33,7 @@ type mvState struct {
 	pinned         bool
 	lastSeek       time.Time
 	refreshUsed    bool
+	windowAspect   float64
 	scrub          scrubState
 }
 
@@ -58,7 +59,17 @@ func (a *app) canMV() bool {
 	return ok && src.Can("video")
 }
 
-func (a *app) openMV() { a.post(func() { a.openMVWindow(false) }) }
+func (a *app) openMV() {
+	if a.settings.PlaybackMode == playbackVideo {
+		a.requestVideoWindow()
+		return
+	}
+	a.post(func() {
+		if !a.quitting {
+			a.openMVWindow(false)
+		}
+	})
+}
 
 func (a *app) openMVWindow(large bool) {
 	m := &a.mv
@@ -77,9 +88,10 @@ func (a *app) openMVWindow(large bool) {
 		old.Close()
 	}
 	m.large, m.inline, m.pinned = large, false, !large
+	m.windowAspect = 0
 	opts := mygo.WindowOptions{
 		Title: T("MV Mini Player"), Width: 640, Height: 360,
-		MinWidth: 420, MinHeight: 260, StateKey: "mv-player",
+		MinWidth: 160, MinHeight: 90, StateKey: "mv-player",
 		Frameless: true, CornerRadius: 18, BackgroundColor: "#000000",
 		AlwaysOnTop: true, AutoHideMenuBar: true,
 		Content: ui.View(a.mvView),
@@ -89,7 +101,7 @@ func (a *app) openMVWindow(large bool) {
 		m.queueList, m.aboutList = ui.ListState{}, ui.ListState{}
 		opts = mygo.WindowOptions{
 			Title: T("Video Playback"), Width: 1180, Height: 740,
-			MinWidth: 520, MinHeight: 320, StateKey: "video-player",
+			MinWidth: 160, MinHeight: 90, StateKey: "video-player",
 			TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 52,
 			TrafficLightPosition: &mygo.Point{X: 18, Y: 18},
 			BackgroundColor:      "#141416", AutoHideMenuBar: true,
@@ -240,6 +252,7 @@ func (a *app) syncMV() {
 	}
 	a.pl.HoldForVideo(hold)
 	if m.win != nil {
+		a.syncVideoWindowAspect()
 		m.win.Invalidate()
 	}
 	if m.inline && a.win != nil {
@@ -257,6 +270,11 @@ func (a *app) syncMV() {
 }
 
 func (a *app) mvView(c *ui.Context) {
+	width, height := c.Size()
+	if compactVideoWindow(width, height) {
+		a.compactMVView(c)
+		return
+	}
 	m := &a.mv
 	white := ui.RGB(255, 255, 255)
 	black := ui.RGBA(0, 0, 0, 115)

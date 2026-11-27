@@ -21,6 +21,10 @@ func (a *app) videoWindowView(c *ui.Context) {
 	c.SetTheme(theme)
 	full := m.win != nil && m.win.IsFullScreen()
 	width, height := c.Size()
+	if compactVideoWindow(width, height) {
+		a.mvView(c)
+		return
+	}
 	room := width >= videoSidebarMinWidth && height >= videoSidebarMinHeight
 	sidebar := room && !m.hideSidebar && a.pl.Current() != nil
 	ui.Column(c).Fill().Background(ui.RGB(20, 20, 22)).Children(func() {
@@ -34,6 +38,27 @@ func (a *app) videoWindowView(c *ui.Context) {
 			}
 		})
 	})
+}
+
+func compactVideoWindow(width, height float32) bool { return width < 520 || height < 300 }
+
+// Native resizing follows the decoded picture, including portrait video. Keep
+// the previous ratio during track changes until the next picture is ready.
+func (a *app) syncVideoWindowAspect() {
+	m := &a.mv
+	ratio := m.windowAspect
+	if m.video != nil {
+		if width, height := m.video.Size(); width > 0 && height > 0 {
+			ratio = float64(width) / float64(height)
+		}
+	}
+	if ratio == 0 {
+		ratio = 16.0 / 9
+	}
+	if ratio != m.windowAspect {
+		setVideoWindowAspect(m.win.NativeHandle(), ratio)
+		m.windowAspect = ratio
+	}
 }
 
 func (a *app) videoWindowHeader(c *ui.Context, room, sidebar bool) {

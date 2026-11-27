@@ -488,7 +488,8 @@ func (a *app) trackRows(c *ui.Context, tracks []music.Track, covers bool, header
 	// scrolled away from its start or end has content under the bars.
 	a.underTop, a.underBottom = true, true
 	rows := len(tracks) + 1 + len(footer)
-	ui.List(c.Key(a.route), &a.trackList, rows, func(i int) {
+	hide := a.revealPlaylistTrack(c, tracks)
+	list := ui.List(c.Key(a.route), &a.trackList, rows, func(i int) {
 		if i == 0 {
 			ui.Column(c).Children(func() {
 				a.startMark(c)
@@ -509,7 +510,21 @@ func (a *app) trackRows(c *ui.Context, tracks []music.Track, covers bool, header
 			return
 		}
 		a.trackRow(c, tracks, i-1, covers, pid)
-	}).Grow(1).Padding(top+pageGap, pagePad-12, bottom+32, pagePad-12).ScrollbarInsets(top, 0, bottom, 0)
+	}).TrackScroll(&a.pageScroll).Grow(1).Padding(top+pageGap, pagePad-12, bottom+32, pagePad-12).ScrollbarInsets(top, 0, bottom, 0)
+	if a.playlistReveal.animate {
+		a.playlistReveal.animate = false
+		a.pageScroll.ScrollTo(0, a.playlistReveal.to, ui.Animation{Duration: 240 * time.Millisecond})
+		c.After(time.Second / 60)
+	}
+	if hide {
+		list.Opacity(0)
+	}
+	list.HandleInput(func(event ui.InputEvent) bool {
+		if event.Kind == ui.InputScroll || event.Kind == ui.InputPointerDown {
+			a.playlistReveal.done = true
+		}
+		return false
+	})
 }
 
 // sameTrack reports whether two tracks are one: IDs are their source's.

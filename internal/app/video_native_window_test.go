@@ -16,6 +16,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"mygo-music/internal/music"
+	"mygo-music/internal/player"
 )
 
 // A child process runs the real AppKit event loop, not an offscreen tester.
@@ -63,8 +64,16 @@ func runNativeVideoWindowTest() int {
 	result := make(chan error, 1)
 	mygo.App.WhenReady(func() {
 		a = newTestApp()
+		a.pl = player.New(a.post)
+		a.pl.Source = a.sourceByID
+		a.pl.Picked = a.playbackPicked
+		a.pl.SetVolume(0)
 		src := &mvSource{fakeSource: fake(a), video: func(string, string) (*music.VideoStream, error) { return &music.VideoStream{URL: remote.URL}, nil }}
 		src.caps["video"] = true
+		src.stream = func(string, string) (*music.Stream, error) {
+			file, err := filepath.Abs("../player/testdata/seek.mp3")
+			return &music.Stream{URL: "file://" + filepath.ToSlash(file), Type: "mp3"}, err
+		}
 		a.library.src = src
 		a.pl.Cue([]music.Track{videoSong("native", "Native video window")})
 		a.pl.Hold(0)
@@ -73,7 +82,7 @@ func runNativeVideoWindowTest() int {
 		go func() {
 			err := exerciseNativeVideoWindows(a, gate, requested)
 			result <- err
-			mygo.RunOnMain(func() { a.quitting = true; a.mv.release(); a.trayVideo.release(); mygo.App.Quit() })
+			mygo.RunOnMain(func() { a.quitting = true; a.pl.ClearSession(); a.mv.release(); a.trayVideo.release(); mygo.App.Quit() })
 		}()
 	})
 	if err = mygo.App.Run(); err != nil {
@@ -84,7 +93,7 @@ func runNativeVideoWindowTest() int {
 		fmt.Println(err)
 		return 1
 	}
-	fmt.Println("native loading, main-window response, close/reopen, shared decoder, track switch and playback window passed")
+	fmt.Println("native mode switch, player buttons, loading, main-window response, close/reopen, shared decoder and next track passed")
 	return 0
 }
 
@@ -108,7 +117,7 @@ func exerciseNativeVideoWindows(a *app, gate chan struct{}, requested <-chan str
 		}
 		return fmt.Errorf("timeout: %s", name)
 	}
-	clickMode := func(label string) error {
+	click := func(label string) error {
 		return check(func() error {
 			tt := ui.NewTester(a.view, 1180, 780)
 			if err := tt.Click(label); err != nil {
@@ -118,16 +127,19 @@ func exerciseNativeVideoWindows(a *app, gate chan struct{}, requested <-chan str
 			return nil
 		})
 	}
-	if err := clickMode("Video Mode"); err != nil {
+	if err := click("Open MV Mini Player"); err != nil {
+		return err
+	}
+	if err := waitFor("mini player button", func() bool { return a.mv.win != nil && !a.mv.large && a.mv.video != nil }); err != nil {
 		return err
 	}
 	if err := check(func() error {
-		if a.mv.win != nil || a.mv.openPending {
-			return fmt.Errorf("mode switch opened playback")
-		}
-		a.pl.PlayTrack([]music.Track{videoSong("native", "Native video window")}, 0)
+		a.mv.win.Close()
 		return nil
 	}); err != nil {
+		return err
+	}
+	if err := click("Video Mode"); err != nil {
 		return err
 	}
 	if err := waitFor("video window", func() bool { return a.mv.win != nil && a.mv.video != nil }); err != nil {
@@ -171,6 +183,22 @@ func exerciseNativeVideoWindows(a *app, gate chan struct{}, requested <-chan str
 	}
 	close(gate)
 	if err := waitFor("decoded native picture", func() bool { return a.mv.video != nil && a.mv.video.Ready() }); err != nil {
+		return err
+	}
+	if err := check(func() error {
+		win, decoder := a.mv.win, a.mv.video
+		a.choosePlaybackMode(playbackMusic)
+		a.choosePlaybackMode(playbackVideo)
+		a.post(func() {
+			if a.mv.win != win || a.mv.video != decoder {
+				a.mv.err = "rapid mode switch discarded the active player"
+			}
+		})
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := waitFor("rapid mode switch", func() bool { return !a.mv.openPending && a.mv.err == "" }); err != nil {
 		return err
 	}
 	var videoWindow *mygo.Window
@@ -217,13 +245,15 @@ func exerciseNativeVideoWindows(a *app, gate chan struct{}, requested <-chan str
 	}
 	if err := check(func() error {
 		a.nowPlaying = false
-		a.pl.Cue([]music.Track{videoSong("next", "Next video")})
-		a.pl.Changed()
+		a.pl.Cue([]music.Track{videoSong("native", "Native video window"), videoSong("next", "Next video")})
+		a.pl.Next()
 		return nil
 	}); err != nil {
 		return err
 	}
-	if err := waitFor("next video", func() bool { return a.mv.key == "fake\x00next" && a.mv.video != nil && a.mv.video.Ready() }); err != nil {
+	if err := waitFor("next video", func() bool {
+		return a.pl.Ready() && !a.pl.Loading() && a.mv.key == "fake\x00next" && a.mv.video != nil && a.mv.video.Ready()
+	}); err != nil {
 		return err
 	}
 	if err := check(func() error {
@@ -234,7 +264,16 @@ func exerciseNativeVideoWindows(a *app, gate chan struct{}, requested <-chan str
 	}); err != nil {
 		return err
 	}
-	if err := clickMode("Music Mode"); err != nil {
+	if err := check(func() error { a.mv.win.Close(); return nil }); err != nil {
+		return err
+	}
+	if err := click("Video Playback"); err != nil {
+		return err
+	}
+	if err := waitFor("video mode player button", func() bool { return a.mv.win != nil && a.mv.large && a.mv.video != nil && a.mv.video.Ready() }); err != nil {
+		return err
+	}
+	if err := click("Music Mode"); err != nil {
 		return err
 	}
 	return waitFor("closed video mode", func() bool { return a.mv.win == nil && a.mv.video == nil && !a.mv.inline && a.pl.Playing() })

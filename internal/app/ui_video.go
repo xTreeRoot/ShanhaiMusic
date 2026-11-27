@@ -9,8 +9,8 @@ const (
 	playbackVideo playbackMode = "video"
 )
 
-// playbackPicked responds only to an explicit content/queue selection. Changing
-// the preference, restoring playback or updating transport never opens a view.
+// playbackPicked opens the preferred video view for an explicit selection.
+// Restoring playback and transport updates alone do not reopen a closed view.
 func (a *app) playbackPicked() {
 	if !a.quitting && a.pl.Current() != nil && a.settings.PlaybackMode == playbackVideo {
 		a.requestVideoWindow()
@@ -36,8 +36,7 @@ func (a *app) requestVideoWindow() {
 
 func (a *app) choosePlaybackMode(mode playbackMode) {
 	a.settings.PlaybackMode = mode
-	// Invalidate already queued opens, including video -> music -> video
-	// before the next event-loop turn. A fresh selection is required.
+	// Invalidate queued opens before applying the latest mode to this track.
 	a.mv.openGen++
 	a.mv.openPending = false
 	if mode == playbackMusic {
@@ -45,13 +44,15 @@ func (a *app) choosePlaybackMode(mode playbackMode) {
 		if win := a.mv.win; win != nil {
 			// Native window destruction must happen after the current build.
 			a.post(func() {
-				if a.mv.win == win {
+				if a.mv.win == win && a.settings.PlaybackMode == playbackMusic {
 					win.Close()
 				}
 			})
 		} else {
 			a.syncInlineMV()
 		}
+	} else if a.pl.Current() != nil {
+		a.requestVideoWindow()
 	}
 	a.changed()
 }

@@ -126,6 +126,7 @@ type app struct {
 	settingPending map[string]*settingWrite     // last queued value per source/key
 
 	trackList      ui.ListState
+	playlistReveal playlistReveal
 	sourceScroll   ui.ScrollState
 	revealedSource string
 	skin           *backgroundSkin

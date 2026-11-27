@@ -454,8 +454,12 @@ func (a *app) playerBar(c *ui.Context) {
 
 		// Lyrics and volume.
 		ui.Row(c).Grow(1).Basis(0).MinWidth(controls).Justify(ui.End).AlignItems(ui.Center).Gap(4).Children(func() {
-			if a.canMV() && iconButton(c.Key("mv"), iconMV, 17, p.muted, T("Open MV Mini Player")).Clicked() {
-				a.openMV()
+			if a.canMV() {
+				label := T("Open MV Mini Player")
+				if a.settings.PlaybackMode == playbackVideo {
+					label = T("Video Playback")
+				}
+				iconButton(c.Key("mv"), iconMV, 17, p.muted, label).OnClick(a.openMV)
 			}
 			lyr := p.muted
 			if a.nowPlaying {
