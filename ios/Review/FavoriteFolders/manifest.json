@@ -1,0 +1,42 @@
+[
+  {
+    "number": 1,
+    "file": "images/001.png",
+    "sha256": "060b1e472fda3dbb5bd898b62d639dd104204931099190b1557df201f0be62ef",
+    "name": "收藏夹-原生移除",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testFavoriteFolderTerminologyAndNativeRemoval()",
+    "captured": 1795748758.438,
+    "origin": "folder-removal-attachments"
+  },
+  {
+    "number": 2,
+    "file": "images/002.png",
+    "sha256": "3c3d4466a5ff1c0b61338f10eb78e7efb45982e089e98a2588c8c67520baad4c",
+    "name": "收藏夹-播放器添加入口",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testFavoriteFolderTerminologyAndNativeRemoval()",
+    "captured": 1795748743.426,
+    "origin": "folder-removal-attachments"
+  },
+  {
+    "number": 3,
+    "file": "images/003.png",
+    "sha256": "72641fab4f74d77ce9f0e30f4bf135e862a94146a76acad334c6d3e3c7e72cf7",
+    "name": "收藏夹-原生移除",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testFavoriteFolderTerminologyAndNativeRemoval()",
+    "captured": 1795748751.857,
+    "origin": "folder-removal-attachments"
+  },
+  {
+    "number": 4,
+    "file": "images/004.png",
+    "sha256": "a3ef956eb962f59bad32922f64f16cd562d922cc4e468b1bb47293798b154765",
+    "name": "收藏夹-播放器添加入口",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testFavoriteFolderTerminologyAndNativeRemoval()",
+    "captured": 1795748738.307,
+    "origin": "folder-removal-attachments"
+  }
+]

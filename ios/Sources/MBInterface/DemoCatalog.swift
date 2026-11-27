@@ -127,6 +127,11 @@ enum DemoCatalog {
         }
         let shelfFixture = ProcessInfo.processInfo.arguments.contains("--shelf-layout-fixture")
         if shelfFixture { manifest = #"{"id":"fixture","name":"示例插件","version":"1.0.0","discovery":[{"id":"small","title":"少量资源","page":"shelf"},{"id":"people","title":"我的关注","page":"people"}]}"# }
+        if ProcessInfo.processInfo.arguments.contains("--folder-playlist-fixture") {
+            guard var object = try JSONSerialization.jsonObject(with: Data(manifest.utf8)) as? [String: Any] else { throw DemoFailure.network }
+            object["playlistKind"] = "folder"
+            manifest = String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+        }
         try manifest.write(to: folder.appendingPathComponent("plugin.json"), atomically: true, encoding: .utf8)
         let paginationFixture = ProcessInfo.processInfo.arguments.contains("--catalog-pagination-fixture")
         let refreshScript = "const filterFixture = \(filterFixture), refreshFixture = \(refreshFixture), paginationFixture = \(paginationFixture), sidebarFixture = \(sidebarFixture);"
@@ -181,7 +186,7 @@ enum DemoCatalog {
         export function savePlaylist(){}
         export function stream({id}){return id==='missing'?{url:''}:{url:'https://media.example.test/sample.mp3',type:'mp3'};}
         """#
-        if ProcessInfo.processInfo.arguments.contains("--platform-playlist-fixture") {
+        if ProcessInfo.processInfo.arguments.contains("--platform-playlist-fixture") || ProcessInfo.processInfo.arguments.contains("--folder-playlist-fixture") {
             script += "\nexport function account(){return {id:'fixture-user',name:'示例账号'};}"
         }
         if shelfFixture {

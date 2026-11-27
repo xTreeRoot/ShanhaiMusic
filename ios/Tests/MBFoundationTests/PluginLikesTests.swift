@@ -2,13 +2,13 @@ import Foundation
 import Testing
 @testable import MBFoundation
 
-private func withLikesPlugin(_ script: String, isolation: isolated (any Actor)? = #isolation,
+private func withLikesPlugin(_ script: String, manifestJSON: String = #"{"id":"fixture"}"#, isolation: isolated (any Actor)? = #isolation,
                              perform: (PluginSource, PluginRuntime) async throws -> Void) async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try script.write(to: root.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
-    let manifest = try JSONDecoder().decode(PluginManifest.self, from: Data(#"{"id":"fixture"}"#.utf8))
+    let manifest = try JSONDecoder().decode(PluginManifest.self, from: Data(manifestJSON.utf8))
     let runtime = try PluginRuntime(directory: root, dataDirectory: root.appendingPathComponent("data"), manifest: manifest, settings: [:])
     try await perform(PluginSource(manifest: manifest, runtime: runtime), runtime)
 }
@@ -91,5 +91,22 @@ private func withLikesPlugin(_ script: String, isolation: isolated (any Actor)? 
         await #expect(throws: (any Error).self) {
             try await source.add(Track(sourceID: "other", sourceTrackID: "wrong", title: "Track", artist: "Artist"), toPlatformPlaylist: targets[0])
         }
+    }
+}
+
+@Test func fixedFolderRemovalKeepsNativeIdentityAndRefreshesTheExistingHeart() async throws {
+    try await withLikesPlugin("""
+    let saved=true;
+    export function account(){return {id:'one',name:'One'};}
+    export function isLiked(){return {song:saved};}
+    export function playlists(){return [{id:'folder',name:'My folder',mine:true,fixed:true,removable:true,addable:true}];}
+    export function addToPlaylist(){}
+    export function removeFromPlaylist({id,trackIds}){if(id!=='folder'||trackIds.join()!=='song')throw Error('wrong identity');saved=false;}
+    """, manifestJSON: #"{"id":"fixture","playlistKind":"folder"}"#) { source, _ in
+        let targets = try await source.writablePlaylists()
+        #expect(targets[0].canRemoveTracks)
+        #expect(try await source.isLiked(trackID: "song"))
+        try await source.mutate("removeFromPlaylist", arguments: .object(["id":.string("folder"),"trackIds":.array([.string("song")])]))
+        #expect(try await !source.isLiked(trackID: "song"))
     }
 }

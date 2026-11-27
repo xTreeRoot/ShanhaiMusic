@@ -71,6 +71,40 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertTrue(target.waitForExistence(timeout: 5)); capture("歌曲列表-选择平台歌单", app: app); target.tap()
     }
 
+    @MainActor func testFavoriteFolderTerminologyAndNativeRemoval() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--plugin-demo", "--folder-playlist-fixture", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        selectTab("设置", app: app); app.buttons["settings-plugins"].tap()
+        XCTAssertTrue(app.buttons["安装"].waitForExistence(timeout: 5)); app.buttons["安装"].tap()
+        selectTab("发现", app: app); app.buttons["source-tab-fixture"].tap()
+        let song = app.buttons["播放 插件示例歌曲"].firstMatch
+        XCTAssertTrue(song.waitForExistence(timeout: 5)); song.tap()
+        let more = app.buttons["player-track-more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 5)); more.tap()
+        app.buttons["player-add-platform-playlist"].tap()
+        XCTAssertTrue(app.navigationBars["添加到收藏夹"].waitForExistence(timeout: 5))
+        let target = app.buttons["platform-playlist-pl"]
+        XCTAssertTrue(target.waitForExistence(timeout: 5)); capture("收藏夹-播放器添加入口", app: app); target.tap()
+        let pickerClosed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !app.navigationBars["添加到收藏夹"].exists }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [pickerClosed], timeout: 5), .completed)
+        app.buttons["关闭"].firstMatch.tap()
+        let actionsClosed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !app.descendants(matching: .any)["player-track-actions"].exists }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [actionsClosed], timeout: 5), .completed)
+        app.buttons["收起"].press(forDuration: 0.15)
+        let playerClosed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !app.buttons["player-track-more"].exists }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [playerClosed], timeout: 5), .completed)
+        let folder = app.buttons["示例歌单"].firstMatch
+        if !folder.exists { app.swipeUp() }
+        XCTAssertTrue(folder.waitForExistence(timeout: 5)); folder.tap()
+        let action = app.buttons["曲目操作 music · 插件结果"].firstMatch
+        XCTAssertTrue(action.waitForExistence(timeout: 5)); action.tap()
+        let remove = app.buttons["从此收藏夹移除"]
+        XCTAssertTrue(remove.waitForExistence(timeout: 5)); capture("收藏夹-原生移除", app: app); remove.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["catalog-empty"].waitForExistence(timeout: 5))
+    }
+
     @MainActor func testPluginCenterTabsAndInstallationReview() {
         continueAfterFailure = false
         let app = XCUIApplication()

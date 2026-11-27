@@ -25,6 +25,7 @@ public struct PluginEntity: Identifiable, Sendable {
         track.artworkHeaders = artworkHeaders
         return track
     }
+    public var canRemoveTracks: Bool { kind == .playlist && value["mine"] == .bool(true) && (value["fixed"] != .bool(true) || value["removable"] == .bool(true)) }
     public var id: String { kind.rawValue + ":" + sourceID }
     public static func creator(id: String, name: String) -> Self {
         Self(kind: .artist, sourceID: id, title: name, subtitle: "", value: .object(["id": .string(id), "name": .string(name)]))

@@ -869,7 +869,8 @@ public struct MBRootView: View {
             openCreator: source is any LibrarySource && track.sourceID == selectedSourceID ? { id in
                 if selectedTab == .search { searchPath.append(.library(.creator(id))) }
                 else { path.append(.library(.creator(id))) }
-            } : nil, addToPlatformPlaylist: track.localFileID == nil ? { platformPlaylistTrack = track } : nil))
+            } : nil, addToPlatformPlaylist: track.localFileID == nil ? { platformPlaylistTrack = track } : nil,
+            platformPlaylistLabel: plugins.sources[track.sourceID]?.manifest.playlistAddTitle ?? AppLocalization.text("添加到平台歌单")))
     }
     private var searchTargetName: String {
         if searchTarget == "all" { return AppLocalization.text("全平台搜索") }

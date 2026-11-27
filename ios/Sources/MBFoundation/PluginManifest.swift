@@ -51,6 +51,10 @@ public struct PluginManifest: Codable, Sendable {
     public let main: String?
     public let minAppVersion: String?
     public let minAppVersionByPlatform: [String: String]?
+    public let playlistKind: String?
+    public var playlistAddTitle: String { AppLocalization.text(playlistKind == "folder" ? "添加到收藏夹" : "添加到平台歌单") }
+    public var playlistRemoveTitle: String { AppLocalization.text(playlistKind == "folder" ? "从此收藏夹移除" : "从当前歌单移除") }
+    public var playlistEmptyTitle: String { AppLocalization.text(playlistKind == "folder" ? "没有可编辑的收藏夹" : "没有可编辑的平台歌单") }
     public let playback: String?
     public let permissions: Permissions?
     public let settings: [Setting]?
@@ -79,6 +83,7 @@ public struct PluginManifest: Codable, Sendable {
         let methods = signInMethods ?? []
         guard methods.count <= 16, Set(methods.map(\.id)).count == methods.count,
               methods.allSatisfy({ !$0.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.id.range(of: "^[A-Za-z0-9][A-Za-z0-9_.-]*$", options: .regularExpression) != nil }) else { throw PluginFailure.invalid("Invalid sign-in methods") }
+        if let playlistKind, !["playlist", "folder"].contains(playlistKind) { throw PluginFailure.invalid("Invalid playlistKind") }
         guard playback == nil || playback == "stream" else { throw PluginFailure.unavailable }
         if !(permissions?.process ?? []).isEmpty { throw PluginFailure.unavailable }
         for rule in requestHeaders ?? [] {

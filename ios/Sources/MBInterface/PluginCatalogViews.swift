@@ -153,7 +153,7 @@ struct PluginCatalogPage: View {
                 }
                 if case .collection("playlists", _) = request, capabilities.contains("createPlaylist") { Button("新建平台歌单") { name = ""; create = true } }
                 if case .entity(let item) = request, item.kind == .playlist && item.value["mine"] == .bool(true) && item.value["fixed"] != .bool(true) {
-                    if capabilities.contains("addToPlaylist") { Button("添加平台歌曲") { adding = true } }
+                    if capabilities.contains("addToPlaylist") { Button(source.manifest.playlistKind == "folder" ? "添加内容" : "添加平台歌曲") { adding = true } }
                     if capabilities.contains("renamePlaylist") { Button("重命名歌单") { name = content?.title ?? item.title; rename = true } }
                     if capabilities.contains("deletePlaylist") { Button("删除平台歌单", role: .destructive) { delete = true } }
                 }
@@ -293,9 +293,9 @@ struct PluginCatalogPage: View {
         }
     }
     @ViewBuilder private func playlistTrackActions(_ track: Track, index: Int) -> some View {
-        if case .entity(let item) = request, item.kind == .playlist, item.value["mine"] == .bool(true), item.value["fixed"] != .bool(true) {
-            if capabilities.contains("removeFromPlaylist") { Button("从歌单移除", role: .destructive) { Task { await playlistTracks("removeFromPlaylist", ids: [track.sourceTrackID]) } } }
-            if capabilities.contains("movePlaylistTrack"), index > 0 { Button("向上移动") { Task { await change { try await source.mutate("movePlaylistTrack", arguments: .object(["id": .string(item.sourceID), "from": .number(Double(index)), "to": .number(Double(index - 1))])); await load() } } } }
+        if case .entity(let item) = request, item.canRemoveTracks {
+            if capabilities.contains("removeFromPlaylist") { Button(source.manifest.playlistRemoveTitle, role: .destructive) { Task { await playlistTracks("removeFromPlaylist", ids: [track.sourceTrackID]) } } }
+            if item.value["fixed"] != .bool(true), capabilities.contains("movePlaylistTrack"), index > 0 { Button("向上移动") { Task { await change { try await source.mutate("movePlaylistTrack", arguments: .object(["id": .string(item.sourceID), "from": .number(Double(index)), "to": .number(Double(index - 1))])); await load() } } } }
         }
     }
     private func playlistTracks(_ method: String, ids: [String]) async {

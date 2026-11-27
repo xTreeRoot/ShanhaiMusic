@@ -23,7 +23,7 @@ extension PluginSource {
         let targets = try await writablePlaylists()
         guard generation == accountGeneration else { throw CancellationError() }
         guard targets.contains(where: { $0.sourceID == playlist.sourceID }) else {
-            throw PluginFailure.invalid("这个歌单已不可编辑，请重新选择")
+            throw PluginFailure.invalid("这个列表已不可编辑，请重新选择")
         }
         try await mutate("addToPlaylist", arguments: .object([
             "id": .string(playlist.sourceID), "trackIds": .array([.string(track.sourceTrackID)])

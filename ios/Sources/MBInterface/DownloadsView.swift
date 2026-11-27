@@ -192,12 +192,13 @@ struct TrackContextMenu: View {
     let downloads: DownloadModel
     var openCreator: ((String) -> Void)?
     var addToPlatformPlaylist: (() -> Void)? = nil
+    var platformPlaylistLabel = "添加到平台歌单"
     @Environment(\.offlineLibrary) private var library
     var body: some View {
         Button("加入播放队列", systemImage: "text.badge.plus") { playback.enqueue(track) }
         Button("下一首播放", systemImage: "text.line.first.and.arrowtriangle.forward") { playback.enqueue(track, next: true) }
         if let addToPlatformPlaylist {
-            Button("添加到平台歌单", systemImage: "text.badge.plus", action: addToPlatformPlaylist)
+            Button(platformPlaylistLabel, systemImage: "text.badge.plus", action: addToPlatformPlaylist)
         }
         if let library, library.contains(track) {
             Button(LocalizedStringKey(library.snapshot.favorites.contains(track.id) ? "取消喜欢" : "喜欢"), systemImage: "heart") { Task { await library.toggleFavorite(track) } }

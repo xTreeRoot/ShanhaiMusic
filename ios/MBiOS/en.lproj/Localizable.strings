@@ -425,3 +425,15 @@
 "社区" = "Community";
 
 "没有找到插件" = "No plugins found";
+
+"添加到平台歌单" = "Add to Platform Playlist";
+
+"添加到收藏夹" = "Add to Favorite Folder";
+
+"从当前歌单移除" = "Remove from Playlist";
+
+"从此收藏夹移除" = "Remove from This Favorite Folder";
+
+"没有可编辑的收藏夹" = "No editable favorite folders";
+
+"没有可编辑的平台歌单" = "No editable platform playlists";

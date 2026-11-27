@@ -83,6 +83,11 @@ public actor PluginSource: PlaybackSource, VideoSource, AccountSource, AccountCa
     public func mutate(_ method: String, arguments: PluginJSON) async throws {
         _ = try await runtime.invoke(method, arguments: arguments)
         await invalidateCatalog()
+        if ["addToPlaylist", "removeFromPlaylist"].contains(method) {
+            resetLikeScope(); likesRevision += 1; likeStates.removeAll(); likedSnapshot = nil
+            likedLoading?.task.cancel(); likedLoading = nil
+            NotificationCenter.default.post(name: .pluginLikedStateDidChange, object: manifest.id)
+        }
     }
     public func home(refresh: Bool = false) async throws -> PluginBrowse {
         guard try await supports("home") else { return PluginBrowse(title: displayName) }

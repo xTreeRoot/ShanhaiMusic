@@ -121,7 +121,7 @@ struct PlayerTrackActionsSheet: View {
                 }.frame(maxWidth: .infinity).buttonStyle(.plain)
                 Divider()
                 if track.localFileID == nil {
-                    Button { choosingPlatformPlaylist = true } label: { row("添加到平台歌单", icon: "text.badge.plus") }
+                    Button { choosingPlatformPlaylist = true } label: { row(pluginSource?.manifest.playlistAddTitle ?? AppLocalization.text("添加到平台歌单"), icon: "text.badge.plus") }
                         .buttonStyle(.plain).accessibilityIdentifier("player-add-platform-playlist")
                 }
                 if let openCreator {
