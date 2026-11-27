@@ -25,7 +25,7 @@ internal fun PlatformPlaylistAction(track: Track, source: PluginSource? =
     if (track.sourceId == com.xtreeroot.mb.local.localSourceId) return
     var showing by remember(track.id, source) { mutableStateOf(false) }
     TextButton(onClick = { showing = true }, modifier = Modifier.fillMaxWidth().testTag("add-platform-playlist")) {
-        Text(mb("添加到平台歌单", "Add to Platform Playlist"))
+        Text(platformPlaylistAddTitle(source))
     }
     if (showing) PlatformPlaylistDialog(track, source) { showing = false }
 }
@@ -46,7 +46,7 @@ private fun PlatformPlaylistDialog(track: Track, source: PluginSource?, close: (
         catch (failure: Exception) { error = failure.message ?: unavailable }
         finally { loading = false }
     }
-    AlertDialog(onDismissRequest = { if (!saving) close() }, title = { Text(mb("添加到平台歌单", "Add to Platform Playlist")) },
+    AlertDialog(onDismissRequest = { if (!saving) close() }, title = { Text(platformPlaylistAddTitle(source)) },
         text = {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(track.title)
@@ -63,9 +63,13 @@ private fun PlatformPlaylistDialog(track: Track, source: PluginSource?, close: (
                         }) { Text(playlist.title) }
                 }
                 if (loading || saving) CircularProgressIndicator(Modifier.size(24.dp))
-                if (!loading && error == null && targets.isEmpty()) Text(mb("没有可编辑的平台歌单", "No editable platform playlists"))
+                if (!loading && error == null && targets.isEmpty()) Text(if (source?.manifest?.playlistKind == "folder") mb("没有可编辑的收藏夹", "No editable favorite folders") else mb("没有可编辑的平台歌单", "No editable platform playlists"))
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }, confirmButton = { if (error != null) TextButton(enabled = !saving, onClick = { reload++ }) { Text(mb("重试", "Retry")) } },
         dismissButton = { TextButton(enabled = !saving, onClick = close) { Text(mb("关闭", "Close")) } })
 }
+
+@Composable
+internal fun platformPlaylistAddTitle(source: PluginSource?): String = if (source?.manifest?.playlistKind == "folder")
+    mb("添加到收藏夹", "Add to Favorite Folder") else mb("添加到平台歌单", "Add to Platform Playlist")

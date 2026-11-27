@@ -111,7 +111,7 @@ class MusicTrackActionsDeviceTest {
             export function addToPlaylist(args){if(args.id!=='mine')throw Error('wrong target');added.push(args);}
             export function probe(){return {added};}
         """.trimIndent())
-        val manifest = com.xtreeroot.mb.plugin.PluginManifest.parse(org.json.JSONObject().put("id", track.sourceId))
+        val manifest = com.xtreeroot.mb.plugin.PluginManifest.parse(org.json.JSONObject().put("id", track.sourceId).put("playlistKind", "folder"))
         val runtime = com.xtreeroot.mb.plugin.PluginRuntime(app.assets, code, File(parent, "data"), manifest, emptyMap())
         val source = com.xtreeroot.mb.plugin.PluginSource(manifest, runtime)
         val screen = start()
@@ -119,7 +119,7 @@ class MusicTrackActionsDeviceTest {
             withContext(Dispatchers.Main) { screen.setContent { MaterialTheme { CompositionLocalProvider(LocalMBEnglish provides true) {
                 PlatformPlaylistAction(track, source)
             } } } }
-            tap("Add to Platform Playlist"); awaitNode("Owned target")
+            tap("Add to Favorite Folder"); awaitNode("Owned target")
             assertNull(find("Foreign target")); capture("android-platform-playlist-picker")
             tap("Owned target"); await { find("Owned target") == null }
             val values = (runtime.invoke("probe") as org.json.JSONObject).getJSONArray("added")

@@ -32,7 +32,8 @@ internal data class PluginImage(val url: String, val headers: Map<String, String
 
 internal data class PluginEntity(val kind: PluginEntityKind, val id: String, val title: String,
                                  val subtitle: String = "", val image: PluginImage? = null,
-                                 val saved: Boolean = false, val owned: Boolean = false, val fixed: Boolean = false, val addable: Boolean = false) {
+                                 val saved: Boolean = false, val owned: Boolean = false, val fixed: Boolean = false, val addable: Boolean = false, val removable: Boolean = false) {
+    val canRemoveTracks: Boolean get() = kind == PluginEntityKind.Playlist && owned && (!fixed || removable)
     val editable: Boolean get() = kind == PluginEntityKind.Playlist && owned && !fixed
     val saveMethod: String? get() = when (kind) {
         PluginEntityKind.Album -> "saveAlbum"
@@ -74,6 +75,7 @@ internal class PluginCatalog(
     private val readTracks: suspend (JSONArray) -> List<Track>,
     private val readImage: suspend (String?) -> PluginImage?,
     private val cachedInvoke: suspend (String, JSONObject) -> Any,
+    private val mutate: suspend (String, JSONObject) -> Any = { method, args -> runtime.invoke(method, args) },
 ) {
     suspend fun invalidate() = runtime.catalogCache.invalidate()
     suspend fun supports(method: String) = runtime.supports(method)
@@ -143,7 +145,7 @@ internal class PluginCatalog(
     }
 
     suspend fun changePlaylistTracks(entity: PluginEntity, ids: List<String>, add: Boolean) {
-        runtime.invoke(if (add) "addToPlaylist" else "removeFromPlaylist",
+        mutate(if (add) "addToPlaylist" else "removeFromPlaylist",
             JSONObject().put("id", entity.id).put("trackIds", JSONArray(ids)))
         invalidate()
     }
@@ -206,7 +208,7 @@ internal class PluginCatalog(
                 ?: entity.list("artists").objects().mapNotNull { it.text("name") }.joinToString(", ")
             PluginEntity(kind, id, pluginPlainTitle(title), pluginPlainTitle(subtitle), readImage(entity.text("imageUrl")),
                 entity.optBoolean("saved") || entity.optBoolean("following") || entity.optBoolean("subscribed"),
-                entity.optBoolean("mine"), entity.optBoolean("fixed"), entity.optBoolean("addable"))
+                entity.optBoolean("mine"), entity.optBoolean("fixed"), entity.optBoolean("addable"), entity.optBoolean("removable"))
         } }
         val links = value.list("links").objects().mapNotNull { link ->
             val title = link.text("title") ?: return@mapNotNull null

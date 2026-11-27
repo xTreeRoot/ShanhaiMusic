@@ -285,6 +285,23 @@ class PluginRuntimeTest {
         rejected { source.addToPlatformPlaylist(com.xtreeroot.mb.music.Track("other", "wrong", "Track", "Artist"), targets[0]) }
     }
 
+    @Test fun fixedFolderRemovalUsesNativeIdsAndInvalidatesHeartCache() = fixture("""
+        let saved=true;
+        export function account(){return {id:'one',name:'One'};}
+        export function isLiked(){return {song:saved};}
+        export function playlists(){return [{id:'folder',name:'My folder',mine:true,fixed:true,removable:true,addable:true}];}
+        export function addToPlaylist(){}
+        export function removeFromPlaylist({id,trackIds}){if(id!=='folder'||trackIds.join()!=='song')throw Error('wrong identity');saved=false;}
+    """.trimIndent(), plugin = PluginManifest.parse(JSONObject("""{"id":"fixture","playlistKind":"folder"}"""))) { runtime, _, _ ->
+        val folderManifest = PluginManifest.parse(JSONObject("""{"id":"fixture","playlistKind":"folder"}"""))
+        val source = PluginSource(folderManifest, runtime)
+        val target = source.writablePlaylists().single()
+        assertTrue(target.canRemoveTracks); assertFalse(target.editable)
+        assertTrue(source.isLiked("song"))
+        source.catalog.changePlaylistTracks(target, listOf("song"), false)
+        assertFalse(source.isLiked("song"))
+    }
+
     @Test fun optionalSuggestUsesTheIosContractWithoutCoercingOtherJsonTypes() = fixture(
         """
         export function suggest(args) {

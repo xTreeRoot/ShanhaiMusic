@@ -6,3 +6,5 @@
 - `existing-platform-like.png` 是隔离来源在 Android 模拟器上的截图。未使用真实平台账号进行写入测试。
 
 - 共用平台歌单选择器在模拟器上实际选择目标并写入原始 trackIds，通过；其他账号目标未展示。`platform-playlist-picker.png` 为选择器截图。
+
+- 收藏夹语义由插件 playlistKind 声明；固定列表 removable 只开放曲目原生移除，不允许重命名和删除整个列表。移除会清理旧红心快照并重新读取。

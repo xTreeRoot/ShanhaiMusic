@@ -42,7 +42,7 @@ internal class PluginSource(
     private val runtime: PluginRuntime,
 ) : PlaybackSource, VideoSource, com.xtreeroot.mb.music.AccountCacheResetSource, com.xtreeroot.mb.music.SignInMethodSource, InteractionSource, PlaybackRecorder, StationPlaybackSource, SuggestionSource {
     override val id: String get() = manifest.id
-    val catalog = PluginCatalog(manifest, runtime, ::tracks, ::image, ::catalogInvoke)
+    val catalog = PluginCatalog(manifest, runtime, ::tracks, ::image, ::catalogInvoke, ::mutatePlaylist)
     private val accountCacheLock = Any()
     private var cacheAccount: String? = null
     private var accountGeneration = 0L
@@ -100,6 +100,15 @@ internal class PluginSource(
             }
         }
         return value
+    }
+    private suspend fun mutatePlaylist(method: String, args: JSONObject): Any {
+        val generation = synchronized(accountCacheLock) { accountGeneration }
+        val result = runtime.invoke(method, args)
+        synchronized(accountCacheLock) {
+            if (generation != accountGeneration) throw CancellationException()
+            resetLikesScope(); likesEpoch++; likeStates.clear(); likedSnapshot = null; likesChanged.value++
+        }
+        return result
     }
     private val searchLock = Mutex()
     private val offsets = mutableMapOf<String, MutableMap<Int, Int>>()

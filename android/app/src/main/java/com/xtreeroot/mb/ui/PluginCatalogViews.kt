@@ -146,6 +146,7 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                 if (request == PluginCatalogRequest.Home) addAll(listOf("search", "searchVideos"))
                 if ((request as? PluginCatalogRequest.Collection)?.collection == PluginCollection.Playlists) add("createPlaylist")
                 entity?.saveMethod?.let(::add)
+                if (entity?.canRemoveTracks == true) add("removeFromPlaylist")
                 if (entity?.editable == true) addAll(listOf("renamePlaylist", "deletePlaylist", "addToPlaylist", "removeFromPlaylist", "movePlaylistTrack"))
             }
             capabilities = methods.filter { catalog.supports(it) }.toSet()
@@ -232,12 +233,12 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                     if (section.videos || videoMode && entity?.editable != true) item { VideoCoverCard(track, playSection) }
                     else item(span = { GridItemSpan(maxLineSpan) }) {
                         TrackRow(track, rank = position + 1, actions = {
-                            if (entity?.editable == true && ("removeFromPlaylist" in capabilities || "movePlaylistTrack" in capabilities && index > 0)) {
-                                PluginPlaylistTrackMenu(track, changing,
+                            if (entity?.canRemoveTracks == true && ("removeFromPlaylist" in capabilities || "movePlaylistTrack" in capabilities && index > 0)) {
+                                PluginPlaylistTrackMenu(track, changing, if (source.manifest.playlistKind == "folder") mb("从此收藏夹移除", "Remove from This Favorite Folder") else mb("从当前歌单移除", "Remove from Playlist"),
                                     remove = if ("removeFromPlaylist" in capabilities) ({
                                         change { catalog.changePlaylistTracks(entity, listOf(track.sourceTrackId), add = false); load() }
                                     }) else null,
-                                    move = if ("movePlaylistTrack" in capabilities && index > 0) ({
+                                    move = if (entity.editable && "movePlaylistTrack" in capabilities && index > 0) ({
                                         change { catalog.movePlaylistTrack(entity, index, index - 1); load() }
                                     }) else null)
                             } else TrackActionsButton(track)
@@ -514,14 +515,14 @@ private fun CatalogLinkRow(link: PluginCatalogLink, open: (PluginCatalogRequest)
 }
 
 @Composable
-private fun PluginPlaylistTrackMenu(track: Track, busy: Boolean, remove: (() -> Unit)?, move: (() -> Unit)?) {
+private fun PluginPlaylistTrackMenu(track: Track, busy: Boolean, removeLabel: String, remove: (() -> Unit)?, move: (() -> Unit)?) {
     val openActions = LocalTrackActions.current
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { expanded = true }, enabled = !busy) { Icon(Icons.Default.MoreVert, mb("操作 ${track.title}", "Actions for ${track.title}")) }
         DropdownMenu(expanded, { expanded = false }) {
             if (move != null) DropdownMenuItem(text = { Text(mb("向上移动", "Move Up")) }, onClick = { expanded = false; move() })
-            if (remove != null) DropdownMenuItem(text = { Text(mb("从歌单移除", "Remove from Playlist")) }, onClick = { expanded = false; remove() })
+            if (remove != null) DropdownMenuItem(text = { Text(removeLabel) }, onClick = { expanded = false; remove() })
             DropdownMenuItem(text = { Text(mb("更多操作", "More Actions")) }, onClick = { expanded = false; openActions(track) })
         }
     }
