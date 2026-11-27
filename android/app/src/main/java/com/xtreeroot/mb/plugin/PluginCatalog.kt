@@ -32,7 +32,7 @@ internal data class PluginImage(val url: String, val headers: Map<String, String
 
 internal data class PluginEntity(val kind: PluginEntityKind, val id: String, val title: String,
                                  val subtitle: String = "", val image: PluginImage? = null,
-                                 val saved: Boolean = false, val owned: Boolean = false, val fixed: Boolean = false) {
+                                 val saved: Boolean = false, val owned: Boolean = false, val fixed: Boolean = false, val addable: Boolean = false) {
     val editable: Boolean get() = kind == PluginEntityKind.Playlist && owned && !fixed
     val saveMethod: String? get() = when (kind) {
         PluginEntityKind.Album -> "saveAlbum"
@@ -206,7 +206,7 @@ internal class PluginCatalog(
                 ?: entity.list("artists").objects().mapNotNull { it.text("name") }.joinToString(", ")
             PluginEntity(kind, id, pluginPlainTitle(title), pluginPlainTitle(subtitle), readImage(entity.text("imageUrl")),
                 entity.optBoolean("saved") || entity.optBoolean("following") || entity.optBoolean("subscribed"),
-                entity.optBoolean("mine"), entity.optBoolean("fixed"))
+                entity.optBoolean("mine"), entity.optBoolean("fixed"), entity.optBoolean("addable"))
         } }
         val links = value.list("links").objects().mapNotNull { link ->
             val title = link.text("title") ?: return@mapNotNull null

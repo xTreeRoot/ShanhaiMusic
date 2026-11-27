@@ -104,6 +104,7 @@ internal fun TrackActions(track: Track, saved: SavedLibraryModel, connected: Boo
             } else {
                 TrackAction(mb("加入播放队列", "Add to Queue"), connected) { enqueue(false); close() }
                 TrackAction(mb("下一首播放", "Play Next"), connected) { enqueue(true); close() }
+                PlatformPlaylistAction(track)
                 if (offlineAvailable) {
                     val activity by saved.activity.collectAsStateWithLifecycle()
                     val liked = (activity[track.id]?.likedAt ?: 0L) > 0

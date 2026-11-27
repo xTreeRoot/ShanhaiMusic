@@ -76,6 +76,31 @@ class MusicTrackActionsDeviceTest {
             withContext(Dispatchers.Main) { store.clear(); screen.finish() }
         }
     }
+    @Test fun existingReadOnlyLikeIsVisibleBeforeSlowCountsFinish() = runBlocking<Unit> {
+        val screen = start()
+        val countGate = CompletableDeferred<Unit>()
+        val source = object : InteractionSource {
+            override val id = track.sourceId
+            override suspend fun search(query: String, page: Int) = TrackPage(emptyList(), false)
+            override suspend fun interactionCapabilities() = InteractionCapabilities(false, false, false, likesReadable = true)
+            override suspend fun interactionSummary(trackId: String): TrackInteractionSummary { countGate.await(); return TrackInteractionSummary() }
+            override suspend fun isLiked(trackId: String) = true
+            override suspend fun like(trackId: String, enabled: Boolean) { fail("read-only source was written") }
+            override suspend fun comments(trackId: String, cursor: Int?) = CommentPage(emptyList(), 0, null)
+            override suspend fun postComment(trackId: String, text: String): TrackComment = error("unused")
+        }
+        try {
+            withContext(Dispatchers.Main) { screen.setContent { MaterialTheme { CompositionLocalProvider(LocalMBEnglish provides true) {
+                MusicTrackMetadata(track, source, null) { }
+            } } } }
+            val heart = awaitNode("Unlike")
+            // 图标是子节点，禁用语义属于外层按钮。
+            assertNotNull(generateSequence(heart) { it.parent }.firstOrNull { !it.isEnabled })
+            capture("android-existing-platform-like")
+            countGate.complete(Unit)
+        } finally { countGate.complete(Unit); withContext(Dispatchers.Main) { screen.finish() } }
+    }
+
     private fun capture(name: String) {
         val directory = File(app.filesDir, "review").apply { mkdirs() }
         File(directory, "$name.png").outputStream().use { instrumentation.uiAutomation.takeScreenshot().compress(Bitmap.CompressFormat.PNG, 100, it) }

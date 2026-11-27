@@ -32,6 +32,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -44,11 +46,24 @@ internal class PluginSource(
     private val accountCacheLock = Any()
     private var cacheAccount: String? = null
     private var accountGeneration = 0L
+    private data class LikeValue(val value: Boolean, val until: Long)
+    private val likesLock = Mutex()
+    private var likesScope = -1L
+    private var likesEpoch = 0L
+    private val likeStates = mutableMapOf<String, LikeValue>()
+    private var likedSnapshot: Pair<Set<String>, Long>? = null
+    private val likesChanged = MutableStateFlow(0L)
+    val likesRevision = likesChanged.asStateFlow()
+    private fun likeClock() = System.nanoTime() / 1_000_000
+    private fun resetLikesScope() {
+        if (likesScope == accountGeneration) return
+        likesScope = accountGeneration; likesEpoch++; likeStates.clear(); likedSnapshot = null
+    }
     override val mediaRevision: Long get() = synchronized(accountCacheLock) { accountGeneration }
 
     private fun rememberAccount(account: SourceAccount?, force: Boolean = false) = synchronized(accountCacheLock) {
         val key = account?.let { "user:${it.id}" } ?: "guest"
-        if (force || cacheAccount != null && cacheAccount != key) accountGeneration++
+        if (force || cacheAccount != key) accountGeneration++
         cacheAccount = key
     }
 
@@ -59,6 +74,7 @@ internal class PluginSource(
             catch (_: Exception) { return runtime.invoke(method, arguments) }
         }
         val (account, revision) = synchronized(accountCacheLock) { cacheAccount.orEmpty() to accountGeneration }
+        val likeRevision = synchronized(accountCacheLock) { resetLikesScope(); likesEpoch }
         val parameters = arguments.keys().asSequence().filter { it != "refresh" }.sorted().flatMap { sequenceOf(it, arguments.get(it).toString()) }.toList()
         val key = DiskResponseCache.key(*(listOf(manifest.id, manifest.version.orEmpty(), account, method) + parameters).toTypedArray())
         val data = runtime.catalogCache.data(key, lifetimeMs = if (arguments.optBoolean("refresh")) 0 else 6L * 60 * 60 * 1000) {
@@ -69,7 +85,21 @@ internal class PluginSource(
         }
         currentCoroutineContext().ensureActive()
         synchronized(accountCacheLock) { if (revision != accountGeneration) throw CancellationException() }
-        return JSONTokener(data.toString(Charsets.UTF_8)).nextValue()
+        val value = JSONTokener(data.toString(Charsets.UTF_8)).nextValue()
+        if (method == "liked") synchronized(accountCacheLock) {
+            if (revision == accountGeneration && likeRevision == likesEpoch) {
+                val tracks = (value as? JSONObject)?.optJSONArray("tracks")
+                var changed = false
+                if (tracks != null) for (index in 0 until tracks.length()) {
+                    tracks.optJSONObject(index)?.optString("id")?.takeIf(String::isNotEmpty)?.let {
+                        changed = changed || likeStates[it]?.value != true
+                        likeStates[it] = LikeValue(true, likeClock() + 60_000)
+                    }
+                }
+                if (changed) { likesEpoch++; likedSnapshot = null; likesChanged.value++ }
+            }
+        }
+        return value
     }
     private val searchLock = Mutex()
     private val offsets = mutableMapOf<String, MutableMap<Int, Int>>()
@@ -183,6 +213,7 @@ internal class PluginSource(
     override suspend fun interactionCapabilities() = InteractionCapabilities(
         likes = runtime.supports("like"), comments = runtime.supports("comments"),
         posting = runtime.supports("postComment"), commentLikes = runtime.supports("likeComment"),
+        likesReadable = runtime.supports("isLiked") || runtime.supports("liked"),
     )
 
     override suspend fun interactionSummary(trackId: String): com.xtreeroot.mb.music.TrackInteractionSummary {
@@ -198,14 +229,67 @@ internal class PluginSource(
     }
 
     override suspend fun isLiked(trackId: String): Boolean {
-        if (!runtime.supports("isLiked")) return false
-        val value = runtime.invoke("isLiked", JSONObject().put("ids", JSONArray(listOf(trackId)))) as? JSONObject
-        return value?.opt(trackId) == true
+        val epoch = synchronized(accountCacheLock) {
+            resetLikesScope()
+            likeStates[trackId]?.takeIf { it.until > likeClock() }?.let { return it.value }
+            likesEpoch
+        }
+        val listSupported = runtime.supports("liked")
+        if (runtime.supports("isLiked")) {
+            try {
+                val value = (runtime.invoke("isLiked", JSONObject().put("ids", JSONArray(listOf(trackId)))) as? JSONObject)?.opt(trackId)
+                if (value is Boolean) return synchronized(accountCacheLock) {
+                    if (likesScope != accountGeneration || epoch != likesEpoch) throw CancellationException()
+                    likeStates[trackId] = LikeValue(value, likeClock() + 60_000); value
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { if (!listSupported) throw failure }
+        }
+        if (!listSupported) throw PluginException("Liked status is unavailable")
+        val ids = likesLock.withLock {
+            synchronized(accountCacheLock) {
+                if (likesScope != accountGeneration || epoch != likesEpoch) throw CancellationException()
+                likedSnapshot?.takeIf { it.second > likeClock() }?.let { return@withLock it.first }
+            }
+            val loaded = readPluginLikedIDs { offset -> runtime.invoke("liked", JSONObject().put("offset", offset)) as? JSONObject
+                ?: throw PluginException("Invalid liked list") }
+            synchronized(accountCacheLock) {
+                if (likesScope != accountGeneration || epoch != likesEpoch) throw CancellationException()
+                likedSnapshot = loaded to (likeClock() + 60_000)
+            }
+            loaded
+        }
+        return synchronized(accountCacheLock) {
+            if (likesScope != accountGeneration || epoch != likesEpoch) throw CancellationException()
+            trackId in ids
+        }
     }
 
     override suspend fun like(trackId: String, enabled: Boolean) {
+        val generation = synchronized(accountCacheLock) { resetLikesScope(); accountGeneration }
         runtime.invoke("like", JSONObject().put("id", trackId).put("on", enabled))
+        synchronized(accountCacheLock) {
+            if (generation != accountGeneration) throw CancellationException()
+            likesEpoch++; likedSnapshot = null
+            likeStates[trackId] = LikeValue(enabled, likeClock() + 60_000)
+            likesChanged.value++
+        }
         runtime.catalogCache.invalidate()
+    }
+
+    suspend fun writablePlaylists(): List<PluginEntity> {
+        if (!runtime.supports("playlists") || !runtime.supports("addToPlaylist")) throw PluginException("此插件尚未提供平台歌单写入接口")
+        if (account() == null) throw PluginException("请先登录当前插件的平台账号")
+        val page = catalog.load(PluginCatalogRequest.Collection(PluginCollection.Playlists, ""), refresh = true)
+        return page.sections.flatMap { it.entities }.filter { it.kind == PluginEntityKind.Playlist && it.owned && (!it.fixed || it.addable) }
+    }
+
+    suspend fun addToPlatformPlaylist(track: Track, playlist: PluginEntity) {
+        if (track.sourceId != id || playlist.kind != PluginEntityKind.Playlist) throw PluginException("只能添加当前插件的歌曲")
+        val revision = synchronized(accountCacheLock) { accountGeneration }
+        if (writablePlaylists().none { it.id == playlist.id }) throw PluginException("这个歌单已不可编辑，请重新选择")
+        synchronized(accountCacheLock) { if (revision != accountGeneration) throw CancellationException() }
+        catalog.changePlaylistTracks(playlist, listOf(track.sourceTrackId), true)
     }
 
     override suspend fun comments(trackId: String, cursor: Int?): CommentPage {

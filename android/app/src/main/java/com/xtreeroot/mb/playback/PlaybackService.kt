@@ -580,7 +580,11 @@ internal class PlaybackService : MediaLibraryService() {
             app.settings.values.map { it.videoQuality }.distinctUntilChanged().drop(1).collect { video.qualityChanged() }
         }
         scope.launch {
-            combine(currentMedia, app.installedPlugins) { track, _ -> track }.collectLatest { likes.refresh(it) }
+            combine(currentMedia, app.installedPlugins) { track, _ -> track }.collectLatest { track ->
+                val source = track?.let { app.playbackSource(it.sourceId) }
+                if (source is com.xtreeroot.mb.plugin.PluginSource) source.likesRevision.collect { likes.refresh(track) }
+                else likes.refresh(track)
+            }
         }
         scope.launch {
             combine(currentMedia, app.settings.values) { track, preferences ->

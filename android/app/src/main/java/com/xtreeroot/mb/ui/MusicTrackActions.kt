@@ -42,20 +42,26 @@ internal fun MusicTrackMetadata(track: Track, source: InteractionSource?, creato
     var summary by remember { mutableStateOf(TrackInteractionSummary()) }
     var liked by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf(false) }
+    var likeMutation by remember { mutableLongStateOf(0L) }
     var error by remember { mutableStateOf<String?>(null) }
     var comments by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(source) {
+    val likeRevision = (source as? com.xtreeroot.mb.plugin.PluginSource)?.likesRevision?.collectAsStateWithLifecycle()?.value
+    LaunchedEffect(source, likeRevision) {
         if (source == null) return@LaunchedEffect
         try { capabilities = source.interactionCapabilities() }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { return@LaunchedEffect }
+        // 插件执行通道串行，先确认红心，再查询可能很慢的总数。
+        val mutation = likeMutation
+        if (capabilities.likesReadable) {
+            try { val value = source.isLiked(track.sourceTrackId); if (!pending && mutation == likeMutation) liked = value }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* 登录错误在用户操作后反馈。 */ }
+        }
         try { summary = source.interactionSummary(track.sourceTrackId) }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { /* 计数不可用不阻塞播放。 */ }
-        try { liked = source.isLiked(track.sourceTrackId) }
-        catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { /* 登录错误在用户操作后反馈。 */ }
     }
     Column {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -68,11 +74,11 @@ internal fun MusicTrackMetadata(track: Track, source: InteractionSource?, creato
                     .padding(top = 4.dp).testTag("player-creator"), style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            CountedInteraction(summary.likes, enabled = source != null && capabilities.likes && !pending,
+            if (capabilities.likesReadable) CountedInteraction(summary.likes, enabled = source != null && capabilities.likes && !pending,
                 onClick = {
                     val provider = source ?: return@CountedInteraction
                     val desired = !liked
-                    pending = true; error = null
+                    likeMutation++; pending = true; error = null
                     scope.launch {
                         try {
                             provider.like(track.sourceTrackId, desired)
@@ -149,6 +155,7 @@ internal fun MusicTrackActions(track: Track, saved: SavedLibraryModel, preferenc
                 }
             }
             HorizontalDivider()
+            PlatformPlaylistAction(track)
             if (creator != null) TextButton(onClick = { close(); creator() }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.Person, null); Spacer(Modifier.width(14.dp)); Text(mb("作者：", "Artist: ") + track.artist, Modifier.weight(1f), maxLines = 1)
                 Icon(Icons.Default.KeyboardArrowRight, null)

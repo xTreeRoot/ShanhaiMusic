@@ -6,7 +6,7 @@ data class TrackComment(val id: String, val author: String, val avatarUrl: Strin
 data class CommentPage(val comments: List<TrackComment>, val total: Int, val nextCursor: Int?)
 
 data class InteractionCapabilities(val likes: Boolean = true, val comments: Boolean = true,
-                                   val posting: Boolean = true, val commentLikes: Boolean = false)
+                                   val posting: Boolean = true, val commentLikes: Boolean = false, val likesReadable: Boolean = likes)
 
 /** null 表示平台未提供公开总数，不能用 0 替代。 */
 data class TrackInteractionSummary(val likes: Long? = null, val comments: Long? = null)

@@ -227,6 +227,64 @@ class PluginRuntimeTest {
         assertTrue(source.suggestions("title").isEmpty())
     }
 
+    @Test fun readOnlyLikesUseAllPagesCacheAndResetForTheNextAccount() = fixture("""
+        let who='first',reads=0;
+        export function account(){return who ? {id:who,name:who} : null;}
+        export function signOut(){who='';}
+        export function signIn(){who='second';return {id:who,name:who};}
+        export function liked({offset}){reads++;return !who ? {tracks:[],more:false} : offset===0 ? {tracks:[{id:who,name:who}],more:true,nextOffset:5} : {tracks:[{id:'tail'}],more:false};}
+        export function probe(){return {reads};}
+    """.trimIndent()) { runtime, _, _ ->
+        val source = PluginSource(manifest, runtime)
+        source.account()
+        val caps = source.interactionCapabilities()
+        assertTrue(caps.likesReadable); assertFalse(caps.likes)
+        assertTrue(source.isLiked("first")); assertTrue(source.isLiked("tail")); assertFalse(source.isLiked("absent"))
+        assertEquals(2, (runtime.invoke("probe") as JSONObject).getInt("reads"))
+        source.signOut(); assertFalse(source.isLiked("first"))
+        source.signIn { }; assertFalse(source.isLiked("first")); assertTrue(source.isLiked("second"))
+    }
+
+    @Test fun brokenLikeQueryFallsBackAndCollectionRefreshUpdatesTheHeart() = fixture("""
+        export function account(){return {id:'one',name:'One'};}
+        export function isLiked(){throw Error('unavailable');}
+        export function liked(){return {tracks:[{id:'song',name:'Saved'}],more:false};}
+        export function like(){}
+    """.trimIndent()) { runtime, _, _ ->
+        val source = PluginSource(manifest, runtime)
+        source.account(); assertTrue(source.isLiked("song")); assertFalse(source.isLiked("unknown"))
+        source.like("song", false); assertFalse(source.isLiked("song"))
+        source.catalog.load(PluginCatalogRequest.Collection(PluginCollection.Liked, "Liked"))
+        assertTrue(source.isLiked("song"))
+    }
+
+    @Test fun missingLikeKeysFallBackAndFailedQueriesCanRetry() = fixture("""
+        let reads=0;
+        export function isLiked(){if(++reads===1)throw Error('temporary');return {};}
+        export function liked(){return {tracks:[{id:'saved'}],more:false};}
+    """.trimIndent()) { runtime, _, _ ->
+        val source = PluginSource(manifest, runtime)
+        assertTrue(source.isLiked("saved"))
+        assertFalse(source.isLiked("absent"))
+    }
+
+    @Test fun platformPlaylistTargetsKeepSystemPermissionsAndOriginalTrackIds() = fixture("""
+        let added=[];
+        export function account(){return {id:'one',name:'One'};}
+        export function playlists(){return [{id:'mine',name:'Mine',mine:true},{id:'foreign',name:'Foreign'},
+          {id:'fixed',name:'Fixed',mine:true,fixed:true},{id:'system',name:'System',mine:true,fixed:true,addable:true}];}
+        export function addToPlaylist(args){added.push(args);}
+        export function probe(){return added;}
+    """.trimIndent()) { runtime, _, _ ->
+        val source = PluginSource(manifest, runtime)
+        val targets = source.writablePlaylists()
+        assertEquals(listOf("mine", "system"), targets.map { it.id })
+        source.addToPlatformPlaylist(com.xtreeroot.mb.music.Track("fixture", "original:id", "Track", "Artist"), targets[1])
+        val args = (runtime.invoke("probe") as JSONArray).getJSONObject(0)
+        assertEquals("system", args.getString("id")); assertEquals("original:id", args.getJSONArray("trackIds").getString(0))
+        rejected { source.addToPlatformPlaylist(com.xtreeroot.mb.music.Track("other", "wrong", "Track", "Artist"), targets[0]) }
+    }
+
     @Test fun optionalSuggestUsesTheIosContractWithoutCoercingOtherJsonTypes() = fixture(
         """
         export function suggest(args) {
