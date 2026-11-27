@@ -120,6 +120,7 @@ internal class PlaybackService : MediaLibraryService() {
     override fun onCreate() {
         super.onCreate()
         val app = application as MBApplication
+        app.skippedPlaybackTracks.value = emptySet()
         val fallback = SequentialAudioFile(File(cacheDir, "sequential-audio"))
         sequentialAudioFile = fallback
         val preparedLoads = ConcurrentHashMap.newKeySet<Uri>()
@@ -208,7 +209,9 @@ internal class PlaybackService : MediaLibraryService() {
             app.queuePageStatus.value = status
             (session?.player as? CaptionSessionPlayer)?.stationChanged()
         }
-        val sessionPlayer = CaptionSessionPlayer(player, video, stations, pages, app.pendingPlaybackPages::take) {
+        val sessionPlayer = CaptionSessionPlayer(player, video, stations, pages, app.pendingPlaybackPages::take,
+            skipped = { app.skippedPlaybackTracks.value }, clearFailures = { app.skippedPlaybackTracks.value = emptySet() }) {
+            app.skippedPlaybackTracks.value = emptySet()
             recovery.reset()
             invalidateAddress(player.currentMediaItem)
         }
@@ -218,7 +221,18 @@ internal class PlaybackService : MediaLibraryService() {
             val uri = item.localConfiguration?.uri ?: return null
             return AudioTarget(uri, source, app.settings.values.value.quality)
         }
+        var pauseBeforeFailedNext = false
         fun refreshPrefetch() {
+            val timeline = player.currentTimeline
+            val normalNext = if (timeline.isEmpty) C.INDEX_UNSET else
+                timeline.getNextWindowIndex(player.currentMediaItemIndex, player.repeatMode, player.shuffleModeEnabled)
+            val boundary = normalNext != C.INDEX_UNSET && player.getMediaItemAt(normalNext).mediaId in app.skippedPlaybackTracks.value
+            if (boundary != pauseBeforeFailedNext) {
+                pauseBeforeFailedNext = boundary
+                player.pauseAtEndOfMediaItems = boundary ||
+                    stations.station != null && player.currentMediaItemIndex == player.mediaItemCount - 1 ||
+                    pages.pending && pages.atTail && player.repeatMode != Player.REPEAT_MODE_ONE
+            } else if (boundary && !player.pauseAtEndOfMediaItems) player.pauseAtEndOfMediaItems = true
             video.preload(player.currentMediaItem?.track()?.takeIf { player.isPlaying && !it.isUnavailable })
             val videoNext = if (player.isPlaying && player.duration > 0 && player.currentPosition.toDouble() / player.duration >= 0.7 && !player.currentTimeline.isEmpty) {
                 val nextIndex = player.currentTimeline.getNextWindowIndex(player.currentMediaItemIndex, player.repeatMode, player.shuffleModeEnabled)
@@ -231,7 +245,8 @@ internal class PlaybackService : MediaLibraryService() {
             val index = player.currentMediaItemIndex
             val next = if (!eligible || player.currentTimeline.isEmpty ||
                 (stations.station != null && index == player.mediaItemCount - 1) || (pages.pending && pages.atTail)) null else {
-                val nextIndex = player.currentTimeline.getNextWindowIndex(index, player.repeatMode, player.shuffleModeEnabled)
+                val nextIndex = if (player.repeatMode == Player.REPEAT_MODE_ONE) index
+                    else player.nextPlayable(app.skippedPlaybackTracks.value, wrap = player.repeatMode == Player.REPEAT_MODE_ALL)
                 if (nextIndex == C.INDEX_UNSET) null else target(player.getMediaItemAt(nextIndex))
                     ?.takeUnless { it.uri == player.currentMediaItem?.localConfiguration?.uri }
                     ?.takeUnless { candidate -> synchronized(resolved) {
@@ -240,6 +255,29 @@ internal class PlaybackService : MediaLibraryService() {
                     } }
             }
             preloader.update(next)
+        }
+        preloader.failed = { target, failure ->
+            val item = (0 until player.mediaItemCount).map(player::getMediaItemAt)
+                .firstOrNull { it.localConfiguration?.uri == target.uri }
+            val track = item?.track()
+            if (track != null && app.playbackSource(track.sourceId) === target.source) {
+                app.skippedPlaybackTracks.value += item.mediaId
+                app.trackPlaybackIssues.failed(track, classifyPlaybackIssue(failure, PlaybackException.ERROR_CODE_UNSPECIFIED))
+                refreshPrefetch()
+            }
+        }
+        fun advanceFailed(error: PlaybackException? = null) {
+            val current = player.currentMediaItem ?: return
+            if (!player.playWhenReady) return
+            handler.post {
+                if (player.currentMediaItem !== current || !player.playWhenReady || error != null && player.playerError !== error) return@post
+                val next = player.nextPlayable(app.skippedPlaybackTracks.value, wrap = player.repeatMode != Player.REPEAT_MODE_OFF)
+                if (next != C.INDEX_UNSET) {
+                    player.seekToDefaultPosition(next)
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                    player.play()
+                } else player.pause()
+            }
         }
         var prefetchTick: Job? = null
         val currentMedia = MutableStateFlow(player.currentMediaItem?.track())
@@ -413,6 +451,8 @@ internal class PlaybackService : MediaLibraryService() {
                 val issue = classifyPlaybackIssue(error, error.errorCode)
                 Log.w(playbackLogTag, "audio failed: $issue / ${error.playbackDiagnostic(error.errorCode)} / cause=${error.cause?.javaClass?.simpleName}")
                 track?.let { app.trackPlaybackIssues.failed(it, issue, error) }
+                item?.let { app.skippedPlaybackTracks.value += it.mediaId }
+                advanceFailed(error)
             }
 
             override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
@@ -420,6 +460,15 @@ internal class PlaybackService : MediaLibraryService() {
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // 已知坏曲不能交给 Media3 继续缓冲；当前曲自然结束后直接交接到可播后继。
+                if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM && pauseBeforeFailedNext) {
+                    val next = player.nextPlayable(app.skippedPlaybackTracks.value, wrap = player.repeatMode == Player.REPEAT_MODE_ALL)
+                    if (next != C.INDEX_UNSET) {
+                        player.seekToDefaultPosition(next)
+                        if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                        player.play()
+                    }
+                }
                 val blocked = !playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
                 app.audioFocusBlockedTrack.value = player.currentMediaItem?.mediaId.takeIf { blocked }
                 if (blocked) Log.w(playbackLogTag, "audio focus unavailable; playback paused")
@@ -428,6 +477,7 @@ internal class PlaybackService : MediaLibraryService() {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 app.audioFocusBlockedTrack.value = app.audioFocusBlockedTrack.value?.takeIf { it == mediaItem?.mediaId }
                 recovery.reset()
+                if (mediaItem?.mediaId in app.skippedPlaybackTracks.value) advanceFailed()
                 preloader.advance(target(mediaItem).takeIf { player.playWhenReady })
                 session?.notifyChildrenChanged(playbackBrowseRootId, if (resumeItem() == null) 0 else 1, null)
             }
@@ -522,7 +572,9 @@ internal class PlaybackService : MediaLibraryService() {
             app.settings.values.map { it.normalization }.distinctUntilChanged().collect { refreshLoudness() }
         }
         scope.launch {
-            app.settings.values.map { it.quality }.distinctUntilChanged().drop(1).collect { preloader.cancel(); refreshPrefetch() }
+            app.settings.values.map { it.quality }.distinctUntilChanged().drop(1).collect {
+                preloader.cancel(); app.skippedPlaybackTracks.value = emptySet(); refreshPrefetch()
+            }
         }
         scope.launch {
             app.settings.values.map { it.videoQuality }.distinctUntilChanged().drop(1).collect { video.qualityChanged() }

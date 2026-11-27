@@ -4,6 +4,7 @@ import com.xtreeroot.mb.music.MediaResource
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -34,10 +35,12 @@ internal suspend fun primeAudio(client: OkHttpClient, media: MediaResource): Pre
         call.timeout().timeout(12, TimeUnit.SECONDS)
         result.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { result.resume(null) }
+            override fun onFailure(call: Call, e: IOException) { result.resumeWithException(e) }
             override fun onResponse(call: Call, response: Response) {
-                val prefix = response.use { runCatching { guard.prime(it, request.url) }.getOrNull() }
-                result.resume(prefix?.let { PreparedAudio(media, it) })
+                try {
+                    val prefix = response.use { guard.prime(it, request.url) }
+                    result.resume(prefix?.let { PreparedAudio(media, it) })
+                } catch (failure: Exception) { result.resumeWithException(failure) }
             }
         })
     }
@@ -45,6 +48,7 @@ internal suspend fun primeAudio(client: OkHttpClient, media: MediaResource): Pre
 
 internal class NextAudioPreloader<Key : Any, Value : Any>(private val scope: CoroutineScope, private val now: () -> Long,
                                                          private val prepare: suspend (Key) -> Value?) {
+    var failed: (Key, Exception) -> Unit = { _, _ -> }
     private data class Ready<Value>(val value: Value, val until: Long)
     private class Attempt<Key, Value>(val key: Key) {
         var running: Job? = null
@@ -61,7 +65,10 @@ internal class NextAudioPreloader<Key : Any, Value : Any>(private val scope: Cor
         val next = attempt ?: return
         next.running = scope.launch {
             val value = try { prepare(next.key) } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { null }
+            catch (failure: Exception) {
+                synchronized(this@NextAudioPreloader) { if (attempt === next) failed(next.key, failure) }
+                null
+            }
             synchronized(this@NextAudioPreloader) {
                 if (attempt === next && value != null) next.ready = Ready(value, now() + preparedAudioLifetimeMs)
             }

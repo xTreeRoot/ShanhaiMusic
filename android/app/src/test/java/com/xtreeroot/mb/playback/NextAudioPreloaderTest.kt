@@ -25,6 +25,36 @@ class NextAudioPreloaderTest {
     @get:Rule val server = MockWebServer()
     private val client = OkHttpClient.Builder().callTimeout(2, SECONDS).build()
 
+    @Test fun failedPreparationCanMoveToTheFollowingTrackWithoutChangingCurrentPlayback() = runTest {
+        val failed = mutableListOf<String>()
+        val calls = mutableListOf<String>()
+        val loader = NextAudioPreloader(this, { testScheduler.currentTime }) { key: String ->
+            calls += key
+            if (key == "bad") throw java.io.IOException("fixture failure")
+            "prepared $key"
+        }
+        loader.failed = { key, _ -> failed += key; loader.update("following") }
+        loader.update("bad"); runCurrent()
+        assertEquals(listOf("bad"), failed)
+        assertEquals(listOf("bad", "following"), calls)
+        assertEquals("prepared following", loader.take("following"))
+        assertNull(loader.take("bad"))
+    }
+
+    @Test fun cancelledPreparationCannotMarkAnOldTrackFailed() = runTest {
+        val delayed = CompletableDeferred<Unit>()
+        val failed = mutableListOf<String>()
+        val loader = NextAudioPreloader(this, { testScheduler.currentTime }) { key: String ->
+            if (key == "old") { withContext(NonCancellable) { delayed.await() }; throw java.io.IOException("late") }
+            "prepared $key"
+        }
+        loader.failed = { key, _ -> failed += key }
+        loader.update("old"); runCurrent(); loader.update("new"); runCurrent()
+        delayed.complete(Unit); runCurrent()
+        assertTrue(failed.isEmpty())
+        assertEquals("prepared new", loader.take("new"))
+    }
+
     @Test fun alreadyPreparedLocalAudioDoesNotOpenAnHttpRangeRequest() = runBlocking {
         assertNull(primeAudio(client, MediaResource("file:///cache/prepared-fixture.m4a", emptyMap())))
         assertEquals(0, server.requestCount)

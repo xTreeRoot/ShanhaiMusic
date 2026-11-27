@@ -14,6 +14,7 @@ import com.google.common.util.concurrent.ListenableFuture
 @OptIn(UnstableApi::class)
 internal class CaptionSessionPlayer(private val audio: ExoPlayer, private val video: VideoPlayback, private val stations: StationPlayback? = null,
                                     private val pages: PagedPlayback? = null, private val takePages: (String) -> PlaybackPages? = { null },
+                                    private val skipped: () -> Set<String> = { emptySet() }, private val clearFailures: () -> Unit = {},
                                     private val retryPlayback: () -> Unit) :
     ForwardingSimpleBasePlayer(audio) {
     private data class SystemCaption(val trackId: String, val line: String?)
@@ -31,6 +32,7 @@ internal class CaptionSessionPlayer(private val audio: ExoPlayer, private val vi
 
     override fun handleSetMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long): ListenableFuture<*> {
         if (mediaItems.singleOrNull()?.mediaId == resumeMediaId) return Futures.immediateVoidFuture()
+        clearFailures()
         if (stations?.station != null) stations.set(null)
         pages?.set(null)
         val selected = mediaItems.getOrNull(startIndex)?.station()
@@ -63,12 +65,13 @@ internal class CaptionSessionPlayer(private val audio: ExoPlayer, private val vi
             Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> true
             Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> false
             else -> {
+                if (seekCommand == Player.COMMAND_SEEK_TO_MEDIA_ITEM) clearFailures()
                 if (seekCommand == Player.COMMAND_SEEK_TO_MEDIA_ITEM) { stations?.cancelPendingAdvance(); pages?.cancelAdvance() }
                 return super.handleSeek(mediaItemIndex, positionMs, seekCommand)
             }
         }
         if (!audio.isPlayingAd && !(forward && (stations?.next() == true || pages?.next() == true))) {
-            val target = audio.manualNeighbor(forward)
+            val target = if (forward) audio.nextPlayable(skipped(), wrap = true) else audio.manualNeighbor(false)
             if (target != C.INDEX_UNSET) {
                 stations?.cancelPendingAdvance()
                 pages?.cancelAdvance()

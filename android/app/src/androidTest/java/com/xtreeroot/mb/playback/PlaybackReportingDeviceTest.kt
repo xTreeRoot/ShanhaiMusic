@@ -109,7 +109,7 @@ class PlaybackReportingDeviceTest {
         }
     }
 
-    @Test fun signInRequiredIsReportedWithoutReissuingTheAudioRequest() = runBlocking {
+    @Test fun failedCurrentTrackAutomaticallySkipsWithoutReissuingTheAudioRequest() = runBlocking {
         withFixture { player ->
             val restricted = first.copy(sourceTrackId = "restricted", title = "Restricted")
             suspend fun attempts() = source.search("streamAttempts", 1).tracks.single().title.toInt()
@@ -119,15 +119,16 @@ class PlaybackReportingDeviceTest {
                 player.prepare()
                 player.play()
             }
-            eventually { player.playerError != null && app.trackPlaybackIssues.values.value[restricted.playbackKey]?.issue == PlaybackIssue.SignIn }
+            eventually { player.isPlaying && player.currentMediaItem?.mediaId == second.id }
+            assertEquals(PlaybackIssue.SignIn, app.trackPlaybackIssues.values.value[restricted.playbackKey]?.issue)
             assertEquals("An explicit login requirement is not a transient network failure", 1, attempts())
             withContext(Dispatchers.Main) {
-                assertEquals(12_000L, player.currentPosition)
+                player.seekToDefaultPosition(0)
                 player.prepare()
                 player.play()
             }
             withTimeout(8_000) { while (attempts() < 2) delay(20) }
-            eventually { player.playerError != null }
+            eventually { player.isPlaying && player.currentMediaItem?.mediaId == second.id }
             assertEquals(2, attempts())
             withContext(Dispatchers.Main) {
                 player.seekToDefaultPosition(1)
@@ -135,6 +136,61 @@ class PlaybackReportingDeviceTest {
                 player.play()
             }
             eventually { player.isPlaying && player.currentMediaItem?.mediaId == second.id && player.currentPosition > 100 }
+        }
+    }
+
+    @Test fun failedNextIsSkippedWhileCurrentKeepsPlayingAndQueueIsPreserved() = runBlocking {
+        withFixture { player ->
+            val restricted = first.copy(sourceTrackId = "restricted", title = "Restricted")
+            val queue = listOf(first, restricted, second)
+            val events = mutableListOf<String>()
+            withContext(Dispatchers.Main) {
+                player.addListener(object : Player.Listener {
+                    override fun onEvents(player: Player, changed: Player.Events) {
+                        events += "${player.currentMediaItem?.mediaId}/${player.playbackState}/${player.playWhenReady}/${player.currentPosition}/${player.playerError?.errorCode}"
+                    }
+                })
+                player.repeatMode = Player.REPEAT_MODE_OFF
+                player.setMediaItems(queue.map { it.mediaItem() }, 0, 70_000)
+                player.prepare(); player.play()
+            }
+            val prepared = withContext(Dispatchers.Main) {
+                withTimeoutOrNull(8_000) { while (restricted.id !in app.skippedPlaybackTracks.value) delay(20); true }
+            }
+            withContext(Dispatchers.Main) {
+                assertTrue("preload=$prepared current=${player.currentMediaItem?.mediaId} duration=${player.duration} position=${player.currentPosition} playing=${player.isPlaying} error=${player.playerError} skips=${app.skippedPlaybackTracks.value} video=${app.videoPlayback.value?.frames?.value}", prepared == true)
+            }
+            withContext(Dispatchers.Main) {
+                assertEquals(first.id, player.currentMediaItem?.mediaId)
+                assertTrue(player.isPlaying)
+                assertNull(player.playerError)
+                assertEquals(2, player.nextPlayable(app.skippedPlaybackTracks.value, wrap = false))
+                assertEquals(queue.map(Track::id), (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId })
+                player.seekTo(0, 89_850)
+            }
+            withContext(Dispatchers.Main) {
+                val advanced = withTimeoutOrNull(8_000) { while (!player.isPlaying || player.currentMediaItem?.mediaId != second.id) delay(20); true }
+                assertTrue("advance=$advanced events=$events skips=${app.skippedPlaybackTracks.value}", advanced == true)
+            }
+        }
+    }
+
+    @Test fun allFailuresStopEvenInRepeatOneAndANewSelectionCanRetry() = runBlocking {
+        withFixture { player ->
+            val restricted = first.copy(sourceTrackId = "restricted", title = "Restricted")
+            val missing = first.copy(sourceTrackId = "missing", title = "Missing")
+            withContext(Dispatchers.Main) {
+                player.repeatMode = Player.REPEAT_MODE_ONE
+                player.setMediaItems(listOf(restricted.mediaItem(), missing.mediaItem()))
+                player.prepare(); player.play()
+            }
+            eventually { !player.playWhenReady && player.playerError != null && app.skippedPlaybackTracks.value.size == 2 }
+            withContext(Dispatchers.Main) {
+                assertEquals(2, player.mediaItemCount)
+                player.setMediaItem(first.mediaItem()); player.prepare(); player.play()
+            }
+            eventually { player.isPlaying && player.currentMediaItem?.mediaId == first.id }
+            assertTrue(app.skippedPlaybackTracks.value.isEmpty())
         }
     }
 

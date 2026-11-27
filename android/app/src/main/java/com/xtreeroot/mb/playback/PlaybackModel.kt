@@ -89,6 +89,7 @@ internal class PlaybackModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch { app.stationStatus.collect { publish() } }
         viewModelScope.launch { app.queuePageStatus.collect { publish() } }
         viewModelScope.launch { app.trackPlaybackIssues.values.collect { publish() } }
+        viewModelScope.launch { app.skippedPlaybackTracks.collect { publish() } }
         viewModelScope.launch { app.audioFocusBlockedTrack.collect { publish() } }
         viewModelScope.launch {
             while (true) {
@@ -391,7 +392,7 @@ internal class PlaybackModel(application: Application) : AndroidViewModel(applic
     fun neighboringTrack(forward: Boolean): Track? {
         val player = controller ?: return null
         if (forward && atStationTail(player)) return null
-        val index = player.manualNeighbor(forward)
+        val index = if (forward) player.nextPlayable(app.skippedPlaybackTracks.value, wrap = true) else player.manualNeighbor(false)
         return if (index in 0 until player.mediaItemCount) player.getMediaItemAt(index).track() else null
     }
 
