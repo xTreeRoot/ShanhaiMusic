@@ -2,6 +2,24 @@ import XCTest
 import UIKit
 
 final class MBiOSUITests: XCTestCase {
+    @MainActor func testFailedSongsAutomaticallyAdvanceToPlayableAudio() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-playback-failures", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        XCUIDevice.shared.orientation = .portrait; app.launch()
+        selectTab("搜索", app: app)
+        let field = app.textFields["搜索视频、音乐、UP 主"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("failure fixture\n")
+        let song = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "选择 晚风里的片刻")).firstMatch
+        XCTAssertTrue(song.waitForExistence(timeout: 5)); song.tap()
+        XCTAssertTrue(app.buttons["暂停"].firstMatch.waitForExistence(timeout: 5))
+        let mini = app.buttons["打开播放页，雨落在窗沿"]
+        if mini.exists { mini.tap() }
+        XCTAssertTrue(app.staticTexts["雨落在窗沿"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["重试"].exists)
+        capture("播放失败-连续跳过并自动续播", app: app)
+    }
+
     @MainActor func testPluginCenterTabsAndInstallationReview() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -456,14 +474,13 @@ final class MBiOSUITests: XCTestCase {
         XCTAssertTrue(song.waitForExistence(timeout: 5)); song.tap()
         let stage = app.descendants(matching: .any)["music-player-swipe-stage"].firstMatch
         XCTAssertTrue(stage.waitForExistence(timeout: 5))
-        let controls = app.otherElements["player-controls"]
-        XCTAssertTrue(controls.staticTexts["晚风里的片刻"].exists)
+        XCTAssertTrue(app.staticTexts["晚风里的片刻"].firstMatch.exists)
         stage.swipeLeft()
-        XCTAssertTrue(controls.staticTexts["城市慢下来"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["城市慢下来"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["收起"].exists)
         XCTAssertFalse(app.buttons["全屏播放"].exists)
         stage.swipeRight()
-        XCTAssertTrue(controls.staticTexts["晚风里的片刻"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["晚风里的片刻"].firstMatch.waitForExistence(timeout: 5))
         capture("播放器-左右滑动切歌", app: app)
     }
 

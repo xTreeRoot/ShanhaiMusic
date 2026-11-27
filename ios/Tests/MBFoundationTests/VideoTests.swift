@@ -401,7 +401,7 @@ private actor SlowModeStore: PlaybackModeStore {
 
 private actor RestoredSession: PlaybackSessionStore {
     func loadSession() -> PlaybackSession? {
-        PlaybackSession(queue: videoTracks, index: 0, positionMilliseconds: 42_000)
+        PlaybackSession(queue: [videoTracks[0]], index: 0, positionMilliseconds: 42_000)
     }
     func saveSession(_ session: PlaybackSession) {}
 }

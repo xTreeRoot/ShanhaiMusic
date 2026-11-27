@@ -15,8 +15,9 @@ import Foundation
     func cancel() { audio.cancel() }
 }
 
-/// 一次只准备下一首的首块，失败保持静默；队列、会话和音质变化均能取消。
+/// 一次只准备下一首的首块，失败通知宿主继续寻找后继曲目。
 @MainActor final class NextAudioPreloader {
+    var failed: ((Track, any Error) -> Void)?
     private let source: (any PlaybackSource)?
     private let engine: (any AudioEnginePreloading)?
     private var task: Task<Void, Never>?
@@ -41,7 +42,11 @@ import Foundation
                 let audio = try await engine.prepare(resource: resource)
                 guard !Task.isCancelled, current == revision else { audio.cancel(); return }
                 payload = PreparedPlaybackAudio(resource: resource, audio: audio); preparedAt = now()
-            } catch { /* 预加载失败不改变当前曲目的错误、播放状态和队列。 */ }
+            } catch {
+                guard !Task.isCancelled, current == revision else { return }
+                task = nil
+                failed?(next, error)
+            }
             if current == revision { task = nil }
         }
     }
@@ -55,5 +60,5 @@ import Foundation
         revision += 1; task?.cancel(); task = nil
         payload?.cancel(); payload = nil; target = nil; preparedAt = nil
     }
-    func wait() async { await task?.value }
+    func wait() async { while let task { await task.value } }
 }

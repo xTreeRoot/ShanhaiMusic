@@ -21,6 +21,7 @@ public final class PlaybackModel {
         return (try? JSONDecoder().decode([String: PlaylistResume].self, from: data)) ?? [:]
     }()
     private var trackProblems: [TrackKey: TrackProblem] = [:]
+    @ObservationIgnored private var failedTracks: Set<TrackKey> = []
     public private(set) var selectionRevision = 0
     public private(set) var selectionIntent: PlaybackSelectionIntent = .content
     public private(set) var state: PlaybackState = .paused
@@ -92,6 +93,13 @@ public final class PlaybackModel {
         self.store = store
         self.download = download
         self.mediaLibrary = mediaLibrary
+        preloader.failed = { [weak self] track, error in
+            guard let self else { return }
+            failedTracks.insert(TrackKey(track))
+            trackProblems[TrackKey(track)] = Self.problem(error)
+            updatePreload()
+            stateDidChange?()
+        }
         if let events = engine as? any AudioEngineEvents { events.onUpdate = { [weak self] in self?.tick() } }
     }
 
@@ -132,6 +140,7 @@ public final class PlaybackModel {
 
     public func jump(to index: Int, intent: PlaybackSelectionIntent = .content, autoplay: Bool = true) {
         guard queue.tracks.indices.contains(index) else { return }
+        if intent != .automatic { failedTracks.removeAll() }
         savePlaylistResume(force: true)
         stationAdvance = false
         pageAdvance = nil
@@ -150,7 +159,7 @@ public final class PlaybackModel {
     public func next() {
         if station != nil, queue.index == queue.tracks.indices.last { refillStation(advance: true); return }
         if pageLoader != nil, pageTail { refillPages(advance: .transport); return }
-        if let index = queue.nextIndex(automatic: false) { jump(to: index, intent: .transport) }
+        if let index = nextPlayableIndex(automatic: false) { jump(to: index, intent: .transport) }
     }
     public func previous() {
         if let index = queue.previousIndex() { jump(to: index, intent: .transport) }
@@ -159,7 +168,7 @@ public final class PlaybackModel {
     /// 预览复用真实队列顺序，不选曲、不启动解码。
     public func neighboringTrack(forward: Bool) -> Track? {
         if forward && (station != nil && queue.index == queue.tracks.indices.last || pageLoader != nil && pageTail) { return nil }
-        let index = forward ? queue.nextIndex(automatic: false) : queue.previousIndex()
+        let index = forward ? nextPlayableIndex(automatic: false) : queue.previousIndex()
         return index.flatMap { queue.tracks.indices.contains($0) ? queue.tracks[$0] : nil }
     }
 
@@ -311,12 +320,14 @@ public final class PlaybackModel {
     }
 
     /// 音质变更后，下首不能继续复用旧音质的地址与首块。
-    public func invalidatePreparedAudio() { preloader.cancel() }
+    public func invalidatePreparedAudio() { preloader.cancel(); failedTracks.removeAll() }
     public func play() { play(prepared: nil) }
     private func play(prepared: PreparedPlaybackAudio?) {
         defer { stateDidChange?() }
         controlRevision += 1
         guard let track = queue.current else { return }
+        if state == .failed { failedTracks.removeAll() }
+        wantsPlay = true
         guard track.unavailable != true else { fail(track.declaredProblem?.label ?? TrackProblem.unavailable.label); return }
         guard source != nil || mediaLibrary != nil else { errorMessage = "本地示例没有音频"; return }
         if state == .failed { refreshUsed = false }
@@ -500,15 +511,19 @@ public final class PlaybackModel {
             if station != nil, queue.index == queue.tracks.indices.last {
                 wantsPlay = false; engine.pause(); state = .paused; refillStation(advance: true); return
             }
-            if let index = queue.nextIndex(automatic: true) { jump(to: index, intent: .automatic) }
+            if let index = nextPlayableIndex(automatic: true) { jump(to: index, intent: .automatic) }
             else { wantsPlay = false; engine.stop(); state = .paused; ready = false; removeFile(); persistSoon() }
             return
         }
+        updatePreload()
+        if abs(positionMilliseconds - savedPosition) >= 5_000 { persistSoon() }
+    }
+
+    private func updatePreload() {
         let waitingForPage = pageLoader != nil && pageTail && queue.repeatMode != .one
-        let nextIndex = waitingForPage || (station != nil && queue.index == queue.tracks.indices.last) ? nil : queue.nextIndex(automatic: true)
+        let nextIndex = waitingForPage || (station != nil && queue.index == queue.tracks.indices.last) ? nil : nextPlayableIndex(automatic: true)
         let next = nextIndex.flatMap { queue.tracks.indices.contains($0) ? queue.tracks[$0] : nil }
         preloader.update(next: next, enabled: wantsPlay && !videoHold && !audioBuffering && durationMilliseconds > 0 && Double(positionMilliseconds) / Double(durationMilliseconds) >= 0.7)
-        if abs(positionMilliseconds - savedPosition) >= 5_000 { persistSoon() }
     }
 
     public func saveNow() async {
@@ -556,14 +571,14 @@ public final class PlaybackModel {
     }
 
     private func failTrack(_ track: Track, error: any Error) {
-        let problem: TrackProblem
-        if case PluginFailure.playback(let known, _) = error { problem = known }
-        else { problem = error as? TrackProblem ?? (TrackProblem.isConnectionError(error) ? .network : .unknown) }
+        let problem = Self.problem(error)
         trackProblems[TrackKey(track)] = problem
         fail(problem == .unknown ? AppLocalization.text("音频加载失败：%@", arguments: [error.localizedDescription]) : problem.label)
     }
 
     private func fail(_ message: String) {
+        let advance = wantsPlay
+        if let track = queue.current { failedTracks.insert(TrackKey(track)) }
         preloader.cancel()
         engine.stop()
         ready = false
@@ -574,6 +589,28 @@ public final class PlaybackModel {
         // 保留曲目、字幕与位置；下一次播放会重取临时地址。
         removeFile()
         persistSoon()
+        if advance, let next = nextPlayableIndex(automatic: true, afterFailure: true) {
+            jump(to: next, intent: .automatic)
+        }
+    }
+
+    private static func problem(_ error: any Error) -> TrackProblem {
+        if case PluginFailure.playback(let known, _) = error { return known }
+        return error as? TrackProblem ?? (TrackProblem.isConnectionError(error) ? .network : .unknown)
+    }
+
+    /// 失败恢复忽略单曲循环，按真实随机顺序最多扫描队列一轮。
+    private func nextPlayableIndex(automatic: Bool, afterFailure: Bool = false) -> Int? {
+        guard let index = queue.index, let position = queue.playOrder.firstIndex(of: index) else { return nil }
+        if automatic, !afterFailure, queue.repeatMode == .one { return index }
+        for distance in 1...queue.playOrder.count {
+            let next = position + distance
+            if automatic, queue.repeatMode == .off, next >= queue.playOrder.count { break }
+            let candidate = queue.playOrder[next % queue.playOrder.count]
+            let track = queue.tracks[candidate]
+            if track.unavailable != true, !failedTracks.contains(TrackKey(track)) { return candidate }
+        }
+        return nil
     }
 
     private func removeFile() {

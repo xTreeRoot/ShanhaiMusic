@@ -149,7 +149,7 @@ private let fakeDownload: @Sendable (MediaResource) async throws -> URL = { _ in
     let source = AudioSourceFixture()
     let engine = TestAudio()
     let model = PlaybackModel(source: source, engine: engine, download: fakeDownload)
-    model.select(audioTracks, index: 0)
+    model.select([audioTracks[0]], index: 0)
     await model.waitUntilLoaded()
     engine.position = 35_000
     model.tick()

@@ -1,0 +1,26 @@
+[
+  {
+    "file": "iphone-auto-skip.png",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testFailedSongsAutomaticallyAdvanceToPlayableAudio()",
+    "result": "passed"
+  },
+  {
+    "file": "ipad-auto-skip.png",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testFailedSongsAutomaticallyAdvanceToPlayableAudio()",
+    "result": "passed"
+  },
+  {
+    "file": "iphone-manual-next.png",
+    "device": "iPhone 18 Pro",
+    "test": "MBiOSUITests/testPlayerStageSwipesChangeTracksWithoutOpeningVideo()",
+    "result": "passed"
+  },
+  {
+    "file": "ipad-manual-next.png",
+    "device": "iPad Pro 13-inch (M5)",
+    "test": "MBiOSUITests/testPlayerStageSwipesChangeTracksWithoutOpeningVideo()",
+    "result": "passed"
+  }
+]

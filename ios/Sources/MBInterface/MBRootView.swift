@@ -63,6 +63,13 @@ public struct MBRootView: View {
     private let initialSourceID: String
     private let demo: Bool
     private let demoTrackProblems: Bool
+    private var playbackIsDemo: Bool {
+        #if DEBUG
+        demo && !ProcessInfo.processInfo.arguments.contains("--demo-playback-failures")
+        #else
+        demo
+        #endif
+    }
     private var search: SearchModel { trackSearch }
     private var skinAccent: Color { skin.preview == nil && skin.image == nil ? MBTheme.accent : (skin.preview != nil ? skin.previewStyle : preferences.values.backgroundStyle).accent.color }
 
@@ -88,6 +95,9 @@ public struct MBRootView: View {
         var videoSource: (any VideoSource)? = demo ? source as? any VideoSource : router
         #if DEBUG
         if demo, let fixture = DemoVideoSource.fixture() { playbackSource = fixture; videoSource = fixture }
+        if demo, ProcessInfo.processInfo.arguments.contains("--demo-playback-failures") {
+            playbackSource = DemoPlaybackFailures(); videoSource = nil
+        }
         #endif
         let playback = PlaybackModel(source: playbackSource, engine: NativeAudioEngine(), store: demo ? nil : AppPersistence.shared, mediaLibrary: demo ? nil : MediaLibrary.shared)
         let video = VideoModel(source: videoSource, store: demo ? nil : AppPersistence.shared)
@@ -231,7 +241,7 @@ public struct MBRootView: View {
                 } else if !video.isVisible {
                     path.removeAll { $0 == .video }; searchPath.removeAll { $0 == .video }
                 }
-            }) { NowPlayingView(playback: playback, demo: demo, interactionSource: currentInteractions, librarySource: currentLibrarySource, pluginSource: currentPluginSource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: video.isAudioOnly ? nil : {
+            }) { NowPlayingView(playback: playback, demo: playbackIsDemo, interactionSource: currentInteractions, librarySource: currentLibrarySource, pluginSource: currentPluginSource, accountRevision: account.revision, downloads: downloads, preferences: preferences, watchVideo: video.isAudioOnly ? nil : {
                 pendingVideoFromPlayer = true
                 showingPlayer = false
             }).modifier(CoverTransitionDestination(enabled: preferences.values.growFromCover, namespace: playerTransition)) }
@@ -849,7 +859,7 @@ public struct MBRootView: View {
         if selectedTab == .search { if searchPath.last != .video { searchPath.append(.video) } }
         else { selectedTab = .discover; if path.last != .video { path.append(.video) } }
     }
-    private func select(_ tracks: [Track], _ index: Int) { playback.select(tracks, index: index, autoplay: !demo) }
+    private func select(_ tracks: [Track], _ index: Int) { playback.select(tracks, index: index, autoplay: !playbackIsDemo) }
     private func trackMenu(_ track: Track) -> AnyView {
         AnyView(TrackContextMenu(track: track, playback: playback, downloads: downloads,
             openCreator: source is any LibrarySource && track.sourceID == selectedSourceID ? { id in
