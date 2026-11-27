@@ -6,7 +6,7 @@ B 站音乐首页改为双行横滑、标题旁更多；插件发现页复用封
 
 148 项 JVM 回归、Release 构建和 lint 通过（{'Warning': 32}）。Android 9 无窗口隔离模拟器的音乐双行队列、视频网格与分类两项交互回归连续通过 5 轮。截图来自合成曲目，不能代替真实播放验收。
 
-使用原签名无线覆盖安装到小米，证书 SHA-256 为 6497d011fd7cbadb37ac6803fa029dfbb47d86efd3eca9d3811fb15241e40e1f，versionCode 25；APK 16 KiB 对齐通过。用户确认已在手机执行全部更新；没有卸载 MB 或清除数据。
+使用原签名无线覆盖安装到小米，证书 SHA-256 为 6497d011fd7cbadb37ac6803fa029dfbb47d86efd3eca9d3811fb15241e40e1f，versionCode 25；APK 16 KiB 对齐通过。用户确认已在手机执行全部更新；没有卸载山海或清除数据。
 
 - [音乐首页双行卡片](android-music-discovery-two-rows.png)
 - [视频网格](android-discovery-video-grid.png)

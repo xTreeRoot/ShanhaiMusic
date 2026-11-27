@@ -204,12 +204,6 @@ private fun PluginCatalogContent(source: PluginSource, destination: CatalogDesti
                     }
                 }
             }
-            if (request != PluginCatalogRequest.Home && (page.subtitle.isNotBlank() || page.description.isNotBlank())) item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    if (page.subtitle.isNotBlank()) Text(page.subtitle, style = MaterialTheme.typography.titleMedium)
-                    if (page.description.isNotBlank()) Text(page.description, style = MaterialTheme.typography.bodyMedium)
-                }
-            }
             var trackIndex = 0
             page.sections.forEachIndexed { sectionIndex, section ->
                 if (destination.request == PluginCatalogRequest.Home) {
