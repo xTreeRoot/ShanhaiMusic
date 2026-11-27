@@ -80,9 +80,10 @@ type Playlist struct {
 	Description string  `json:"description,omitempty"`
 	Owner       string  `json:"owner,omitempty"`
 	TrackCount  int     `json:"trackCount,omitempty"`
-	Mine        bool    `json:"mine,omitempty"`  // the listener's own
-	Saved       bool    `json:"saved,omitempty"` // saved from someone else
-	Fixed       bool    `json:"fixed,omitempty"` // the listener's, but kept by the source: liked songs, say
+	Mine        bool    `json:"mine,omitempty"`    // the listener's own
+	Saved       bool    `json:"saved,omitempty"`   // saved from someone else
+	Fixed       bool    `json:"fixed,omitempty"`   // the listener's, but kept by the source: liked songs, say
+	Addable     bool    `json:"addable,omitempty"` // explicitly allows adding to a fixed system list
 	Tracks      []Track `json:"tracks,omitempty"`
 	More        bool    `json:"more,omitempty"`
 	NextOffset  int     `json:"nextOffset,omitempty"`

@@ -1,0 +1,7 @@
+[
+  {
+    "file": "platform-playlist-player.png",
+    "sha256": "e47120b6fc3367041b90dc34473ea8d31c9f5cf0e2ea501220e78e9150ebc861",
+    "test": "TestPlayerMenuAddsToExplicitlyAddableSystemList"
+  }
+]

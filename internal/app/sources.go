@@ -77,6 +77,7 @@ type library struct {
 
 	liked        map[string]bool // the tracks known to be liked, or not
 	likedPending map[string]bool
+	likedChecked map[string]time.Time
 	wantLikes    []string      // the tracks a heart showed for, to ask about
 	likedList    []music.Track // the liked songs' page
 	likedPaged   paged
@@ -135,7 +136,7 @@ func (l *library) forget() {
 	l.shows = map[string]*showData{}
 	l.browses = map[string]*browseData{}
 	l.searches = map[route]*searchData{}
-	l.liked, l.likedPending = nil, nil
+	l.liked, l.likedPending, l.likedChecked = nil, nil, nil
 	l.likedList, l.likedPaged, l.likedAt = nil, paged{}, time.Time{}
 	l.savedAlbums, l.savedAlbumsPaged = nil, paged{}
 	l.subscribed, l.subscribedOnce = nil, false
@@ -329,6 +330,7 @@ func (a *app) libraryChanged(lib *library) {
 	was := *lib
 	lib.forget()
 	lib.home, lib.browses, lib.liked, lib.likedPending = was.home, was.browses, was.liked, was.likedPending
+	lib.likedChecked = was.likedChecked
 	if r := a.route; r.src == lib.id {
 		switch r.page {
 		case pagePlaylist:

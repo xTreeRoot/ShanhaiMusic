@@ -13,13 +13,36 @@ import (
 // filled. A source can't always list them all: those shown are asked about, a
 // frame's at a time, once each.
 
+const likedFreshFor = time.Minute
+
+func (l *library) likeFresh(id string) bool {
+	if l.likedPending[id] {
+		return true
+	}
+	if checked := l.likedChecked[id]; !checked.IsZero() {
+		return time.Since(checked) < likedFreshFor
+	}
+	return false
+}
+
+func (l *library) rememberLike(id string, enabled bool) {
+	if l.liked == nil {
+		l.liked = map[string]bool{}
+	}
+	if l.likedChecked == nil {
+		l.likedChecked = map[string]time.Time{}
+	}
+	l.liked[id], l.likedChecked[id] = enabled, time.Now()
+	delete(l.likedPending, id)
+}
+
 // wantLike notes that the heart of tr may show, to ask its source about it.
 func (a *app) wantLike(tr *music.Track) {
 	lib := a.trackLib(tr)
 	if !lib.can("isLiked") {
 		return
 	}
-	if _, known := lib.liked[tr.ID]; known {
+	if lib.likeFresh(tr.ID) {
 		return
 	}
 	if lib.liked == nil {
@@ -42,7 +65,7 @@ func (a *app) askLikes() {
 func (a *app) askLiked(lib *library, ids []string) {
 	var ask []string
 	for _, id := range ids {
-		if _, known := lib.liked[id]; known {
+		if lib.likeFresh(id) {
 			continue
 		}
 		if lib.liked == nil {
@@ -51,7 +74,6 @@ func (a *app) askLiked(lib *library, ids []string) {
 		if lib.likedPending == nil {
 			lib.likedPending = map[string]bool{}
 		}
-		lib.liked[id] = false
 		lib.likedPending[id] = true
 		ask = append(ask, id)
 	}
@@ -72,8 +94,14 @@ func (a *app) askLiked(lib *library, ids []string) {
 					continue
 				}
 				delete(lib.likedPending, id)
-				if err == nil && liked[id] {
-					lib.liked[id] = true
+				if err == nil {
+					lib.rememberLike(id, liked[id])
+				} else {
+					if lib.likedChecked == nil {
+						lib.likedChecked = map[string]time.Time{}
+					}
+					// 查询失败保留已知状态，十秒后允许重新查，不能永久写成未喜欢。
+					lib.likedChecked[id] = time.Now().Add(-likedFreshFor + 10*time.Second)
 				}
 			}
 			a.updateTrayLyric()
@@ -120,8 +148,7 @@ func (a *app) toggleLikeIn(lib *library, tr *music.Track) {
 		lib.liked = map[string]bool{}
 	}
 	id, like := tr.ID, !lib.liked[tr.ID]
-	delete(lib.likedPending, id)
-	lib.liked[id] = like
+	lib.rememberLike(id, like)
 	a.updateTrayLyric()
 	liked := *tr
 	send := lib.src.Like
@@ -190,7 +217,8 @@ func (a *app) likeCurrent() {
 // out; unliking lets it give a little. A source that has no likes shows none.
 func (a *app) likeButton(c *ui.Context, tr *music.Track, size float32, color ui.Color) ui.Element {
 	lib := a.trackLib(tr)
-	if !lib.canLike(tr) {
+	writable := lib.canLike(tr)
+	if !writable && (tr.ShowID != "" || !lib.can("isLiked")) {
 		return ui.Element{}
 	}
 	a.wantLike(tr)
@@ -202,7 +230,7 @@ func (a *app) likeButton(c *ui.Context, tr *music.Track, size float32, color ui.
 	// The burst goes on a wrapper, which the heart's pop does not scale.
 	wrap := ui.Box(c).Center()
 	var b ui.Element
-	wrap.Children(func() { b = iconButton(c, icon, size, color, label) })
+	wrap.Children(func() { b = iconButton(c, icon, size, color, label).Disabled(!writable) })
 	scale := b.AnimateTo("pop", 1, ui.Animation{Spring: ui.SpringOptions{Duration: 550 * time.Millisecond, Bounce: 0.55}})
 	b.Scale(scale, scale)
 	burst := ui.Local(wrap, "burst", func() time.Time { return time.Time{} })

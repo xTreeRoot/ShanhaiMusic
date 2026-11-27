@@ -17,6 +17,59 @@ import (
 	"mygo-music/internal/music"
 )
 
+func TestFailedLikeQueryCanRecoverAndExpiredFalseIsRefreshed(t *testing.T) {
+	a := newTestApp()
+	ch := posts(a)
+	attempts := 0
+	fake(a).isLiked = func([]string) (map[string]bool, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, errors.New("temporary failure")
+		}
+		return map[string]bool{"saved": true}, nil
+	}
+	a.askLiked(a.library, []string{"saved"})
+	runPost(t, ch)
+	if _, known := a.liked["saved"]; known {
+		t.Fatal("failure was cached as false")
+	}
+	a.library.likedChecked["saved"] = time.Now().Add(-2 * likedFreshFor)
+	a.askLiked(a.library, []string{"saved"})
+	runPost(t, ch)
+	if !a.liked["saved"] {
+		t.Fatal("retry did not restore liked state")
+	}
+	a.library.rememberLike("saved", false)
+	a.library.likedChecked["saved"] = time.Now().Add(-2 * likedFreshFor)
+	a.askLiked(a.library, []string{"saved"})
+	runPost(t, ch)
+	if !a.liked["saved"] || attempts != 3 {
+		t.Fatal("negative state never refreshed")
+	}
+}
+
+func TestReadOnlyPluginHeartShowsKnownLikeWithoutWriting(t *testing.T) {
+	a := newTestApp()
+	ch := posts(a)
+	without(a, "like")
+	fake(a).isLiked = func([]string) (map[string]bool, error) { return map[string]bool{"saved": true}, nil }
+	fake(a).like = func(string, bool) error { t.Fatal("read-only heart wrote to plugin"); return nil }
+	a.pl.Cue([]music.Track{song("saved", "Already liked")})
+	a.pl.SetLyrics(nil)
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	runPost(t, ch)
+	tt.Frame()
+	if _, ok := tt.Find("Unlike"); !ok {
+		t.Fatal("known liked state was not displayed")
+	}
+	_ = tt.Click("Unlike")
+	tt.Frame()
+	if !a.liked["saved"] {
+		t.Fatal("read-only state was changed")
+	}
+}
+
 // The player bar's heart likes the song at once and asks the source to, and
 // again unlikes it.
 func TestLikeFromPlayerBar(t *testing.T) {
@@ -558,5 +611,25 @@ func TestSegmentedFrames(t *testing.T) {
 			name = "segmented-dark.png"
 		}
 		saveFrame(t, dir, name, out)
+	}
+}
+
+func TestLateLikedPageCannotUndoAnUnlikeOrCrossAccount(t *testing.T) {
+	for _, switchAccount := range []bool{false, true} {
+		a := newTestApp()
+		ch := posts(a)
+		a.account = &music.Account{ID: "one"}
+		fake(a).liked = func(int) (*music.Page, error) { return &music.Page{Tracks: []music.Track{song("saved", "Saved")}}, nil }
+		a.loadLikedPage(a.library)
+		if switchAccount {
+			a.accountGen++
+			a.account = &music.Account{ID: "two"}
+		} else {
+			a.rememberLike("saved", false)
+		}
+		runPost(t, ch)
+		if a.liked["saved"] || len(a.likedList) != 0 {
+			t.Fatal("late list restored an old like")
+		}
 	}
 }

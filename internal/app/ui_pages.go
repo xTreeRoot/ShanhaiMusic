@@ -408,25 +408,29 @@ func (a *app) loadLikedPage(lib *library) {
 	}
 	lib.likedPaged.loading, lib.likedPaged.err = true, ""
 	offset := len(lib.likedList)
+	who, gen, started := lib.listener(), lib.accountGen, time.Now()
 	if offset == 0 {
 		lib.likedAt = time.Now()
 	}
 	go func() {
 		page, err := answered(lib.src.Liked(offset))
 		a.post(func() {
+			if lib.listener() != who || lib.accountGen != gen {
+				return
+			}
 			lib.likedPaged.loading = false
 			if err != nil {
 				lib.likedPaged.err = a.problem(lib, err, T("Couldn't load your liked songs"))
 				return
 			}
-			lib.likedList = append(lib.likedList, page.Tracks...)
+			for _, track := range page.Tracks {
+				if lib.likedChecked[track.ID].After(started) && !lib.liked[track.ID] {
+					continue
+				}
+				lib.likedList = append(lib.likedList, track)
+				lib.rememberLike(track.ID, true)
+			}
 			lib.likedPaged.loaded, lib.likedPaged.more = true, page.More && len(page.Tracks) > 0
-			if lib.liked == nil {
-				lib.liked = map[string]bool{}
-			}
-			for i := range page.Tracks {
-				lib.liked[page.Tracks[i].ID] = true
-			}
 		})
 	}()
 }
@@ -440,14 +444,14 @@ func (a *app) freshenLiked(lib *library) {
 	}
 	lib.likedFresh, lib.likedAt = true, time.Now()
 	was := lib.likedList
-	who := lib.listener()
+	who, gen := lib.listener(), lib.accountGen
 	go func() {
 		page, err := answered(lib.src.Liked(0))
 		a.post(func() {
 			lib.likedFresh = false
 			// Liked or not in the app meanwhile, or more of it loaded, or
 			// forgotten: what's there is newer than what was asked for.
-			if err != nil || !sameList(lib.likedList, was) || lib.likedPaged.loading || lib.listener() != who {
+			if err != nil || !sameList(lib.likedList, was) || lib.likedPaged.loading || lib.listener() != who || lib.accountGen != gen {
 				return
 			}
 			lib.likedList = page.Tracks
@@ -458,11 +462,12 @@ func (a *app) freshenLiked(lib *library) {
 			now := make(map[string]bool, len(page.Tracks))
 			for i := range page.Tracks {
 				now[page.Tracks[i].ID] = true
-				lib.liked[page.Tracks[i].ID] = true
+				lib.rememberLike(page.Tracks[i].ID, true)
 			}
 			for i := range was {
 				if !now[was[i].ID] {
 					delete(lib.liked, was[i].ID)
+					delete(lib.likedChecked, was[i].ID)
 				}
 			}
 		})

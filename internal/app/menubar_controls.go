@@ -36,7 +36,7 @@ func (a *app) menuBarLikeLibrary(track *music.Track) *library {
 		return nil
 	}
 	lib := a.libOf(track.Source)
-	if lib == nil || pluginOf(lib) == nil || !lib.canLike(track) {
+	if lib == nil || pluginOf(lib) == nil || (!lib.canLike(track) && !lib.can("isLiked")) {
 		return nil
 	}
 	return lib
@@ -47,7 +47,7 @@ func (a *app) menuBarControlState() menuBarControls {
 		if track := a.pl.Current(); track != nil {
 			controls := menuBarControls{hasTrack: true, playing: a.pl.Playing()}
 			if lib := a.menuBarLikeLibrary(track); lib != nil {
-				controls.canLike = lib.signedOut() || !lib.likedPending[track.ID]
+				controls.canLike = lib.canLike(track) && (lib.signedOut() || !lib.likedPending[track.ID])
 				controls.liked = lib.liked[track.ID]
 			}
 			return controls

@@ -173,9 +173,15 @@ type Plugin struct {
 	// starting is held while the plugin starts, and by Close, so one start
 	// runs at a time and none outlives a Close. It isn't mu: the module's top
 	// level runs as it starts, and the host functions it calls take mu.
-	starting  sync.Mutex
-	retired   atomic.Bool
-	dataWrite sync.Mutex // serializes retirement with writes to the private directory
+	starting   sync.Mutex
+	retired    atomic.Bool
+	dataWrite  sync.Mutex // serializes retirement with writes to the private directory
+	likesRead  sync.Mutex
+	likesMu    sync.Mutex
+	likesWho   string
+	likesEpoch int
+	likesIDs   map[string]bool
+	likesAt    time.Time
 
 	mu       sync.Mutex // guards what follows
 	settings map[string]string
@@ -718,7 +724,9 @@ func (p *Plugin) Info() music.Info {
 
 // Can reports whether the plugin exports the function. It's known from
 // compiling it, without running anything, so the views can ask at any time.
-func (p *Plugin) Can(what string) bool { return p.exports[what] }
+func (p *Plugin) Can(what string) bool {
+	return p.exports[what] || what == "isLiked" && p.exports["liked"]
+}
 
 func (p *Plugin) Setting(key string) string {
 	p.mu.Lock()

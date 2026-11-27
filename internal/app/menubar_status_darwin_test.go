@@ -29,7 +29,7 @@ export function like({ id, on }) {
   liked = on;
 }`)
 	lib := addFake(a, platform)
-	lib.liked = map[string]bool{"last": false}
+	lib.rememberLike("last", false)
 	callbacks := posts(a)
 	a.pl.Changed = a.updateTrayLyric
 	var status *darwinMenuBar

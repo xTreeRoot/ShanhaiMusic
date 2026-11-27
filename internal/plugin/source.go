@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/MoeForge/moejs"
 
@@ -43,10 +44,12 @@ func (p *Plugin) stampBrowse(b *music.Browse) {
 }
 
 func (p *Plugin) SignIn() (*music.Account, error) {
+	p.resetLikeSnapshot("")
 	var a music.Account
 	if err := p.callWithin(signInTimeout, "signIn", nil, &a); err != nil {
 		return nil, err
 	}
+	p.resetLikeSnapshot(a.ID)
 	return &a, nil
 }
 
@@ -64,14 +67,33 @@ func (p *Plugin) CancelSignIn() {
 	})
 }
 
-func (p *Plugin) SignOut() error { return p.call("signOut", nil, nil) }
+func (p *Plugin) SignOut() error {
+	err := p.call("signOut", nil, nil)
+	if err == nil {
+		p.resetLikeSnapshot("")
+	}
+	return err
+}
 
 // Account is who is signed in, or nil if nobody is.
 func (p *Plugin) Account() (*music.Account, error) {
+	p.likesMu.Lock()
+	epoch := p.likesEpoch
+	p.likesMu.Unlock()
 	var a *music.Account
 	if err := p.call("account", nil, &a); err != nil {
 		return nil, err
 	}
+	who := ""
+	if a != nil {
+		who = a.ID
+	}
+	p.likesMu.Lock()
+	if p.likesEpoch == epoch && p.likesWho != who {
+		p.likesEpoch++
+		p.likesWho, p.likesIDs, p.likesAt = who, nil, time.Time{}
+	}
+	p.likesMu.Unlock()
 	return a, nil
 }
 
@@ -191,14 +213,35 @@ func (p *Plugin) Recent() ([]music.Track, error) {
 
 func (p *Plugin) IsLiked(ids []string) (map[string]bool, error) {
 	var liked map[string]bool
-	if err := p.call("isLiked", map[string][]string{"ids": ids}, &liked); err != nil {
-		return nil, err
+	if p.exports["isLiked"] {
+		if err := p.call("isLiked", map[string][]string{"ids": ids}, &liked); err == nil {
+			complete := true
+			for _, id := range ids {
+				if _, ok := liked[id]; !ok {
+					complete = false
+					break
+				}
+			}
+			if complete {
+				return liked, nil
+			}
+		} else if !p.exports["liked"] {
+			return nil, err
+		}
 	}
-	return liked, nil
+	return p.likesFromList(ids)
 }
 
 func (p *Plugin) Like(id string, on bool) error {
-	return p.call("like", map[string]any{"id": id, "on": on}, nil)
+	err := p.call("like", map[string]any{"id": id, "on": on}, nil)
+	if err == nil {
+		p.likesMu.Lock()
+		p.likesEpoch++
+		p.likesAt = time.Time{}
+		p.likesIDs = nil
+		p.likesMu.Unlock()
+	}
+	return err
 }
 
 func (p *Plugin) LikeEpisode(id string, on bool) error {

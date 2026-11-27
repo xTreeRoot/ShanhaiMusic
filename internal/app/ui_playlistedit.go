@@ -352,20 +352,20 @@ func (a *app) moveTrack(lib *library, pid string, tr *music.Track, by int) {
 // listed in, if set.
 func (a *app) playlistItems(m *ui.Menu, tr *music.Track, pid string) {
 	lib := a.trackLib(tr)
-	if lib.signedOut() || !lib.can("addToPlaylist") && pid == "" {
+	if lib.signedOut() {
 		return
 	}
 	mine := lib.playlists[pid]
 	editing := pid != "" && lib == a.library && a.editable(pid) != nil
 	if lib.can("addToPlaylist") {
 		m.Separator()
-		m.Submenu(T("Add to Playlist"), func(m *ui.Menu) {
+		m.Submenu(T("Add to Platform Playlist"), func(m *ui.Menu) {
 			if lib.can("createPlaylist") && lib == a.library && m.Item(T("New Playlist…")).Chosen() {
 				a.newPlaylist(tr)
 			}
 			var to []*music.Playlist
 			for i := range lib.mine {
-				if pl := &lib.mine[i]; pl.ID != pid && !pl.Fixed {
+				if pl := &lib.mine[i]; pl.ID != pid && (!pl.Fixed || pl.Addable) {
 					to = append(to, pl)
 				}
 			}

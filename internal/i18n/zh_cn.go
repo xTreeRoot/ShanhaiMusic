@@ -205,7 +205,7 @@ var zhCN = map[string]string{
 	"Add a Music Folder":                     "添加音乐文件夹",
 	"Add a music folder":                     "添加音乐文件夹",
 	"Add the folders where your music lives": "添加存放音乐的文件夹",
-	"Add to Playlist":                        "添加到歌单",
+	"Add to Platform Playlist":               "添加到平台歌单",
 	"Added to Liked Songs":                   "已添加到我喜欢的音乐",
 	"Added to the playlist":                  "已添加到歌单",
 	"Standard balances songs while preserving their dynamics; Dynamic softens loud passages and lifts quiet ones; Off keeps the original loudness. Songs without loudness data are analyzed in the background for Standard mode.": "标准：均衡歌曲音量，保留原有强弱；动态：压低过响片段，适度抬高偏小片段；关闭：保持原始响度。标准模式会在后台分析没有响度数据的歌曲，完成后生效。",

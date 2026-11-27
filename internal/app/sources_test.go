@@ -289,6 +289,9 @@ func TestHiddenWithoutCapability(t *testing.T) {
 				t.Fatalf("no %q while it can: %q", c.label, tt.Texts())
 			}
 			without(a, c.capability)
+			if c.name == "heart" {
+				without(a, "isLiked")
+			}
 			settled(tt)
 			if _, ok := tt.Find(c.label); ok {
 				t.Errorf("%q shows without %s", c.label, c.capability)
@@ -375,7 +378,7 @@ func TestSongMenuGoesWithoutCapability(t *testing.T) {
 	if err := tt.RightClick("宝船"); err != nil {
 		t.Fatal(err)
 	}
-	for _, item := range []string{"Add to Playlist", "Remove from Playlist", "Move Up", "Move Down"} {
+	for _, item := range []string{"Add to Platform Playlist", "Remove from Playlist", "Move Up", "Move Down"} {
 		for _, label := range tt.Menu() {
 			if label == item {
 				t.Errorf("offered %q without being able to", item)

@@ -41,10 +41,10 @@ func TestAddSongToPlaylist(t *testing.T) {
 	if err := tt.RightClick("宝船"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.ChooseMenuItem("Add to Playlist", "通勤"); err == nil {
+	if err := tt.ChooseMenuItem("Add to Platform Playlist", "通勤"); err == nil {
 		t.Error("offered to add the song to the playlist it is in")
 	}
-	if err := tt.ChooseMenuItem("Add to Playlist", "睡前"); err != nil {
+	if err := tt.ChooseMenuItem("Add to Platform Playlist", "睡前"); err != nil {
 		t.Fatalf("%v; the menu shows %q", err, tt.Menu())
 	}
 	tt.Frame()
@@ -135,7 +135,7 @@ func TestCreatePlaylistForSong(t *testing.T) {
 	if err := tt.RightClick("宝船"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.ChooseMenuItem("Add to Playlist", "New Playlist…"); err != nil {
+	if err := tt.ChooseMenuItem("Add to Platform Playlist", "New Playlist…"); err != nil {
 		t.Fatalf("%v; the menu shows %q", err, tt.Menu())
 	}
 	tt.Advance(300 * time.Millisecond)
@@ -423,7 +423,7 @@ func TestFixedPlaylist(t *testing.T) {
 	if err := tt.RightClick("宝船"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.ChooseMenuItem("Add to Playlist", "我喜欢的音乐"); err == nil {
+	if err := tt.ChooseMenuItem("Add to Platform Playlist", "我喜欢的音乐"); err == nil {
 		t.Error("offered to add the song to the fixed playlist")
 	}
 	tt.Frame()
@@ -441,5 +441,36 @@ func TestFixedPlaylist(t *testing.T) {
 	}
 	if err := tt.ChooseMenuItem("Remove from Playlist"); err == nil {
 		t.Error("offered to take a song out of the fixed playlist")
+	}
+}
+
+func TestPlayerMenuAddsToExplicitlyAddableSystemList(t *testing.T) {
+	a := editTestApp()
+	a.mine = append(a.mine, music.Playlist{ID: "system", Name: "Platform likes", Mine: true, Fixed: true, Addable: true})
+	track := song("source:id", "Platform track")
+	a.pl.Cue([]music.Track{track})
+	a.pl.SetLyrics(nil)
+	a.nowPlaying = true
+	added := make(chan string, 1)
+	fake(a).addTo = func(pid string, ids []string) error {
+		if len(ids) != 1 || ids[0] != track.ID {
+			t.Error("changed original track ID")
+		}
+		added <- pid
+		return nil
+	}
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	if err := tt.Click("More"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("Add to Platform Playlist", "Platform likes"); err != nil {
+		t.Fatal(err)
+	}
+	if got := wait(t, added, "platform add"); got != "system" {
+		t.Fatalf("added to %s", got)
+	}
+	if dir := os.Getenv("MM_FRAMES"); dir != "" {
+		saveFrame(t, dir, "platform-playlist-player.png", tt.Image())
 	}
 }

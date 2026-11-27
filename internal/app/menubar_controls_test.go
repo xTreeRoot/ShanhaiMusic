@@ -48,3 +48,18 @@ func TestMenuBarHeartDoesNotFallBackToLocalLikes(t *testing.T) {
 		})
 	}
 }
+
+func TestMenuBarReadOnlyPluginShowsItsOwnKnownHeart(t *testing.T) {
+	a := newTestApp()
+	lib := addFake(a, menuBarTestPlugin(t, "read-only-known", `export function isLiked({ids}) { return Object.fromEntries(ids.map(id => [id, true])); }`))
+	lib.rememberLike("saved", true)
+	a.pl.Cue([]music.Track{{ID: "saved", Source: lib.id}})
+	state := a.menuBarControlState()
+	if !state.liked || state.canLike {
+		t.Fatalf("readonly heart: %+v", state)
+	}
+	a.runMenuBarAction(menuBarLike)
+	if !lib.liked["saved"] {
+		t.Fatal("readonly heart changed")
+	}
+}
